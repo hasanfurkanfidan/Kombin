@@ -1,6 +1,7 @@
 using Kombin.Api.Persistence.Entities.Catalog;
 using Kombin.Api.Persistence.Entities.Engagement;
 using Kombin.Api.Persistence.Entities.Identity;
+using Kombin.Api.Persistence.Entities.Profile;
 
 namespace Kombin.Api.Persistence;
 
@@ -31,6 +32,18 @@ internal sealed class KombinDbContext(DbContextOptions<KombinDbContext> options)
     public DbSet<AlertTrigger> AlertTriggers => Set<AlertTrigger>();
 
     public DbSet<Click> Clicks => Set<Click>();
+
+    public DbSet<UserProfile> UserProfiles => Set<UserProfile>();
+
+    public DbSet<Persona> Personas => Set<Persona>();
+
+    public DbSet<StyleCard> StyleCards => Set<StyleCard>();
+
+    public DbSet<StyleSwipe> StyleSwipes => Set<StyleSwipe>();
+
+    public DbSet<PersonaStyleProfile> PersonaStyleProfiles => Set<PersonaStyleProfile>();
+
+    public DbSet<SizeEntry> SizeEntries => Set<SizeEntry>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder) =>
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(KombinDbContext).Assembly);

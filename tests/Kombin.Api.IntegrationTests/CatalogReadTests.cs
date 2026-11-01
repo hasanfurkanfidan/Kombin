@@ -259,7 +259,10 @@ public sealed class CatalogReadTests(ApiFactory factory)
         Assert.Equal(250m, offer.GetProperty("currentPrice").GetDecimal());
         Assert.Equal("TRY", offer.GetProperty("currency").GetString());
         Assert.Equal(["S", "M"], offer.GetProperty("availableSizes").EnumerateArray().Select(size => size.GetString()));
-        Assert.StartsWith("https://shop.example.com/p/", offer.GetProperty("url").GetString(), StringComparison.Ordinal);
+
+        // The seller's own URL never reaches the app: every offer is opened through the click-recording redirect.
+        Assert.False(offer.TryGetProperty("url", out _));
+        Assert.Equal($"/api/v1/go/{offer.GetProperty("id").GetGuid()}", offer.GetProperty("goPath").GetString());
     }
 
     [Fact]

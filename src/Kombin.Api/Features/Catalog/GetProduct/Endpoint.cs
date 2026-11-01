@@ -1,5 +1,8 @@
+using System.Text.Json.Serialization;
+using Kombin.Api.Common.Auth;
 using Kombin.Api.Common.Results;
 using Kombin.Api.Common.Time;
+using Kombin.Api.Features.Profile;
 using Kombin.Api.Persistence;
 using Kombin.Api.Persistence.Entities.Catalog;
 
@@ -11,10 +14,14 @@ internal sealed record CategoryRef(Guid Id, string Slug, string Name);
 
 internal sealed record SellerRef(Guid Id, string Name, string Slug, SellerKind Kind);
 
+/// <summary>
+/// <c>GoPath</c> (<c>/api/v1/go/{offerId}</c>) is the only way to open an offer: the redirect records the click and adds the affiliate
+/// parameters. The seller's own URL is never part of the response.
+/// </summary>
 internal sealed record OfferResponse(
     Guid Id,
     SellerRef Seller,
-    string Url,
+    string GoPath,
     decimal CurrentPrice,
     decimal? OriginalPrice,
     string Currency,
@@ -28,6 +35,7 @@ internal sealed record OfferResponse(
 /// <summary>Computed over in-stock prices only: the lowest of the active offers now, and the extremes seen in snapshots.</summary>
 internal sealed record PriceSummary(decimal? LowestNow, decimal? LowestLast90Days, decimal? HighestLast90Days, bool IsLowestOfLast90Days);
 
+/// <summary><c>MatchScore</c> is present when the request named a persona; <c>SizeHint</c> when the caller is signed in. Both are left out otherwise.</summary>
 internal sealed record ProductResponse(
     Guid Id,
     string Name,
@@ -47,7 +55,9 @@ internal sealed record ProductResponse(
     string? PrimaryImageUrl,
     IReadOnlyList<string> Images,
     IReadOnlyList<OfferResponse> Offers,
-    PriceSummary PriceSummary);
+    PriceSummary PriceSummary,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? MatchScore,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SizeHintResponse? SizeHint);
 
 internal static class GetProductEndpoint
 {
@@ -68,8 +78,16 @@ internal static class GetProductEndpoint
 
     internal static bool IsSellable(StockStatus stockStatus) => stockStatus is StockStatus.InStock or StockStatus.LowStock;
 
-    private static async Task<IResult> Handle(Guid id, KombinDbContext db, IClock clock, CancellationToken cancellationToken)
+    private static async Task<IResult> Handle(
+        Guid id, Guid? personaId, ICurrentUser currentUser, KombinDbContext db, IClock clock, CancellationToken cancellationToken)
     {
+        var userId = currentUser.UserIdOrNull;
+
+        if (personaId is not null && userId is null)
+        {
+            return ProfileErrors.PersonaRequiresAuth.ToHttpResult();
+        }
+
         var product = await db.Products
             .AsNoTracking()
             .Include(candidate => candidate.Brand)
@@ -80,6 +98,16 @@ internal static class GetProductEndpoint
         if (product is null)
         {
             return CatalogErrors.ProductNotFound.ToHttpResult();
+        }
+
+        PersonaScoring? scoring = null;
+        if (personaId is { } requestedPersonaId)
+        {
+            scoring = await PersonaScoring.LoadAsync(db, clock, userId!.Value, requestedPersonaId, cancellationToken);
+            if (scoring is null)
+            {
+                return ProfileErrors.PersonaNotFound.ToHttpResult();
+            }
         }
 
         // Inactive products still resolve (the app may hold a saved link) but only live offers are listed.
@@ -93,7 +121,7 @@ internal static class GetProductEndpoint
             .Select(offer => new OfferResponse(
                 offer.Id,
                 new SellerRef(offer.Seller.Id, offer.Seller.Name, offer.Seller.Slug, offer.Seller.Kind),
-                offer.Url,
+                $"/api/v1/go/{offer.Id}",
                 offer.CurrentPrice,
                 offer.OriginalPrice,
                 offer.Currency,
@@ -115,6 +143,10 @@ internal static class GetProductEndpoint
 
         var summary = await BuildSummaryAsync(db, clock, id, lowestNow, cancellationToken);
 
+        var sizeHint = userId is { } signedInUserId
+            ? await SizeHints.BuildAsync(db, signedInUserId, product.BrandId, product.Category.Slug, cancellationToken)
+            : null;
+
         return Results.Ok(new ProductResponse(
             product.Id,
             product.Name,
@@ -134,7 +166,9 @@ internal static class GetProductEndpoint
             product.PrimaryImageUrl,
             [.. product.Images.OrderBy(image => image.SortOrder).Select(image => image.Url)],
             offers,
-            summary));
+            summary,
+            scoring?.Score(product),
+            sizeHint));
     }
 
     private static async Task<PriceSummary> BuildSummaryAsync(

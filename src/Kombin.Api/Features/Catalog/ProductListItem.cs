@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Kombin.Api.Persistence.Entities.Catalog;
 
 namespace Kombin.Api.Features.Catalog;
@@ -6,7 +7,7 @@ internal sealed record BrandRef(Guid Id, string Name, string Slug);
 
 internal sealed record CategoryRef(Guid Id, string Slug);
 
-/// <summary>Prices are those of the product's lowest active, in-stock offer.</summary>
+/// <summary>Prices are those of the product's lowest active, in-stock offer. <c>MatchScore</c> (0-100) is present only when the request named a persona.</summary>
 internal sealed record ProductListItem(
     Guid Id,
     string Name,
@@ -18,4 +19,5 @@ internal sealed record ProductListItem(
     decimal LowestPrice,
     decimal? LowestOriginalPrice,
     int OfferCount,
-    int DiscountPercent);
+    int DiscountPercent,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? MatchScore = null);

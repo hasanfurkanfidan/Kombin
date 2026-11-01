@@ -14,7 +14,7 @@ sells anything itself. This repository is its backend: a .NET 10 Minimal API on 
 - **Handlers use `KombinDbContext` directly.** There is no repository or service layer in between.
 - **Entities are shared across slices**, so they live in `src/Kombin.Api/Persistence/Entities/<Schema>/`, never inside a slice.
   Their EF configuration lives in `Persistence/Configurations/<Schema>/`.
-- **One PostgreSQL schema per feature** (`identity`, `catalog`, ...). Tables and columns are snake_case (naming convention
+- **One PostgreSQL schema per feature** (`identity`, `catalog`, `engagement`, `profile`, ...). Tables and columns are snake_case (naming convention
   is global). Migrations live in `Persistence/Migrations`.
 - Types are `internal` by default; the test projects see them through `InternalsVisibleTo`. Only `Program` is public.
 - C# latest, nullable on, implicit usings, file-scoped namespaces. `TreatWarningsAsErrors=true`,
@@ -68,9 +68,9 @@ Internal endpoints (called by workers, not the app) live under `/api/v1/internal
 ## Engagement rules
 
 - **Buy links are always `/api/v1/go/{offerId}`, never a raw seller URL.** Every outbound click must go through that
-  redirect: it records a `Click` and applies the seller's affiliate template. New endpoints must not hand out a raw
-  `Offer.Url` as something to open (the existing `url` in `GET /catalog/products/{id}` offers is display data; clients
-  open `/go/{offerId}`). `/go` is the one anonymous route that still reads the user: use `ICurrentUser.UserIdOrNull`
+  redirect: it records a `Click` and applies the seller's affiliate template. No response may contain `Offer.Url`:
+  `GET /catalog/products/{id}` offers carry `goPath` (`"/api/v1/go/{offerId}"`) and no `url`, and clients open the
+  `goPath`. `Offer.Url` stays in the database for the redirect and the ingestion workers only. `/go` is the one anonymous route that still reads the user: use `ICurrentUser.UserIdOrNull`
   on endpoints that work signed in or out (`UserId` throws).
 - **Alert evaluation lives in the catalog upsert path.** `OfferUpserter` calls `Features/Engagement/AlertEvaluator`
   after each group commits, for every existing offer whose effective price or stock status changed. Alerts are never
@@ -81,6 +81,33 @@ Internal endpoints (called by workers, not the app) live under `/api/v1/internal
   sets `ConsumedAt`. Clicks and triggers are append-only.
 - `Outbound:IpSalt` (env `Outbound__IpSalt`) salts the stored IP hash; real affiliate templates are per-seller data
   (`AffiliateUrlTemplate`, `AffiliateParams`), not code.
+
+## Profile rules
+
+- A user has several **personas** (Ofis, Gece, ...; at most 6 non-archived), each with its own explicit preferences and its
+  own learned `PersonaStyleProfile`. Everything style-related hangs off a persona, never off the user. `UserProfile`
+  (audience, measurements, active persona, onboarding flag) is created lazily by the first `GET /me/profile`.
+- **`personaId` convention on catalog endpoints.** `GET /catalog/products` and `GET /catalog/products/{id}` accept an
+  optional `personaId`. It must belong to the signed-in caller and not be archived: anonymous + `personaId` is 400
+  `Profile.PersonaRequiresAuth`, someone else's or an archived persona is 404 `Profile.PersonaNotFound` (never reveal that
+  it exists). With it, items carry `matchScore` (0-100); without it the field is absent. `sort=match` needs a `personaId`.
+  New endpoints that list products for a persona should follow the same convention instead of inventing another.
+- **Scoring is in memory.** `MatchScorer.Score` (`Features/Profile`, formula documented at the top of the file) is pure and
+  rule-based; it is applied to the page's items after paging. `sort=match` is the exception: it scores the newest 500
+  products that pass the filters and pages those (`ListProductsEndpoint.MatchCandidateLimit`, a TODO for the
+  Recommendation task). Do not push the formula into SQL, and do not change a weight without updating the comment block.
+- `PersonaStyleProfile` is derived data (`StyleProfileBuilder`, pure): recomputed after every swipe batch and whenever a
+  persona's preferred/avoided colors or preferred fits change; never written by an endpoint directly. A persona always has
+  a row (created with it); readers fall back to deriving one rather than failing.
+- **Style cards are content, seeded in every environment; user data never is.** `Persistence/Seed/style-cards.json`
+  (embedded) is applied at every startup by `StyleCardSeeder` (idempotent, matched by the fixed card `Id`, removed cards are
+  switched off, not deleted, so swipes stay valid). Never change a card's `id`. If migrations are pending the seeder skips
+  with a warning (outside Development they are applied by hand). The dev seed (`dev-catalog.json`, demo user) stays
+  Development-only, and no seed may create personas, swipes, sizes or profiles. Because the cards exist in every database,
+  Profile tests may rely on `style-cards.json` (unlike the dev catalog, which tests never touch).
+- Sizes: `SizeEntry` is unique per (user, brand, group); the group comes from the top-level category slug
+  (`SizeGroups`). A hint's inferred `suggestion` (needs 2 agreeing entries at other brands) is computed per request and
+  never stored; nothing may persist a size with source `Inferred` without a decision to do so.
 
 ## Commands
 
@@ -129,5 +156,7 @@ the shared test database stays independent of the seed. `ApiFactory` switches se
 Rate limiting (including on `/go`), email verification, password reset, social login, admin UI, MediatR/CQRS, generic
 repositories, AutoMapper, push notifications and background jobs, affiliate conversion import, a generic analytics event
 stream. Features that exist: Identity (auth, me), Catalog (brands, sellers, categories, products, offers, price
-snapshots, internal upsert) and Engagement (saved products, price alerts and their trigger feed, `/go` redirect, click
-history). Add other features only when a task asks for them.
+snapshots, internal upsert), Engagement (saved products, price alerts and their trigger feed, `/go` redirect, click
+history) and Profile (user profile and measurements, personas, swipe onboarding with style cards, derived style profile,
+rule-based match score, size map with hints). Learning from clicks/saves and outfit generation are the Recommendation task,
+not Profile. Add other features only when a task asks for them.

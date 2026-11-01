@@ -1,6 +1,9 @@
+using Kombin.Api.Common.Auth;
 using Kombin.Api.Common.Pagination;
 using Kombin.Api.Common.Results;
+using Kombin.Api.Common.Time;
 using Kombin.Api.Common.Validation;
+using Kombin.Api.Features.Profile;
 using Kombin.Api.Persistence;
 using Kombin.Api.Persistence.Entities.Catalog;
 
@@ -13,8 +16,14 @@ internal enum ProductSort
     PriceAsc,
     PriceDesc,
     Newest,
+
+    /// <summary>Best persona match first, then newest. Needs a <c>personaId</c>.</summary>
+    Match,
 }
 
+/// <summary>
+/// <c>PersonaId</c> must belong to the signed-in caller; with it every item carries a <c>matchScore</c> and <c>sort=match</c> is allowed.
+/// </summary>
 internal sealed record ListProductsQuery(
     string? Query,
     string? CategorySlug,
@@ -24,12 +33,78 @@ internal sealed record ListProductsQuery(
     decimal? MinPrice,
     decimal? MaxPrice,
     string? Sort,
+    Guid? PersonaId,
     int Page = 1,
     int PageSize = PagedRequest.DefaultPageSize);
 
 internal static class ListProductsEndpoint
 {
+    /// <summary>
+    /// <c>sort=match</c> scores the newest this many products that pass the filters and pages through them in memory, so it can neither
+    /// see further back nor report a larger total. TODO(Recommendation task): score in SQL or from a precomputed table.
+    /// </summary>
+    public const int MatchCandidateLimit = 500;
+
     private const string LikeEscape = "\\";
+
+    /// <summary>
+    /// A catalog row with everything the list item and the match score need. Built with an object initializer on purpose: EF can
+    /// filter and order a query by the members of a member-init projection, but not by those of a constructor call.
+    /// </summary>
+    private sealed record ListRow
+    {
+        public Guid Id { get; init; }
+
+        public string Name { get; init; } = string.Empty;
+
+        public string Slug { get; init; } = string.Empty;
+
+        public DateTimeOffset CreatedAt { get; init; }
+
+        public string? PrimaryImageUrl { get; init; }
+
+        public ProductColor PrimaryColor { get; init; }
+
+        public ProductPattern Pattern { get; init; }
+
+        public ProductFit Fit { get; init; }
+
+        public short Formality { get; init; }
+
+        public Season Seasons { get; init; }
+
+        public Guid BrandId { get; init; }
+
+        public string BrandName { get; init; } = string.Empty;
+
+        public string BrandSlug { get; init; } = string.Empty;
+
+        public Guid CategoryId { get; init; }
+
+        public string CategorySlug { get; init; } = string.Empty;
+
+        public decimal? Lowest { get; init; }
+
+        public decimal? LowestOriginal { get; init; }
+
+        public int OfferCount { get; init; }
+
+        public ProductTraits Traits => new(PrimaryColor, Formality, Fit, Seasons, Pattern, CategorySlug);
+
+        public ProductListItem ToItem(int? matchScore) => new(
+            Id,
+            Name,
+            Slug,
+            new BrandRef(BrandId, BrandName, BrandSlug),
+            new CategoryRef(CategoryId, CategorySlug),
+            PrimaryImageUrl,
+            PrimaryColor,
+            Lowest.GetValueOrDefault(),
+            LowestOriginal,
+            OfferCount,
+            DiscountPercent(Lowest.GetValueOrDefault(), LowestOriginal),
+            matchScore);
+    }
 
     public static void Map(RouteGroupBuilder group) =>
         group.MapGet("/products", Handle)
@@ -44,9 +119,26 @@ internal static class ListProductsEndpoint
             ? (int)Math.Round((originalPrice.Value - lowestPrice) / originalPrice.Value * 100m, MidpointRounding.AwayFromZero)
             : 0;
 
-    private static async Task<IResult> Handle([AsParameters] ListProductsQuery query, KombinDbContext db, CancellationToken cancellationToken)
+    private static async Task<IResult> Handle(
+        [AsParameters] ListProductsQuery query, ICurrentUser currentUser, KombinDbContext db, IClock clock, CancellationToken cancellationToken)
     {
         var paging = new PagedRequest(query.Page, query.PageSize);
+
+        PersonaScoring? scoring = null;
+        if (query.PersonaId is { } personaId)
+        {
+            if (currentUser.UserIdOrNull is not { } userId)
+            {
+                return ProfileErrors.PersonaRequiresAuth.ToHttpResult();
+            }
+
+            scoring = await PersonaScoring.LoadAsync(db, clock, userId, personaId, cancellationToken);
+            if (scoring is null)
+            {
+                return ProfileErrors.PersonaNotFound.ToHttpResult();
+            }
+        }
+
         var products = db.Products.AsNoTracking().Where(product => product.IsActive);
 
         var term = query.Query?.Trim();
@@ -114,14 +206,18 @@ internal static class ListProductsEndpoint
 
         // One statement: the lowest price, the lowest offer's crossed-out price and the offer count are correlated subqueries.
         var rows = products
-            .Select(product => new
+            .Select(product => new ListRow
             {
-                product.Id,
-                product.Name,
-                product.Slug,
-                product.CreatedAt,
-                product.PrimaryImageUrl,
-                product.PrimaryColor,
+                Id = product.Id,
+                Name = product.Name,
+                Slug = product.Slug,
+                CreatedAt = product.CreatedAt,
+                PrimaryImageUrl = product.PrimaryImageUrl,
+                PrimaryColor = product.PrimaryColor,
+                Pattern = product.Pattern,
+                Fit = product.Fit,
+                Formality = product.Formality,
+                Seasons = product.Seasons,
                 BrandId = product.Brand.Id,
                 BrandName = product.Brand.Name,
                 BrandSlug = product.Brand.Slug,
@@ -150,6 +246,30 @@ internal static class ListProductsEndpoint
 
         var sort = EnumNames.TryParse<ProductSort>(query.Sort, out var requestedSort) ? requestedSort : ProductSort.Relevance;
 
+        if (sort == ProductSort.Match && scoring is not null)
+        {
+            // Scores live in memory, so the ordering does too: score the newest candidates, order them, then page.
+            var candidates = await rows
+                .OrderByDescending(row => row.CreatedAt)
+                .ThenByDescending(row => row.Id)
+                .Take(MatchCandidateLimit)
+                .ToListAsync(cancellationToken);
+
+            // OrderByDescending is stable, so equal scores stay newest first.
+            var scored = candidates
+                .Select(row => (Row: row, Score: scoring.Score(row.Traits)))
+                .OrderByDescending(candidate => candidate.Score)
+                .ToList();
+
+            var matchItems = scored
+                .Skip(paging.Skip)
+                .Take(paging.EffectivePageSize)
+                .Select(candidate => candidate.Row.ToItem(candidate.Score))
+                .ToList();
+
+            return Results.Ok(PagedResponse<ProductListItem>.Create(matchItems, paging, scored.Count));
+        }
+
         var ordered = sort switch
         {
             ProductSort.PriceAsc => rows.OrderBy(row => row.Lowest).ThenBy(row => row.Id),
@@ -162,18 +282,7 @@ internal static class ListProductsEndpoint
 
         // Lowest is never null here: rows without a sellable offer were filtered out above.
         var items = page
-            .Select(row => new ProductListItem(
-                row.Id,
-                row.Name,
-                row.Slug,
-                new BrandRef(row.BrandId, row.BrandName, row.BrandSlug),
-                new CategoryRef(row.CategoryId, row.CategorySlug),
-                row.PrimaryImageUrl,
-                row.PrimaryColor,
-                row.Lowest.GetValueOrDefault(),
-                row.LowestOriginal,
-                row.OfferCount,
-                DiscountPercent(row.Lowest.GetValueOrDefault(), row.LowestOriginal)))
+            .Select(row => row.ToItem(scoring?.Score(row.Traits)))
             .ToList();
 
         return Results.Ok(PagedResponse<ProductListItem>.Create(items, paging, totalCount));

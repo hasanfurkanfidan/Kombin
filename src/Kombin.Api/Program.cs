@@ -7,6 +7,7 @@ using Kombin.Api.Common.Validation;
 using Kombin.Api.Features.Catalog;
 using Kombin.Api.Features.Engagement;
 using Kombin.Api.Features.Identity;
+using Kombin.Api.Features.Profile;
 using Kombin.Api.Persistence;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Serilog;
@@ -54,8 +55,10 @@ app.MapHealthChecks("/health");
 app.MapIdentityEndpoints();
 app.MapCatalogEndpoints();
 app.MapEngagementEndpoints();
+app.MapProfileEndpoints();
 
 await app.MigrateDatabaseOnStartupAsync();
+await app.SeedStyleCardsOnStartupAsync();
 await app.SeedDatabaseOnStartupAsync();
 await app.RunAsync();
 
