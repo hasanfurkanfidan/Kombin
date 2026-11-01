@@ -73,6 +73,62 @@ public class UpsertOffersValidatorTests
         Assert.Contains(result.Errors, failure => failure.PropertyName == "Items[0].Product.Seasons[1]");
     }
 
+    [Fact]
+    public void AnItemMayCarryUpToSixImages()
+    {
+        var urls = Enumerable.Range(1, 6).Select(number => $"https://img.example.com/{number}.jpg").ToArray();
+
+        Assert.True(_validator.Validate(Request(ValidItem() with { ImageUrls = urls })).IsValid);
+    }
+
+    [Fact]
+    public void MoreThanSixImagesAreRejected()
+    {
+        var urls = Enumerable.Range(1, 7).Select(number => $"https://img.example.com/{number}.jpg").ToArray();
+
+        var result = _validator.Validate(Request(ValidItem() with { ImageUrls = urls }));
+
+        Assert.Contains(result.Errors, failure => failure.PropertyName == "Items[0].ImageUrls");
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("//img.example.com/a.jpg")]
+    [InlineData("ftp://img.example.com/a.jpg")]
+    [InlineData("data:image/png;base64,AAAA")]
+    [InlineData("https://")]
+    [InlineData("https://user:secret@img.example.com/a.jpg")]
+    [InlineData("https://img.example.com/a b.jpg")]
+    public void ObviouslyInvalidImageUrlsAreRejected(string url)
+    {
+        var result = _validator.Validate(Request(ValidItem() with { ImageUrls = [url] }));
+
+        Assert.Contains(result.Errors, failure => failure.PropertyName == "Items[0].ImageUrls[0]");
+    }
+
+    [Fact]
+    public void BrandWebsiteAndLogoAreOptional()
+    {
+        var item = ValidItem() with { Product = ValidProduct() with { BrandWebsiteUrl = "https://www.mavi.com", BrandLogoUrl = "https://cdn.mavi.com/logo.svg" } };
+
+        Assert.True(_validator.Validate(Request(item)).IsValid);
+    }
+
+    [Theory]
+    [InlineData("mavi.com")]
+    [InlineData("javascript:alert(1)")]
+    [InlineData("")]
+    public void BrandWebsiteAndLogoMustBeAbsoluteHttpUrls(string url)
+    {
+        var item = ValidItem() with { Product = ValidProduct() with { BrandWebsiteUrl = url, BrandLogoUrl = url } };
+
+        var result = _validator.Validate(Request(item));
+
+        Assert.Contains(result.Errors, failure => failure.PropertyName == "Items[0].Product.BrandWebsiteUrl");
+        Assert.Contains(result.Errors, failure => failure.PropertyName == "Items[0].Product.BrandLogoUrl");
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("   ")]

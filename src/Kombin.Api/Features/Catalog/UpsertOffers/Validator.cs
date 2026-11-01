@@ -26,7 +26,7 @@ internal sealed class UpsertOfferItemValidator : AbstractValidator<UpsertOfferIt
 {
     private const int MaxSizes = 50;
 
-    private const int MaxImages = 10;
+    private const int MaxImages = 6;
 
     public UpsertOfferItemValidator()
     {
@@ -58,13 +58,21 @@ internal sealed class UpsertOfferItemValidator : AbstractValidator<UpsertOfferIt
             .Must(urls => urls.Count <= MaxImages)
             .WithMessage($"'Image Urls' must not contain more than {MaxImages} entries.")
             .When(item => item.ImageUrls is not null);
-        RuleForEach(item => item.ImageUrls).MaximumLength(2048).Must(IsHttpUrl).WithMessage("'Image Urls' entries must be absolute http or https URLs.");
+        RuleForEach(item => item.ImageUrls).MaximumLength(2048).Must(IsPublicHttpUrl).WithMessage("'Image Urls' entries must be absolute http or https URLs without credentials or spaces.");
 
         RuleFor(item => item.Product).NotNull().SetValidator(new UpsertProductInfoValidator());
     }
 
     internal static bool IsHttpUrl(string? value) =>
         Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https";
+
+    /// <summary>What an image or a website link can sensibly be: an absolute http(s) URL with a host, no embedded credentials and no whitespace.</summary>
+    internal static bool IsPublicHttpUrl(string? value) =>
+        Uri.TryCreate(value, UriKind.Absolute, out var uri)
+        && uri.Scheme is "http" or "https"
+        && uri.Host.Length > 0
+        && uri.UserInfo.Length == 0
+        && !value.Trim().Any(char.IsWhiteSpace);
 
     internal static string OneOf<TEnum>(string displayName)
         where TEnum : struct, Enum =>
@@ -101,5 +109,14 @@ internal sealed class UpsertProductInfoValidator : AbstractValidator<UpsertProdu
         RuleFor(product => product.Material).MaximumLength(200);
         RuleFor(product => product.Description).MaximumLength(4000);
         RuleFor(product => product.CanonicalProductId).NotEqual(Guid.Empty);
+
+        RuleFor(product => product.BrandWebsiteUrl!)
+            .MaximumLength(2048)
+            .Must(UpsertOfferItemValidator.IsPublicHttpUrl).WithMessage("'Brand Website Url' must be an absolute http or https URL without credentials or spaces.")
+            .When(product => product.BrandWebsiteUrl is not null);
+        RuleFor(product => product.BrandLogoUrl!)
+            .MaximumLength(2048)
+            .Must(UpsertOfferItemValidator.IsPublicHttpUrl).WithMessage("'Brand Logo Url' must be an absolute http or https URL without credentials or spaces.")
+            .When(product => product.BrandLogoUrl is not null);
     }
 }

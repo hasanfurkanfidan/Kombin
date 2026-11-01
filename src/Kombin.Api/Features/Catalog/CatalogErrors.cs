@@ -17,6 +17,9 @@ internal static class CatalogErrors
     public static readonly Error BrandNotFound =
         Error.NotFound("Catalog.BrandNotFound", "The brand does not exist.");
 
+    public static readonly Error SellerNameTaken =
+        Error.Conflict("Catalog.SellerNameTaken", "Another seller already uses this name.");
+
     // Raised by InternalKeyFilter in Common, which cannot depend on a feature; the code is part of the Catalog API contract.
     public static readonly Error InvalidInternalKey = InternalKeyFilter.InvalidKey;
 

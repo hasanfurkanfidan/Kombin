@@ -38,7 +38,9 @@ src/Kombin.Api/Persistence/Configurations/Identity/UserConfiguration.cs
 Cross-cutting code lives in `src/Kombin.Api/Common/` (Results, Http, Auth, Validation, Pagination, Time, Health). Development
 seed data lives in `src/Kombin.Api/Persistence/Seed/`.
 
-Internal endpoints (called by workers, not the app) live under `/api/v1/internal/...` and use `.RequireInternalKey()`.
+Internal endpoints (called by workers, not the app) live under `/api/v1/internal/...` and use `.RequireInternalKey()`. The ones that
+exist: `POST /internal/catalog/offers/upsert`, `POST /internal/catalog/offers/sweep`, `GET /internal/catalog/sellers/{sellerSlug}/offers`,
+`PUT /internal/catalog/sellers/{slug}` (see Catalog ingestion rules) and `POST /internal/notifications/test`.
 
 ## How to add a new use case
 
@@ -65,6 +67,42 @@ Internal endpoints (called by workers, not the app) live under `/api/v1/internal
   dictionary (`{ "email": ["..."] }`, camelCase keys). Do not validate inside handlers what a validator can express.
 - Every response, including errors, carries `X-Correlation-ID`.
 
+## Catalog ingestion rules
+
+External Python workers (a separate repo) push the catalog through the internal endpoints below, all behind `X-Internal-Key`.
+
+- **`POST /internal/catalog/offers/upsert`** (`OfferUpserter`, up to 500 items). The response is
+  `{ created, updated, snapshotsWritten, results: [{ index, externalId, productId, offerId, created }], errors }`: `results` holds the
+  stored items, `errors` the rejected ones, and together they account for every index. `product` may carry `brandWebsiteUrl` /
+  `brandLogoUrl`: they are set when the brand is created and filled in later only while the brand has none, never overwritten (this
+  also happens on an existing offer). `imageUrls` holds at most 6 entries. Image, brand website and seller website URLs must be
+  absolute http(s) with a host, no credentials and no whitespace (`UpsertOfferItemValidator.IsPublicHttpUrl`).
+- **`PUT /internal/catalog/sellers/{slug}`** with `{ name, kind, websiteUrl, affiliateNetwork?, affiliateUrlTemplate?, affiliateParams?,
+  isActive }` registers or updates a seller before the first upsert. It is a full replacement: optional fields left out are cleared, and
+  `isActive` defaults to true. `kind` is `Marketplace` or `BrandStore`, the slug is kebab-case, and a template must contain `{url}` or
+  `{rawUrl}`. A name another seller uses is 409 `Catalog.SellerNameTaken`. The upsert's `<brand>-store` auto-create stays for backward
+  compatibility (a PUT may take such a seller over).
+- **`GET /internal/catalog/sellers/{sellerSlug}/offers?updatedAfter=&page=&pageSize=`** pages through every offer of a seller, inactive
+  ones included, ordered by `externalId` so paging stays stable while workers upsert (`pageSize` default 100, clamped to 1000). Items are
+  `{ externalId, productId, modelCode, currentPrice, stockStatus, lastSeenAt, isActive }`. `updatedAfter` filters on the offer's
+  `UpdatedAt`, which moves on every upsert and when the sweep deactivates the offer, so a delta run sees re-priced and vanished listings.
+- **`POST /internal/catalog/offers/sweep`** with an optional body `{ sellerSlug }` runs `OfferSweepJob` on demand and returns
+  `{ offersDeactivated, productsDeactivated, productsReactivated }`; an unknown seller is 404.
+- **Offer sweep** (`Features/Catalog/Jobs/OfferSweepJob.cs`, rules in the pure `OfferSweepRules`). It follows the Notification jobs'
+  conventions (plain class, constructor injection, idempotent, `[DisableConcurrentExecution(60)]`, `[AutomaticRetry(Attempts = 0)]`,
+  tests call `SweepAsync(sellerId, ct)` directly, `Hangfire:Enabled` gate) and is registered by `UseCatalogJobs` (called in `Program.cs`
+  right after `UseNotificationJobs`).
+
+  | Job id | Schedule | Does |
+  |---|---|---|
+  | `offer-sweep` | daily 04:30 `Europe/Istanbul` | active offers with `LastSeenAt` more than 48 h old (exactly 48 h is still fresh) → `IsActive = false`, `StockStatus = OutOfStock`, plus a closing `PriceSnapshot` (same price, out of stock); then `Product.IsActive` repaired in both directions to "has an active offer". Batches of 500, logs the counts |
+
+  Each deactivated offer goes through `AlertEvaluator.EvaluateAsync` with `EvaluationReason.Sweep`, which skips every rule: **a sweep
+  never fires an alert, `AnyChange` included** (`OfferUpserter` passes `Observation`). The evaluator keeps no state; its "previous" state
+  is the offer's stored stock and price, and the sweep leaves the offer out of stock at the same price, so the next upsert that finds
+  it in stock is a restock to `BackInStock` and `PriceDrop` (and a change to `AnyChange`). Always pass a seller filter in tests: the
+  unfiltered sweep retires every stale offer in the shared database.
+
 ## Engagement rules
 
 - **Buy links are always `/api/v1/go/{offerId}`, never a raw seller URL.** Every outbound click must go through that
@@ -76,7 +114,7 @@ Internal endpoints (called by workers, not the app) live under `/api/v1/internal
   after each group commits, for every existing offer whose effective price or stock status changed. Alerts are never
   evaluated on user requests or in a separate job. The rule logic is the pure `AlertEvaluator.Evaluate`; evaluation
   failures are logged with the offer ID and must never fail the upsert. Anything that changes offers must go through
-  `OfferUpserter` or alerts will not fire.
+  `OfferUpserter` (or the offer sweep, which evaluates the offers it deactivates) or alerts will not fire.
 - Trigger rows (`engagement.alert_triggers`) are the source of the notifications: the Notification feature's `alert-dispatcher` job
   reads the unconsumed ones and sets `ConsumedAt`. Clicks and triggers are append-only (`ConsumedAt` is the one field that is updated).
 - `Outbound:IpSalt` (env `Outbound__IpSalt`) salts the stored IP hash; real affiliate templates are per-seller data
@@ -145,7 +183,8 @@ Internal endpoints (called by workers, not the app) live under `/api/v1/internal
 - **Time zone:** quiet hours (`HH:mm`, both or neither, may wrap midnight) and the weekly schedule are in `Europe/Istanbul`
   (`QuietHours.Zone`). The Docker runtime image installs `tzdata` for it. Stored instants are always UTC (`timestamptz`).
 - **Hangfire wiring:** `AddNotificationFeature` registers storage lazily; `UseNotificationJobs` (called in `Program.cs` after the EF
-  migrations and the seeds) is what first creates the `hangfire` schema, registers the recurring jobs and, **in Development only**,
+  migrations and the seeds) is what first creates the `hangfire` schema, registers the recurring jobs (`UseCatalogJobs` adds the
+  Catalog's `offer-sweep` right after it, behind the same flag) and, **in Development only**,
   maps the dashboard at `/hangfire` (open, no auth, unmapped in every other environment). Nothing happens unless `Hangfire:Enabled` is
   true (compose sets it; tests set it to false; `Development` defaults to true).
 - **Copy is Turkish and lives in `Features/Notification/Copy.cs`** (money as `2.149 ₺` / `849,90 ₺`, formatted by hand because the runtime
@@ -198,7 +237,7 @@ the shared test database stays independent of the seed. `ApiFactory` switches se
 Rate limiting (including on `/go`), email verification, password reset, social login, admin UI, MediatR/CQRS, generic
 repositories, AutoMapper, email/SMS/marketing notifications, A/B testing, scraping workers, affiliate conversion import, a generic
 analytics event stream. Features that exist: Identity (auth, me), Catalog (brands, sellers, categories, products, offers, price
-snapshots, internal upsert), Engagement (saved products, price alerts and their trigger feed, `/go` redirect, click
+snapshots, internal upsert, seller bootstrap and listing, offer sweep), Engagement (saved products, price alerts and their trigger feed, `/go` redirect, click
 history) and Profile (user profile and measurements, personas, swipe onboarding with style cards, derived style profile,
 rule-based match score, size map with hints) and Notification (devices, notification preferences, the notification feed, push
 delivery through Expo, and the Hangfire jobs above). Learning from clicks/saves and outfit generation are the Recommendation task,

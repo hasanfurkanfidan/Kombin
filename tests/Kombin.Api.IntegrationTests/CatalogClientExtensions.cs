@@ -26,7 +26,9 @@ internal static class CatalogClientExtensions
         string color = "Green",
         string audience = "Women",
         Guid? canonicalProductId = null,
-        string[]? sizes = null) =>
+        string[]? sizes = null,
+        string? brandWebsiteUrl = null,
+        string? brandLogoUrl = null) =>
         new
         {
             externalId,
@@ -48,6 +50,8 @@ internal static class CatalogClientExtensions
                 audience,
                 primaryColor = color,
                 canonicalProductId,
+                brandWebsiteUrl,
+                brandLogoUrl,
             },
         };
 

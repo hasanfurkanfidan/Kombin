@@ -10,7 +10,15 @@ namespace Kombin.Api.Features.Catalog.UpsertOffers;
 /// <summary>An item that could not be stored; <see cref="Index"/> is its position in the submitted list.</summary>
 internal sealed record UpsertItemFailure(int Index, string ExternalId, Error Error);
 
-internal sealed record UpsertOutcome(int Created, int Updated, int SnapshotsWritten, IReadOnlyList<UpsertItemFailure> Failures);
+/// <summary>An item that was stored: the IDs let a worker reconcile its own records with ours.</summary>
+internal sealed record UpsertItemResult(int Index, string ExternalId, Guid ProductId, Guid OfferId, bool Created);
+
+internal sealed record UpsertOutcome(
+    int Created,
+    int Updated,
+    int SnapshotsWritten,
+    IReadOnlyList<UpsertItemResult> Results,
+    IReadOnlyList<UpsertItemFailure> Failures);
 
 /// <summary>
 /// The ingestion core shared by the internal upsert endpoint and the development seeder: resolves or creates the product,
@@ -46,6 +54,7 @@ internal sealed partial class OfferUpserter(KombinDbContext db, IClock clock, Al
         var created = 0;
         var updated = 0;
         var snapshotsWritten = 0;
+        var results = new List<UpsertItemResult>();
         var failures = new List<UpsertItemFailure>();
 
         var indexed = items.Select((item, index) => new IndexedItem(index, item));
@@ -63,15 +72,16 @@ internal sealed partial class OfferUpserter(KombinDbContext db, IClock clock, Al
                 created += outcome.Created ? 1 : 0;
                 updated += outcome.Created ? 0 : 1;
                 snapshotsWritten += outcome.SnapshotWritten ? 1 : 0;
+                results.Add(new UpsertItemResult(outcome.Index, outcome.ExternalId, outcome.ProductId, outcome.OfferId, outcome.Created));
             }
         }
 
-        return new UpsertOutcome(created, updated, snapshotsWritten, failures);
+        return new UpsertOutcome(created, updated, snapshotsWritten, results, failures);
     }
 
     private readonly record struct IndexedItem(int Index, UpsertOfferItem Item);
 
-    private readonly record struct ItemOutcome(int Index, string ExternalId, Error? Error, bool Created, bool SnapshotWritten);
+    private readonly record struct ItemOutcome(int Index, string ExternalId, Error? Error, Guid ProductId, Guid OfferId, bool Created, bool SnapshotWritten);
 
     /// <summary>Everything a group of items learns while it runs; discarded if the group's transaction is rolled back.</summary>
     private sealed class GroupState
@@ -124,7 +134,7 @@ internal sealed partial class OfferUpserter(KombinDbContext db, IClock clock, Al
                 {
                     db.ChangeTracker.Clear();
                     LogItemFailed(logger, exception, entry.Index, entry.Item.ExternalId);
-                    outcomes.Add(new ItemOutcome(entry.Index, entry.Item.ExternalId, CatalogErrors.ItemFailed, Created: false, SnapshotWritten: false));
+                    outcomes.Add(Fail(entry, CatalogErrors.ItemFailed));
                 }
             }
 
@@ -151,7 +161,7 @@ internal sealed partial class OfferUpserter(KombinDbContext db, IClock clock, Al
             // After the commit, so an alert problem can neither roll back nor poison the catalog write. The evaluator never throws.
             foreach (var change in state.Changes.Values)
             {
-                await alerts.EvaluateAsync(change.Offer, change.PreviousPrice, change.PreviousStock, cancellationToken);
+                await alerts.EvaluateAsync(change.Offer, change.PreviousPrice, change.PreviousStock, EvaluationReason.Observation, cancellationToken);
             }
 
             db.ChangeTracker.Clear();
@@ -255,6 +265,8 @@ internal sealed partial class OfferUpserter(KombinDbContext db, IClock clock, Al
                 ? null
                 : new { Price = EffectivePrice(offer), offer.StockStatus };
 
+            await FillBrandDetailsAsync(product.BrandId, info, cancellationToken);
+
             ApplyListing(offer, item, stockStatus, now);
             product.IsActive = true;
 
@@ -289,7 +301,35 @@ internal sealed partial class OfferUpserter(KombinDbContext db, IClock clock, Al
             await db.SaveChangesAsync(cancellationToken);
             state.Offers[externalId] = offer;
 
-            return new ItemOutcome(entry.Index, externalId, Error: null, isNewOffer, snapshotWritten);
+            return new ItemOutcome(entry.Index, externalId, Error: null, product.Id, offer.Id, isNewOffer, snapshotWritten);
+        }
+
+        /// <summary>A brand keeps the website and logo it already has; a worker only fills in what is missing (and sets both when it creates the brand).</summary>
+        private async Task FillBrandDetailsAsync(Guid brandId, UpsertProductInfo info, CancellationToken cancellationToken)
+        {
+            var websiteUrl = info.BrandWebsiteUrl?.Trim();
+            var logoUrl = info.BrandLogoUrl?.Trim();
+
+            if (string.IsNullOrEmpty(websiteUrl) && string.IsNullOrEmpty(logoUrl))
+            {
+                return;
+            }
+
+            // Find looks at the tracked entities first, so a brand costs one query per group and a brand added by this item is found too.
+            if (await db.Brands.FindAsync([brandId], cancellationToken) is not { } brand)
+            {
+                return;
+            }
+
+            if (string.IsNullOrEmpty(brand.WebsiteUrl) && !string.IsNullOrEmpty(websiteUrl))
+            {
+                brand.WebsiteUrl = websiteUrl;
+            }
+
+            if (string.IsNullOrEmpty(brand.LogoUrl) && !string.IsNullOrEmpty(logoUrl))
+            {
+                brand.LogoUrl = logoUrl;
+            }
         }
 
         /// <summary>Rules 2-4: the canonical product named in the payload, else the brand's product with the same model code, else a new product.</summary>
@@ -382,7 +422,7 @@ internal sealed partial class OfferUpserter(KombinDbContext db, IClock clock, Al
         GetProductEndpoint.EffectivePrice(offer.CurrentPrice, offer.ShippingCost, offer.FreeShippingThreshold);
 
     private static ItemOutcome Fail(IndexedItem entry, Error error) =>
-        new(entry.Index, entry.Item.ExternalId.Trim(), error, Created: false, SnapshotWritten: false);
+        new(entry.Index, entry.Item.ExternalId.Trim(), error, ProductId: Guid.Empty, OfferId: Guid.Empty, Created: false, SnapshotWritten: false);
 
     private static string? NormalizeModelCode(string? modelCode) =>
         string.IsNullOrWhiteSpace(modelCode) ? null : modelCode.Trim().ToUpperInvariant();
