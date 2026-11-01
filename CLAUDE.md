@@ -37,6 +37,8 @@ src/Kombin.Api/Persistence/Configurations/Identity/UserConfiguration.cs
 
 Cross-cutting code lives in `src/Kombin.Api/Common/` (Results, Http, Auth, Validation, Pagination, Time, Health).
 
+Internal endpoints (called by workers, not the app) live under `/api/v1/internal/...` and use `.RequireInternalKey()`.
+
 ## How to add a new use case
 
 1. Create `Features/<Feature>/<UseCase>/Endpoint.cs` with the request/response records, a `static class <UseCase>Endpoint`
@@ -97,4 +99,5 @@ environment migrations are applied only with `dotnet ef`.
 ## Explicitly out of scope (do not add)
 
 Rate limiting, email verification, password reset, social login, admin UI, MediatR/CQRS, generic repositories,
-AutoMapper. Features other than Identity do not exist yet; add them only when a task asks for them.
+AutoMapper. Features that exist: Identity (auth, me) and Catalog (brands, sellers, categories, products, offers,
+price snapshots, internal upsert). Add other features only when a task asks for them.

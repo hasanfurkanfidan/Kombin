@@ -40,6 +40,7 @@ services:
       Jwt__SigningKey: ${JWT_SIGNING_KEY:?JWT_SIGNING_KEY is required, generate one with `openssl rand -base64 48` and put it in docker/.env}
       Jwt__Issuer: ${JWT_ISSUER:-kombin-api}
       Jwt__Audience: ${JWT_AUDIENCE:-kombin-app}
+      Internal__ApiKey: ${INTERNAL_API_KEY:?INTERNAL_API_KEY is required, generate one with `openssl rand -base64 48` and put it in docker/.env}
 
 volumes:
   kombin-pgdata:

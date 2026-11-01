@@ -41,6 +41,7 @@ jobs:
         run: |
           cp docker/.env.example docker/.env
           sed -i "s|^JWT_SIGNING_KEY=.*|JWT_SIGNING_KEY=$(openssl rand -base64 48)|" docker/.env
+          sed -i "s|^INTERNAL_API_KEY=.*|INTERNAL_API_KEY=$(openssl rand -base64 48)|" docker/.env
 
       - name: Start the stack
         run: docker compose --file docker/compose.yaml up --build --detach --wait

@@ -13,6 +13,11 @@ internal static class AuthExtensions
             .ValidateOnStart();
         services.AddSingleton<IValidateOptions<JwtOptions>, JwtOptionsValidator>();
 
+        services.AddOptions<InternalOptions>()
+            .BindConfiguration(InternalOptions.SectionName)
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<InternalOptions>, InternalOptionsValidator>();
+
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer();
         services.ConfigureOptions<ConfigureJwtBearer>();
         services.AddAuthorization();

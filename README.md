@@ -4,7 +4,8 @@ Backend for Kombin, a mobile app that learns a user's style, manages their wardr
 across Turkish retailers and redirects to retailers through affiliate links. .NET 10 Minimal API, vertical slices,
 PostgreSQL 18 via EF Core. See [CLAUDE.md](CLAUDE.md) for the architecture rules and the recipe for adding a use case.
 
-Currently implemented: **Identity** (register, login, refresh with rotation, logout, current user).
+Currently implemented: **Identity** (register, login, refresh with rotation, logout, current user) and **Catalog**
+(products, sellers, offers, price history, plus an internal ingestion endpoint for scrapers).
 
 ## Requirements
 
@@ -14,7 +15,7 @@ Currently implemented: **Identity** (register, login, refresh with rotation, log
 ## Run
 
 ```bash
-cp docker/.env.example docker/.env      # then set JWT_SIGNING_KEY, e.g. `openssl rand -base64 48`
+cp docker/.env.example docker/.env      # then set JWT_SIGNING_KEY and INTERNAL_API_KEY, e.g. `openssl rand -base64 48`
 docker compose --file docker/compose.yaml up --build --detach --wait
 curl -i http://localhost:8080/health
 ```
@@ -47,6 +48,31 @@ Integration tests start their own PostgreSQL container with Testcontainers, so D
 | POST | `/auth/logout` | Bearer | 204 | 401 |
 | GET | `/me` | Bearer | 200 `{ id, email, displayName, createdAt }` | 401 |
 
+### Catalog
+
+Public reads need no auth (the app browses before login).
+
+| Method | Route | Success | Errors |
+|---|---|---|---|
+| GET | `/catalog/categories` | 200 tree `[{ id, slug, name, children }]` sorted by `sortOrder` | - |
+| GET | `/catalog/brands?query=&page=&pageSize=` | 200 paged `{ items: [{ id, name, slug, logoUrl, websiteUrl }], page, pageSize, totalCount, totalPages }`; `query` is a case-insensitive contains match, names starting with it first | - |
+| GET | `/catalog/products?query=&categorySlug=&brandSlug=&color=&audience=&minPrice=&maxPrice=&sort=&page=&pageSize=` | 200 paged list of active products with a sellable offer | 400 invalid `sort`/`color`/`audience`, 404 `Catalog.CategoryNotFound`, 404 `Catalog.BrandNotFound` |
+| GET | `/catalog/products/{id}` | 200 product, images, active offers by effective price, `priceSummary` | 404 `Catalog.ProductNotFound` |
+| GET | `/catalog/products/{id}/price-history?days=90` | 200 `[{ offerId, seller, points: [{ date, minPrice, stockStatus }] }]`, one point per UTC day | 404 `Catalog.ProductNotFound` |
+| POST | `/internal/catalog/offers/upsert` | 200 `{ created, updated, snapshotsWritten, errors: [{ index, externalId, errorCode, message }] }` | 400 validation or `Catalog.BatchTooLarge`, 401 `Catalog.InvalidInternalKey`, 404 `Catalog.SellerNotFound` |
+
+`sort` is `relevance` (default, newest first for now), `priceAsc`, `priceDesc` or `newest`; enum filters are case-insensitive.
+`categorySlug` includes descendants. Category slugs are path-style (`ust-giyim`, `ust-giyim/blazer`).
+
+Internal endpoints require the header `X-Internal-Key` to equal `Internal:ApiKey` (env `Internal__ApiKey`, `INTERNAL_API_KEY`
+in `docker/.env`). The key must be at least 32 characters; the `dev-only-...`/`change-me` placeholders are only accepted
+in Development, and the API refuses to start otherwise.
+
+```bash
+curl -X POST http://localhost:8080/api/v1/internal/catalog/offers/upsert \
+  -H "X-Internal-Key: $INTERNAL_API_KEY" -H "Content-Type: application/json" --data-binary @batch.json
+```
+
 Health: `/health/live` (process only), `/health` (also checks PostgreSQL).
 
 Errors are `application/problem+json` with `errorCode` and `correlationId`; validation errors add an `errors` dictionary.
@@ -68,6 +94,32 @@ always echoed in the response header.
   `appsettings.json`; otherwise one failing query would produce several Error lines.
 - **Migrations** are never applied automatically outside `Development`; use `dotnet ef database update`.
 
+### Catalog decisions
+
+- **Canonical products.** One `Product` per real-world item, one `Offer` per seller listing. An upsert resolves the product
+  in this order: existing offer by `(seller, externalId)` (kept on its product; an explicit, different
+  `canonicalProductId` re-links it), then `canonicalProductId`, then the brand's product with the same `modelCode`
+  (trimmed and upper-cased on write so "mv-100" and "MV-100" match), otherwise a new product (brand created if unknown,
+  slug from the name with `-2`, `-3`, ... on collision). Products without a `modelCode` are never merged automatically.
+- **Brand stores** are not seeded. An unknown `sellerSlug` ending in `-store` is created as a `BrandStore` when it equals
+  `<slug of the item's brandName>-store` (so `Mavi` -> `mavi-store`); any other unknown seller is a 404.
+- **Validation vs per-item errors.** Malformed input (bad enum, price, URL, ...) fails the whole request with a 400 whose
+  `errors` keys are indexed (`items[3].price`). Problems that depend on stored data (unknown category, unknown canonical
+  product, brand-store mismatch) are reported per item in `errors` of a 200 response.
+- **Transactions.** Items are processed in groups of 50, one transaction per group. If a group throws, it is rolled back and
+  its items are re-run one by one, so only the failing item is reported (`Catalog.ItemFailed`).
+- **Snapshots** are written when price, original price or stock status changed, or the last snapshot is older than 24 hours.
+- **"Sellable" offers** (list, lowest price, summary) are active offers that are `InStock` or `LowStock`; `Unknown` does not count.
+- **Effective price** = price + shipping. Shipping is 0 when the price reaches `freeShippingThreshold` or when no shipping
+  cost is known.
+- **Defaults** for optional product attributes on creation: `pattern=Other`, `fit=Unknown`, `formality=3`, all four seasons.
+- **Images** are added (de-duplicated by URL) when an offer is created or re-linked, not on plain re-observation.
+- **Enums** are stored as strings in the database and travel as names in JSON.
+
 ## TODO
 
 - Rate limiting on the auth endpoints (out of scope for the foundation task).
+- Catalog: deactivating offers that stop being seen (`Offer.IsActive`, and `Product.IsActive` when none remain) needs a
+  sweep job or an internal endpoint; nothing sets them to false yet except re-linking.
+- Catalog: full-text search (today `ILIKE`), entity resolution/image similarity for products without a `modelCode`,
+  copying images to our own storage, pgvector embeddings, TimescaleDB for `price_snapshots`, affiliate link wrapping.

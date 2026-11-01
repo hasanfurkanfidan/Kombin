@@ -1,8 +1,10 @@
+using System.Text.Json.Serialization;
 using Kombin.Api.Common.Auth;
 using Kombin.Api.Common.Health;
 using Kombin.Api.Common.Http;
 using Kombin.Api.Common.Time;
 using Kombin.Api.Common.Validation;
+using Kombin.Api.Features.Catalog;
 using Kombin.Api.Features.Identity;
 using Kombin.Api.Persistence;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
@@ -20,6 +22,9 @@ builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddKombinProblemDetails();
 builder.Services.AddKombinAuth();
 builder.Services.AddValidatorsFromAssembly(typeof(Program).Assembly);
+
+// Enums travel as their names ("InStock", "BrandStore"), never as numbers.
+builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddOpenApi();
 builder.Services.AddHealthChecks().AddCheck<PostgresHealthCheck>("postgres");
 builder.AddKombinPersistence();
@@ -44,6 +49,7 @@ if (app.Environment.IsDevelopment())
 app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
 app.MapHealthChecks("/health");
 app.MapIdentityEndpoints();
+app.MapCatalogEndpoints();
 
 await app.MigrateDatabaseOnStartupAsync();
 await app.RunAsync();
