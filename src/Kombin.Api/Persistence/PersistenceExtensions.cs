@@ -15,6 +15,7 @@ internal static partial class PersistenceExtensions
     {
         builder.Services.AddSingleton<AuditInterceptor>();
         builder.Services.AddScoped<DevSeeder>();
+        builder.Services.AddScoped<StyleCardSeeder>();
 
         // Configuration is read lazily so values supplied after Program.cs ran (tests, hosting overrides) are honoured.
         builder.Services.AddDbContext<KombinDbContext>((services, options) =>
@@ -48,6 +49,24 @@ internal static partial class PersistenceExtensions
     }
 
     /// <summary>
+    /// Seeds the style cards (editorial content) in every environment. Run it after migrations; when migrations are still pending
+    /// (outside Development they are applied by hand) it skips with a warning instead of failing the start.
+    /// </summary>
+    public static async Task SeedStyleCardsOnStartupAsync(this WebApplication app)
+    {
+        await using var scope = app.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<KombinDbContext>();
+
+        if ((await db.Database.GetPendingMigrationsAsync()).Any())
+        {
+            LogStyleCardsSkipped(app.Logger);
+            return;
+        }
+
+        await scope.ServiceProvider.GetRequiredService<StyleCardSeeder>().SeedAsync();
+    }
+
+    /// <summary>
     /// Seeds the development catalog and demo user when <c>Database:SeedOnStartup</c> is set. Run it after migrations.
     /// Outside Development the flag is ignored (with a warning): sample data never reaches a real database.
     /// </summary>
@@ -67,6 +86,9 @@ internal static partial class PersistenceExtensions
         await using var scope = app.Services.CreateAsyncScope();
         await scope.ServiceProvider.GetRequiredService<DevSeeder>().SeedAsync();
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Style cards are not seeded: database migrations are pending. Apply them and restart.")]
+    private static partial void LogStyleCardsSkipped(ILogger logger);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "{Key} is set but the environment is {Environment}, not Development; seeding is skipped.")]
     private static partial void LogSeedIgnored(ILogger logger, string environment, string key);

@@ -13,6 +13,11 @@ internal sealed class ListProductsValidator : AbstractValidator<ListProductsQuer
             .WithMessage($"'Sort' must be one of: {string.Join(", ", Enum.GetNames<ProductSort>().Select(ToCamelCase))}.")
             .When(query => query.Sort is not null);
 
+        RuleFor(query => query.PersonaId)
+            .NotNull()
+            .WithMessage("'PersonaId' is required to sort by match.")
+            .When(query => EnumNames.TryParse<ProductSort>(query.Sort, out var sort) && sort == ProductSort.Match);
+
         RuleFor(query => query.Color)
             .Must(EnumNames.IsValid<ProductColor>)
             .WithMessage($"'Color' must be one of: {string.Join(", ", Enum.GetNames<ProductColor>())}.")
