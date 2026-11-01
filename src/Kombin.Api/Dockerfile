@@ -18,6 +18,9 @@ RUN dotnet publish src/Kombin.Api/Kombin.Api.csproj \
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine AS runtime
 WORKDIR /app
 
+# The Alpine runtime image has no time zone database; quiet hours and the weekly schedule need Europe/Istanbul.
+RUN apk add --no-cache tzdata
+
 COPY --from=build /app/publish .
 
 ENV ASPNETCORE_HTTP_PORTS=8080

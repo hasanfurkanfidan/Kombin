@@ -1,10 +1,12 @@
 using Kombin.Api.Common.Auth;
 using Kombin.Api.Common.Time;
+using Kombin.Api.Features.Notification;
 using Kombin.Api.Persistence;
 
 namespace Kombin.Api.Features.Identity.Logout;
 
-internal sealed record LogoutRequest(string RefreshToken);
+/// <summary><c>ExpoPushToken</c> is the phone's push token; when given, that device stops receiving pushes for this account.</summary>
+internal sealed record LogoutRequest(string RefreshToken, string? ExpoPushToken = null);
 
 internal static class LogoutEndpoint
 {
@@ -20,11 +22,13 @@ internal static class LogoutEndpoint
         ICurrentUser currentUser,
         KombinDbContext db,
         IClock clock,
+        IDeviceDeactivator deviceDeactivator,
         CancellationToken cancellationToken)
     {
+        var userId = currentUser.UserId;
+
         if (!string.IsNullOrWhiteSpace(request.RefreshToken))
         {
-            var userId = currentUser.UserId;
             var tokenHash = JwtTokenService.HashRefreshToken(request.RefreshToken);
             var now = clock.UtcNow;
 
@@ -36,6 +40,11 @@ internal static class LogoutEndpoint
                         .SetProperty(token => token.RevokedAt, now)
                         .SetProperty(token => token.UpdatedAt, now),
                     cancellationToken);
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.ExpoPushToken))
+        {
+            await deviceDeactivator.DeactivateAsync(userId, request.ExpoPushToken, cancellationToken);
         }
 
         return Results.NoContent();

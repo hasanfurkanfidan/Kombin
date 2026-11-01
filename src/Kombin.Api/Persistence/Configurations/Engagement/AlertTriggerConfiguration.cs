@@ -22,6 +22,11 @@ internal sealed class AlertTriggerConfiguration : IEntityTypeConfiguration<Alert
         builder.HasIndex(trigger => new { trigger.UserId, trigger.TriggeredAt }).IsDescending(false, true);
         builder.HasIndex(trigger => trigger.PriceAlertId);
 
+        // The alert dispatcher polls for unconsumed triggers every minute; the index stays small however long the table grows.
+        builder.HasIndex(trigger => trigger.TriggeredAt)
+            .HasFilter("consumed_at IS NULL")
+            .HasDatabaseName("ix_alert_triggers_unconsumed");
+
         // Deleting an alert keeps its history in the feed.
         builder.HasOne<PriceAlert>()
             .WithMany()

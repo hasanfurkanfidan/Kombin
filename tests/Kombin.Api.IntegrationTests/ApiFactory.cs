@@ -1,6 +1,10 @@
+using Kombin.Api.Features.Notification;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Testcontainers.PostgreSql;
 
 [assembly: AssemblyFixture(typeof(Kombin.Api.IntegrationTests.ApiFactory))]
@@ -13,6 +17,9 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     public const string InternalApiKey = "integration-test-internal-key-3c1d5e7f9a2b4d6e";
 
     private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("postgres:18-alpine").Build();
+
+    /// <summary>The Expo push service as the jobs see it. It answers by token (see <see cref="FakeExpoPushClient"/>), so tests running in parallel do not disturb each other.</summary>
+    internal FakeExpoPushClient Expo => Services.GetRequiredService<FakeExpoPushClient>();
 
     public async ValueTask InitializeAsync()
     {
@@ -34,6 +41,13 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     {
         builder.UseEnvironment("Development");
 
+        builder.ConfigureTestServices(services =>
+        {
+            services.RemoveAll<IExpoPushClient>();
+            services.AddSingleton<FakeExpoPushClient>();
+            services.AddSingleton<IExpoPushClient>(provider => provider.GetRequiredService<FakeExpoPushClient>());
+        });
+
         builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["ConnectionStrings:Postgres"] = _postgres.GetConnectionString(),
@@ -45,6 +59,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
             ["Jwt:SigningKey"] = "integration-test-signing-key-9f8e7d6c5b4a3",
             ["Internal:ApiKey"] = InternalApiKey,
             ["Serilog:MinimumLevel:Default"] = "Warning",
+            // Tests call the jobs directly; no Hangfire server, recurring jobs or dashboard, and the hangfire schema is never created.
+            ["Hangfire:Enabled"] = "false",
         }));
     }
 }

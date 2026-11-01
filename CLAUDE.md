@@ -77,8 +77,8 @@ Internal endpoints (called by workers, not the app) live under `/api/v1/internal
   evaluated on user requests or in a separate job. The rule logic is the pure `AlertEvaluator.Evaluate`; evaluation
   failures are logged with the offer ID and must never fail the upsert. Anything that changes offers must go through
   `OfferUpserter` or alerts will not fire.
-- Trigger rows (`engagement.alert_triggers`) are the notification feed; the future Notification feature reads them and
-  sets `ConsumedAt`. Clicks and triggers are append-only.
+- Trigger rows (`engagement.alert_triggers`) are the source of the notifications: the Notification feature's `alert-dispatcher` job
+  reads the unconsumed ones and sets `ConsumedAt`. Clicks and triggers are append-only (`ConsumedAt` is the one field that is updated).
 - `Outbound:IpSalt` (env `Outbound__IpSalt`) salts the stored IP hash; real affiliate templates are per-seller data
   (`AffiliateUrlTemplate`, `AffiliateParams`), not code.
 
@@ -108,6 +108,48 @@ Internal endpoints (called by workers, not the app) live under `/api/v1/internal
 - Sizes: `SizeEntry` is unique per (user, brand, group); the group comes from the top-level category slug
   (`SizeGroups`). A hint's inferred `suggestion` (needs 2 agreeing entries at other brands) is computed per request and
   never stored; nothing may persist a size with source `Inferred` without a decision to do so.
+
+## Notification rules
+
+- **What exists:** devices (Expo push tokens), per-user preferences, the `notification.notifications` table (it is both the push to
+  deliver and the in-app feed), four Hangfire jobs, and the push delivery through the **Expo Push Service**.
+- **Expo is the only push path.** The app registers Expo push tokens; the backend never talks to FCM or APNs. The client is a plain
+  `HttpClient` behind `IExpoPushClient` (`Features/Notification/ExpoPushClient.cs`); it never throws on a non-2xx, it returns a
+  result the job interprets, and tests replace it with a fake. `Expo:AccessToken` (env `Expo__AccessToken`) is optional and only
+  sent as a bearer when set. No other push or messaging package, no email, no SMS.
+- **Jobs live in `Features/Notification/Jobs/`, are plain classes with constructor injection, are idempotent, and run from Hangfire**
+  (PostgreSQL storage, schema `hangfire`, same database). **Tests call them directly**; the Hangfire server is never started in tests
+  (`Hangfire:Enabled=false`). The core of every job takes an optional user filter so integration tests that share one database only
+  touch their own rows. Every job has `[DisableConcurrentExecution(60)]` and `[AutomaticRetry(Attempts = 0)]` (the next run is the retry).
+
+  | Job id | Schedule | Does |
+  |---|---|---|
+  | `alert-dispatcher` | every minute | up to 500 unconsumed `AlertTrigger`s → `Notification` rows; consumes each trigger in the same transaction |
+  | `push-sender` | every minute | due `Pending` notifications → Expo, batches of 100 messages, one message per active device, one row per notification |
+  | `push-receipts` | every 15 min | Expo receipts for `Sent` pushes 15 min - 24 h old, once each (`ReceiptCheckedAt`) |
+  | `weekly-matches` | Sunday 19:00 `Europe/Istanbul` | per user with a device: top 3 new products (score ≥ 70) for the active persona → one `NewMatches` notification |
+
+- **Notifications are created by the jobs, never by request handlers** (the one exception is the internal QA endpoint
+  `POST /internal/notifications/test`). Rules of the dispatcher, in order (`DispatchRules`, pure): preference for the kind off
+  (`PriceDrop`/`AnyChange` → `PriceAlerts`, `BackInStock` → `StockAlerts`) → no row, trigger still consumed; same
+  `DedupeKey` for the user within 24 h (`pricedrop:{productId}`; `DispatchRules.DedupeWindow`) → no row, consumed; no active device →
+  `Suppressed` row with `FailureReason = NoDevice` (the feed shows it); otherwise `Pending`, scheduled now or at the end of quiet hours.
+- **Statuses:** `Pending` → `Sent` | `Failed` | `Suppressed`. The feed and unread count show everything except `Failed`. A device the
+  push service reports as `DeviceNotRegistered` is deactivated (`DeactivationReason`), and a notification that reached no device
+  because of that is `Suppressed` (`DeviceNotRegistered`), not `Failed`, so the user still sees it in the app. Any other ticket or
+  receipt error with nothing delivered is `Failed` with the reason. A failed HTTP call leaves the row `Pending` and counts an attempt;
+  the 5th failed attempt makes it `Failed`.
+- **Devices:** a token is active for one user at a time (partial unique index on active tokens). Registering it under another user
+  deactivates the old row (`Replaced`) and adds/reactivates the new one; logout (`expoPushToken` in the body) and
+  `DELETE /me/devices/{token}` deactivate with `UserRemoved`. Other features reach this only through `IDeviceDeactivator`.
+- **Time zone:** quiet hours (`HH:mm`, both or neither, may wrap midnight) and the weekly schedule are in `Europe/Istanbul`
+  (`QuietHours.Zone`). The Docker runtime image installs `tzdata` for it. Stored instants are always UTC (`timestamptz`).
+- **Hangfire wiring:** `AddNotificationFeature` registers storage lazily; `UseNotificationJobs` (called in `Program.cs` after the EF
+  migrations and the seeds) is what first creates the `hangfire` schema, registers the recurring jobs and, **in Development only**,
+  maps the dashboard at `/hangfire` (open, no auth, unmapped in every other environment). Nothing happens unless `Hangfire:Enabled` is
+  true (compose sets it; tests set it to false; `Development` defaults to true).
+- **Copy is Turkish and lives in `Features/Notification/Copy.cs`** (money as `2.149 ₺` / `849,90 ₺`, formatted by hand because the runtime
+  image may run with invariant globalization). Clients read `Notification.Data.deepLink`; do not change its shape without the app team.
 
 ## Commands
 
@@ -154,9 +196,10 @@ the shared test database stays independent of the seed. `ApiFactory` switches se
 ## Explicitly out of scope (do not add)
 
 Rate limiting (including on `/go`), email verification, password reset, social login, admin UI, MediatR/CQRS, generic
-repositories, AutoMapper, push notifications and background jobs, affiliate conversion import, a generic analytics event
-stream. Features that exist: Identity (auth, me), Catalog (brands, sellers, categories, products, offers, price
+repositories, AutoMapper, email/SMS/marketing notifications, A/B testing, scraping workers, affiliate conversion import, a generic
+analytics event stream. Features that exist: Identity (auth, me), Catalog (brands, sellers, categories, products, offers, price
 snapshots, internal upsert), Engagement (saved products, price alerts and their trigger feed, `/go` redirect, click
 history) and Profile (user profile and measurements, personas, swipe onboarding with style cards, derived style profile,
-rule-based match score, size map with hints). Learning from clicks/saves and outfit generation are the Recommendation task,
+rule-based match score, size map with hints) and Notification (devices, notification preferences, the notification feed, push
+delivery through Expo, and the Hangfire jobs above). Learning from clicks/saves and outfit generation are the Recommendation task,
 not Profile. Add other features only when a task asks for them.

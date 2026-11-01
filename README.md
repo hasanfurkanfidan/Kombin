@@ -6,7 +6,9 @@ PostgreSQL 18 via EF Core. See [CLAUDE.md](CLAUDE.md) for the architecture rules
 
 Currently implemented: **Identity** (register, login, refresh with rotation, logout, current user), **Catalog**
 (products, sellers, offers, price history, plus an internal ingestion endpoint for scrapers) and **Engagement** (saved
-products, price/stock alerts, and the `/go/{offerId}` affiliate redirect that records every buy click).
+products, price/stock alerts, and the `/go/{offerId}` affiliate redirect that records every buy click) and
+**Notification** (device registration, notification preferences and feed, push delivery through Expo, background jobs on
+Hangfire).
 
 ## Requirements
 
@@ -128,6 +130,60 @@ Errors are `application/problem+json` with `errorCode` and `correlationId`; vali
 Send `X-Correlation-ID` (`^[A-Za-z0-9\-_.:]{1,64}$`) to choose your own correlation ID; otherwise one is generated. It is
 always echoed in the response header.
 
+### Notification
+
+Turns what Engagement records into notifications the user receives: a price drop or restock becomes a push within a minute or
+two, a weekly digest per persona goes out on Sunday evening, and the app gets a feed (the bell badge, design screen 06). Push
+goes through the **Expo Push Service**: the app registers Expo push tokens, the backend never talks to FCM or APNs.
+
+| Method | Route | Success | Errors |
+|---|---|---|---|
+| PUT | `/me/devices` | 204; body `{ expoPushToken, platform: Ios\|Android, appVersion?, deviceName? }`; upsert, a token moves to the caller if it belonged to someone else | 400 validation, 400 `Notification.InvalidPushToken` |
+| DELETE | `/me/devices/{token}` | 204, idempotent (URL-encode the token); call it on logout | - |
+| GET | `/me/notification-preferences` | 200 `{ priceAlerts, stockAlerts, recommendations, maxRecommendationsPerWeek, quietHoursStart, quietHoursEnd, timeZone, updatedAt }`, created with the defaults on first read | - |
+| PUT | `/me/notification-preferences` | 200 same shape; every field optional (`clearQuietHours: true` removes the quiet hours); times are `HH:mm` in `Europe/Istanbul` | 400 validation (`maxRecommendationsPerWeek` 0-7), 400 `Notification.QuietHoursIncomplete` |
+| GET | `/me/notifications?page=&pageSize=` | 200 paged feed, newest first, everything except `Failed`: `{ id, kind, title, body, data, createdAt, readAt, status }` | - |
+| GET | `/me/notifications/unread-count` | 200 `{ count }` | - |
+| POST | `/me/notifications/{id}/read` | 204, idempotent | 404 `Notification.NotFound` |
+| POST | `/me/notifications/read-all` | 204 | - |
+| POST | `/internal/notifications/test` | 200; body `{ userId, title?, body? }`; creates a `System` notification and pushes it right away; returns its status and what Expo said per device | 401, 404 `Notification.UserNotFound` |
+
+`POST /auth/logout` also accepts an optional `expoPushToken`; when present, that device is deactivated.
+
+`kind` is `PriceDrop`, `BackInStock`, `AnyChange`, `NewMatches` or `System`; `status` is `Pending`, `Sent` or `Suppressed` in the feed
+(`Suppressed` = the user had no usable device, so nothing was pushed, but it is still in the feed). `data` always has a `deepLink`
+(`kombin://product/{id}`, `kombin://matches/{personaId}`, `kombin://notifications`) plus `productId`/`offerId`/`alertId`, or `personaId`/`productIds`.
+
+**Jobs** (Hangfire, PostgreSQL storage in the `hangfire` schema, all idempotent; the dashboard is at `/hangfire` in Development only):
+
+| Job | Schedule | Does |
+|---|---|---|
+| `alert-dispatcher` | every minute | alert triggers → notifications (preference off or a repeat within 24 h: skipped; no device: kept as `Suppressed`; quiet hours: scheduled for their end) |
+| `push-sender` | every minute | sends due notifications to Expo in batches of 100, one message per device; a dead device is deactivated; a failed call is retried, the 5th failure fails the notification |
+| `push-receipts` | every 15 min | asks Expo what became of pushes sent 15 min - 24 h ago |
+| `weekly-matches` | Sunday 19:00 `Europe/Istanbul` | top 3 products added in the last 7 days that score at least 70 for the user's active persona, at most `maxRecommendationsPerWeek` per week |
+
+Configuration: `Hangfire__Enabled` (compose: `HANGFIRE_ENABLED`, default true), `Expo__AccessToken` (compose: `EXPO_ACCESS_TOKEN`, optional).
+
+#### Getting a real push on a phone
+
+The backend needs nothing beyond what is above. In the mobile app:
+
+1. Create the Expo project id once with `npx eas init`; it writes `extra.eas.projectId` into `app.json`. Push credentials (FCM for
+   Android, APNs for iOS) are configured in EAS (`eas credentials`), not here.
+2. On a **physical device** (simulators cannot receive remote pushes), ask for permission and read the token with
+   `Notifications.getExpoPushTokenAsync({ projectId })` (from `expo-notifications`).
+3. Send it to `PUT /api/v1/me/devices` after login with the platform, and to `DELETE /api/v1/me/devices/{token}` (or in the logout body) on logout.
+4. Check it end to end without waiting for a price change:
+
+```bash
+curl -X POST http://localhost:8080/api/v1/internal/notifications/test   -H "X-Internal-Key: $INTERNAL_API_KEY" -H "Content-Type: application/json"   --data '{"userId":"<the user id from GET /me>","title":"Merhaba","body":"Bu bir test bildirimidir."}'
+```
+
+A fake or stale token comes back as `status: "Suppressed"` / `failureReason: "DeviceNotRegistered"` and the device is deactivated;
+any other Expo error is `Failed` with the reason. Only if "enhanced push security" is turned on for the Expo project, set
+`Expo__AccessToken` (an Expo access token) on the backend.
+
 ## Decisions worth knowing
 
 - **Password hashing:** `PasswordHasher<T>` from the framework (`Microsoft.AspNetCore.Identity`, PBKDF2-HMAC-SHA512,
@@ -191,5 +247,8 @@ always echoed in the response header.
   sweep job or an internal endpoint; nothing sets them to false yet except re-linking.
 - Catalog: full-text search (today `ILIKE`), entity resolution/image similarity for products without a `modelCode`,
   copying images to our own storage, pgvector embeddings, TimescaleDB for `price_snapshots`.
-- Engagement: rate limiting and bot filtering on `/go`, push notifications and the job that consumes `alert_triggers`
-  (`ConsumedAt`), affiliate conversion/postback import, real affiliate templates per seller, forwarded-headers setup.
+- Engagement: rate limiting and bot filtering on `/go`, affiliate conversion/postback import, real affiliate templates per
+  seller, forwarded-headers setup.
+- Notification: the first run of `alert-dispatcher` on a database that already has unconsumed triggers turns every one of them
+  into a notification (the oldest 500 per minute); mark old triggers consumed before enabling Hangfire there. The Hangfire
+  dashboard has no authentication, which is why it exists in Development only.

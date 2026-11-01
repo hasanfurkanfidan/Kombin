@@ -45,6 +45,10 @@ services:
       Internal__ApiKey: ${INTERNAL_API_KEY:?INTERNAL_API_KEY is required, generate one with `openssl rand -base64 48` and put it in docker/.env}
       # Salt for the hashed IPs stored with outbound clicks. The default is a Development-only placeholder; any other environment must set its own.
       Outbound__IpSalt: ${OUTBOUND_IP_SALT:-dev-only-ip-salt-change-me-0123456789abcdef}
+      # Runs the Hangfire server and the recurring notification jobs in this container; the dashboard (/hangfire) exists in Development only.
+      Hangfire__Enabled: ${HANGFIRE_ENABLED:-true}
+      # Optional: only needed when "enhanced push security" is enforced for the Expo project.
+      Expo__AccessToken: ${EXPO_ACCESS_TOKEN:-}
 
 volumes:
   kombin-pgdata:
