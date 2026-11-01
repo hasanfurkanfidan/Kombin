@@ -1,0 +1,19 @@
+## .NET build output
+bin/
+obj/
+artifacts/
+TestResults/
+*.user
+*.suo
+.vs/
+.idea/
+*.log
+
+## Secrets and local environment
+docker/.env
+.env
+appsettings.*.local.json
+
+## OS
+.DS_Store
+Thumbs.db

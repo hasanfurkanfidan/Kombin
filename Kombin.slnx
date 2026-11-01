@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Kombin.Api/Kombin.Api.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Kombin.Api.IntegrationTests/Kombin.Api.IntegrationTests.csproj" />
+    <Project Path="tests/Kombin.Api.Tests/Kombin.Api.Tests.csproj" />
+  </Folder>
+</Solution>

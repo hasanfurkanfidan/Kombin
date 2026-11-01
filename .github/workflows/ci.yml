@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore Kombin.slnx
+
+      - name: Verify formatting
+        run: dotnet format Kombin.slnx --verify-no-changes --no-restore
+
+      - name: Build
+        run: dotnet build Kombin.slnx --configuration Release --no-restore
+
+      # Integration tests start PostgreSQL with Testcontainers; Docker is preinstalled on ubuntu-latest.
+      - name: Test
+        run: dotnet test --solution Kombin.slnx --configuration Release --no-build
+
+      - name: Prepare compose environment
+        run: |
+          cp docker/.env.example docker/.env
+          sed -i "s|^JWT_SIGNING_KEY=.*|JWT_SIGNING_KEY=$(openssl rand -base64 48)|" docker/.env
+
+      - name: Start the stack
+        run: docker compose --file docker/compose.yaml up --build --detach --wait
+
+      - name: Smoke test
+        run: |
+          curl --fail --silent --show-error --include http://localhost:8080/health
+          status=$(curl --silent --output /dev/null --write-out '%{http_code}' http://localhost:8080/api/v1/me)
+          echo "GET /api/v1/me -> ${status}"
+          test "${status}" = "401"
+
+      - name: Show container logs on failure
+        if: failure()
+        run: docker compose --file docker/compose.yaml logs --no-color
+
+      - name: Tear down
+        if: always()
+        run: docker compose --file docker/compose.yaml down --volumes

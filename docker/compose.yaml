@@ -1,0 +1,45 @@
+name: kombin
+
+services:
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-kombin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required, copy docker/.env.example to docker/.env}
+      POSTGRES_DB: ${POSTGRES_DB:-kombin}
+    ports:
+      # Loopback only: the database is never reachable from the network.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      # PostgreSQL 18 images keep versioned data directories below /var/lib/postgresql.
+      - kombin-pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready --username=$${POSTGRES_USER} --dbname=$${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  api:
+    build:
+      context: ..
+      dockerfile: src/Kombin.Api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${API_PORT:-8080}:8080"
+    environment:
+      # Local development stack: Development applies migrations at startup (Database__MigrateOnStartup).
+      # Real deployments run Production and migrate with `dotnet ef database update`.
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+      ConnectionStrings__Postgres: Host=db;Port=5432;Database=${POSTGRES_DB:-kombin};Username=${POSTGRES_USER:-kombin};Password=${POSTGRES_PASSWORD}
+      Database__MigrateOnStartup: ${MIGRATE_ON_STARTUP:-true}
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:?JWT_SIGNING_KEY is required, generate one with `openssl rand -base64 48` and put it in docker/.env}
+      Jwt__Issuer: ${JWT_ISSUER:-kombin-api}
+      Jwt__Audience: ${JWT_AUDIENCE:-kombin-app}
+
+volumes:
+  kombin-pgdata:

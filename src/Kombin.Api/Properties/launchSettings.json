@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "Kombin.Api": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:44026;http://localhost:44027"
+    }
+  }
+}
