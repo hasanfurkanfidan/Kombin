@@ -399,6 +399,20 @@ public sealed class ProfileTests(ApiFactory factory)
         Assert.Equal(20, (await user.Client.GetCardsAsync(other, cancellationToken: Ct)).GetProperty("items").GetArrayLength());
     }
 
+    [Fact]
+    public async Task AUnisexProfileGetsWomenMenAndUnisexCardsInRotation()
+    {
+        using var user = await factory.CreateUserAsync(Ct);
+        var persona = await user.Client.CreatePersonaAsync("Ofis", cancellationToken: Ct);
+
+        var feed = await user.Client.GetCardsAsync(persona, cancellationToken: Ct);
+        var audiences = feed.GetProperty("items").EnumerateArray().Select(item => item.GetProperty("audience").GetString()).ToList();
+
+        Assert.Equal(3, audiences.Take(12).Distinct().Count());
+        Assert.True(audiences.Take(6).Distinct().Count() >= 2);
+        Assert.Equal(["Women", "Men", "Unisex"], audiences.Take(3));
+    }
+
     [Theory]
     [InlineData("Women", new[] { "Women", "Unisex" }, 24)]
     [InlineData("Men", new[] { "Men", "Unisex" }, 24)]

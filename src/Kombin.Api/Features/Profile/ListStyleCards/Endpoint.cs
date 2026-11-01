@@ -42,13 +42,13 @@ internal static class ListStyleCardsEndpoint
 
         var swiped = db.StyleSwipes.Where(swipe => swipe.PersonaId == id).Select(swipe => swipe.StyleCardId);
 
-        // The whole deck is a few dozen rows, so it is filtered and interleaved in memory.
+        // The whole deck is a few dozen rows, so it is filtered and ordered in memory.
         var unswiped = await db.StyleCards
             .AsNoTracking()
             .Where(card => card.IsActive && !swiped.Contains(card.Id))
             .ToListAsync(cancellationToken);
 
-        var feed = StyleCardFeed.Interleave(unswiped.Where(card => StyleCardFeed.IsVisibleTo(audience, card.Audience)));
+        var feed = StyleCardOrdering.Order([.. unswiped.Where(card => StyleCardFeed.IsVisibleTo(audience, card.Audience))], audience);
         var take = Math.Clamp(limit ?? DefaultLimit, 1, MaxLimit);
 
         var items = feed
