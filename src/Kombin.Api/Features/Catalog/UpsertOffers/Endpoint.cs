@@ -32,11 +32,18 @@ internal sealed record UpsertProductInfo(
     IReadOnlyList<string>? Seasons,
     string? Material,
     string? Description,
-    Guid? CanonicalProductId);
+    Guid? CanonicalProductId,
+    string? BrandWebsiteUrl = null,
+    string? BrandLogoUrl = null);
 
 internal sealed record UpsertItemError(int Index, string ExternalId, string ErrorCode, string Message);
 
-internal sealed record UpsertOffersResponse(int Created, int Updated, int SnapshotsWritten, IReadOnlyList<UpsertItemError> Errors);
+internal sealed record UpsertOffersResponse(
+    int Created,
+    int Updated,
+    int SnapshotsWritten,
+    IReadOnlyList<UpsertItemResult> Results,
+    IReadOnlyList<UpsertItemError> Errors);
 
 internal static class UpsertOffersEndpoint
 {
@@ -57,6 +64,7 @@ internal static class UpsertOffersEndpoint
             outcome.Created,
             outcome.Updated,
             outcome.SnapshotsWritten,
+            outcome.Results,
             [.. outcome.Failures.Select(failure => new UpsertItemError(failure.Index, failure.ExternalId, failure.Error.Code, failure.Error.Description))])));
     }
 }

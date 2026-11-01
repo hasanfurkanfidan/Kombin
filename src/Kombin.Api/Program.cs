@@ -66,6 +66,7 @@ await app.SeedDatabaseOnStartupAsync();
 
 // Last on purpose: this is what first touches the Hangfire storage, so its schema is created after the EF migrations ran.
 app.UseNotificationJobs();
+app.UseCatalogJobs();
 await app.RunAsync();
 
 static LogEventLevel RequestLogLevel(HttpContext context, double elapsedMilliseconds, Exception? exception)

@@ -10,6 +10,16 @@ namespace Kombin.Api.Features.Engagement;
 /// <summary>What a rule found out: the prices to report and the details that go into <see cref="AlertTrigger.Payload"/>.</summary>
 internal sealed record AlertHit(decimal? PriceBefore, decimal? PriceAfter, IReadOnlyList<string> Sizes);
 
+/// <summary>Why an offer is being evaluated.</summary>
+internal enum EvaluationReason
+{
+    /// <summary>A worker observed the listing and it changed: the alert rules apply.</summary>
+    Observation,
+
+    /// <summary>The offer sweep retired the listing: nothing a user watches was observed, so no alert may fire.</summary>
+    Sweep,
+}
+
 /// <summary>
 /// Decides which active alerts of a product fire when one of its offers changes, and records the triggers. Runs inside the
 /// catalog upsert path (<c>OfferUpserter</c>), never on the request of an app user, and has no HTTP concerns. Prices are
@@ -25,9 +35,20 @@ internal sealed partial class AlertEvaluator(KombinDbContext db, IClock clock, I
     /// is the offer's previous <em>effective</em> price; null means the offer was not observed before, which fires nothing.
     /// Never throws (except on cancellation): a failure is logged and the caller carries on.
     /// </summary>
-    public async Task EvaluateAsync(Offer offer, decimal? previousPrice, StockStatus previousStock, CancellationToken cancellationToken = default)
+    /// <remarks>
+    /// For <see cref="EvaluationReason.Sweep"/> every rule is skipped. The evaluator keeps no state of its own: the "previous" side of
+    /// the next evaluation is the offer's stored stock and price, which the sweep has already set (out of stock, price unchanged) by the
+    /// time it calls this, so back-in-stock and price-drop re-arm on the next sighting without anything being written here.
+    /// </remarks>
+    public async Task EvaluateAsync(
+        Offer offer, decimal? previousPrice, StockStatus previousStock, EvaluationReason reason, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(offer);
+
+        if (reason == EvaluationReason.Sweep)
+        {
+            return;
+        }
 
         try
         {

@@ -199,7 +199,7 @@ public class AlertEvaluatorTests
         var evaluator = new AlertEvaluator(db, new FixedClock(DateTimeOffset.UnixEpoch), logger);
         var offer = MakeOffer(90m);
 
-        await evaluator.EvaluateAsync(offer, previousPrice: 120m, StockStatus.InStock, TestContext.Current.CancellationToken);
+        await evaluator.EvaluateAsync(offer, previousPrice: 120m, StockStatus.InStock, EvaluationReason.Observation, TestContext.Current.CancellationToken);
 
         var entry = Assert.Single(logger.Entries);
         Assert.Equal(LogLevel.Error, entry.Level);
