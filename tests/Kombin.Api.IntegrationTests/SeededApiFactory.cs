@@ -42,6 +42,8 @@ public sealed class SeededApiFactory : WebApplicationFactory<Program>, IAsyncLif
             ["Jwt:SigningKey"] = "integration-test-signing-key-9f8e7d6c5b4a3",
             ["Internal:ApiKey"] = ApiFactory.InternalApiKey,
             ["Serilog:MinimumLevel:Default"] = "Warning",
+            // Tests call the jobs directly; no Hangfire server, recurring jobs or dashboard, and the hangfire schema is never created.
+            ["Hangfire:Enabled"] = "false",
         }));
     }
 }

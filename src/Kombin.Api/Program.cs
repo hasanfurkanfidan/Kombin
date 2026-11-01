@@ -7,6 +7,7 @@ using Kombin.Api.Common.Validation;
 using Kombin.Api.Features.Catalog;
 using Kombin.Api.Features.Engagement;
 using Kombin.Api.Features.Identity;
+using Kombin.Api.Features.Notification;
 using Kombin.Api.Features.Profile;
 using Kombin.Api.Persistence;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
@@ -33,6 +34,7 @@ builder.AddKombinPersistence();
 builder.Services.AddIdentityFeature();
 builder.Services.AddCatalogFeature();
 builder.Services.AddEngagementFeature();
+builder.Services.AddNotificationFeature();
 
 var app = builder.Build();
 
@@ -56,10 +58,14 @@ app.MapIdentityEndpoints();
 app.MapCatalogEndpoints();
 app.MapEngagementEndpoints();
 app.MapProfileEndpoints();
+app.MapNotificationEndpoints();
 
 await app.MigrateDatabaseOnStartupAsync();
 await app.SeedStyleCardsOnStartupAsync();
 await app.SeedDatabaseOnStartupAsync();
+
+// Last on purpose: this is what first touches the Hangfire storage, so its schema is created after the EF migrations ran.
+app.UseNotificationJobs();
 await app.RunAsync();
 
 static LogEventLevel RequestLogLevel(HttpContext context, double elapsedMilliseconds, Exception? exception)

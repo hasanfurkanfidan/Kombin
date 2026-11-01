@@ -1,6 +1,7 @@
 using Kombin.Api.Persistence.Entities.Catalog;
 using Kombin.Api.Persistence.Entities.Engagement;
 using Kombin.Api.Persistence.Entities.Identity;
+using Kombin.Api.Persistence.Entities.Notification;
 using Kombin.Api.Persistence.Entities.Profile;
 
 namespace Kombin.Api.Persistence;
@@ -44,6 +45,12 @@ internal sealed class KombinDbContext(DbContextOptions<KombinDbContext> options)
     public DbSet<PersonaStyleProfile> PersonaStyleProfiles => Set<PersonaStyleProfile>();
 
     public DbSet<SizeEntry> SizeEntries => Set<SizeEntry>();
+
+    public DbSet<Device> Devices => Set<Device>();
+
+    public DbSet<NotificationPreference> NotificationPreferences => Set<NotificationPreference>();
+
+    public DbSet<Entities.Notification.Notification> Notifications => Set<Entities.Notification.Notification>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder) =>
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(KombinDbContext).Assembly);
