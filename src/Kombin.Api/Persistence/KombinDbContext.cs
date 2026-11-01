@@ -1,4 +1,5 @@
 using Kombin.Api.Persistence.Entities.Catalog;
+using Kombin.Api.Persistence.Entities.Engagement;
 using Kombin.Api.Persistence.Entities.Identity;
 
 namespace Kombin.Api.Persistence;
@@ -22,6 +23,14 @@ internal sealed class KombinDbContext(DbContextOptions<KombinDbContext> options)
     public DbSet<Offer> Offers => Set<Offer>();
 
     public DbSet<PriceSnapshot> PriceSnapshots => Set<PriceSnapshot>();
+
+    public DbSet<SavedProduct> SavedProducts => Set<SavedProduct>();
+
+    public DbSet<PriceAlert> PriceAlerts => Set<PriceAlert>();
+
+    public DbSet<AlertTrigger> AlertTriggers => Set<AlertTrigger>();
+
+    public DbSet<Click> Clicks => Set<Click>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder) =>
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(KombinDbContext).Assembly);

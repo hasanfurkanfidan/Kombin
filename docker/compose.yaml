@@ -37,10 +37,14 @@ services:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
       ConnectionStrings__Postgres: Host=db;Port=5432;Database=${POSTGRES_DB:-kombin};Username=${POSTGRES_USER:-kombin};Password=${POSTGRES_PASSWORD}
       Database__MigrateOnStartup: ${MIGRATE_ON_STARTUP:-true}
+      # Fills an empty database with the dev catalog and the demo user; ignored (with a warning) outside Development.
+      Database__SeedOnStartup: ${SEED_ON_STARTUP:-true}
       Jwt__SigningKey: ${JWT_SIGNING_KEY:?JWT_SIGNING_KEY is required, generate one with `openssl rand -base64 48` and put it in docker/.env}
       Jwt__Issuer: ${JWT_ISSUER:-kombin-api}
       Jwt__Audience: ${JWT_AUDIENCE:-kombin-app}
       Internal__ApiKey: ${INTERNAL_API_KEY:?INTERNAL_API_KEY is required, generate one with `openssl rand -base64 48` and put it in docker/.env}
+      # Salt for the hashed IPs stored with outbound clicks. The default is a Development-only placeholder; any other environment must set its own.
+      Outbound__IpSalt: ${OUTBOUND_IP_SALT:-dev-only-ip-salt-change-me-0123456789abcdef}
 
 volumes:
   kombin-pgdata:

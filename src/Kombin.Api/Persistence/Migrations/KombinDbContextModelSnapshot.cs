@@ -619,6 +619,15 @@ namespace Kombin.Api.Persistence.Migrations
                         .HasColumnType("character varying(50)")
                         .HasColumnName("affiliate_network");
 
+                    b.Property<string>("AffiliateParams")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("affiliate_params");
+
+                    b.Property<string>("AffiliateUrlTemplate")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)")
+                        .HasColumnName("affiliate_url_template");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -694,6 +703,253 @@ namespace Kombin.Api.Persistence.Migrations
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 11, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             WebsiteUrl = "https://www.hepsiburada.com"
                         });
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Engagement.AlertTrigger", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTimeOffset?>("ConsumedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("consumed_at");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("kind");
+
+                    b.Property<Guid>("OfferId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("offer_id");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("payload");
+
+                    b.Property<decimal?>("PriceAfter")
+                        .HasPrecision(12, 2)
+                        .HasColumnType("numeric(12,2)")
+                        .HasColumnName("price_after");
+
+                    b.Property<Guid?>("PriceAlertId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("price_alert_id");
+
+                    b.Property<decimal?>("PriceBefore")
+                        .HasPrecision(12, 2)
+                        .HasColumnType("numeric(12,2)")
+                        .HasColumnName("price_before");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("product_id");
+
+                    b.Property<DateTimeOffset>("TriggeredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("triggered_at");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_alert_triggers");
+
+                    b.HasIndex("OfferId")
+                        .HasDatabaseName("ix_alert_triggers_offer_id");
+
+                    b.HasIndex("PriceAlertId")
+                        .HasDatabaseName("ix_alert_triggers_price_alert_id");
+
+                    b.HasIndex("ProductId")
+                        .HasDatabaseName("ix_alert_triggers_product_id");
+
+                    b.HasIndex("UserId", "TriggeredAt")
+                        .IsDescending(false, true)
+                        .HasDatabaseName("ix_alert_triggers_user_id_triggered_at");
+
+                    b.ToTable("alert_triggers", "engagement");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Engagement.Click", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTimeOffset>("ClickedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("clicked_at");
+
+                    b.Property<string>("CorrelationId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("correlation_id");
+
+                    b.Property<string>("IpHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("ip_hash");
+
+                    b.Property<Guid>("OfferId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("offer_id");
+
+                    b.Property<Guid?>("PersonaId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("persona_id");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("product_id");
+
+                    b.Property<string>("RedirectUrl")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("redirect_url");
+
+                    b.Property<Guid>("SellerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("seller_id");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("source");
+
+                    b.Property<string>("UserAgent")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("user_agent");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_clicks");
+
+                    b.HasIndex("ProductId")
+                        .HasDatabaseName("ix_clicks_product_id");
+
+                    b.HasIndex("SellerId")
+                        .HasDatabaseName("ix_clicks_seller_id");
+
+                    b.HasIndex("OfferId", "ClickedAt")
+                        .HasDatabaseName("ix_clicks_offer_id_clicked_at");
+
+                    b.HasIndex("UserId", "ClickedAt")
+                        .HasDatabaseName("ix_clicks_user_id_clicked_at");
+
+                    b.ToTable("clicks", "engagement");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Engagement.PriceAlert", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_active");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("kind");
+
+                    b.Property<DateTimeOffset?>("LastTriggeredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_triggered_at");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("product_id");
+
+                    b.PrimitiveCollection<string[]>("Sizes")
+                        .IsRequired()
+                        .HasColumnType("text[]")
+                        .HasColumnName("sizes");
+
+                    b.Property<decimal?>("TargetPrice")
+                        .HasPrecision(12, 2)
+                        .HasColumnType("numeric(12,2)")
+                        .HasColumnName("target_price");
+
+                    b.Property<int>("TriggerCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("trigger_count");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_price_alerts");
+
+                    b.HasIndex("ProductId", "IsActive")
+                        .HasDatabaseName("ix_price_alerts_product_id_is_active");
+
+                    b.HasIndex("UserId", "CreatedAt")
+                        .IsDescending(false, true)
+                        .HasDatabaseName("ix_price_alerts_user_id_created_at");
+
+                    b.HasIndex("UserId", "ProductId", "Kind")
+                        .IsUnique()
+                        .HasDatabaseName("ix_price_alerts_user_id_product_id_kind")
+                        .HasFilter("is_active");
+
+                    b.ToTable("price_alerts", "engagement");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Engagement.SavedProduct", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("product_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.HasKey("UserId", "ProductId")
+                        .HasName("pk_saved_products");
+
+                    b.HasIndex("ProductId")
+                        .HasDatabaseName("ix_saved_products_product_id");
+
+                    b.HasIndex("UserId", "CreatedAt")
+                        .IsDescending(false, true)
+                        .HasDatabaseName("ix_saved_products_user_id_created_at");
+
+                    b.ToTable("saved_products", "engagement");
                 });
 
             modelBuilder.Entity("Kombin.Api.Persistence.Entities.Identity.RefreshToken", b =>
@@ -876,6 +1132,100 @@ namespace Kombin.Api.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_product_images_products_product_id");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Engagement.AlertTrigger", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.Catalog.Offer", null)
+                        .WithMany()
+                        .HasForeignKey("OfferId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_alert_triggers_offers_offer_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Engagement.PriceAlert", null)
+                        .WithMany()
+                        .HasForeignKey("PriceAlertId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_alert_triggers_price_alerts_price_alert_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Catalog.Product", null)
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_alert_triggers_products_product_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_alert_triggers_users_user_id");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Engagement.Click", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.Catalog.Offer", null)
+                        .WithMany()
+                        .HasForeignKey("OfferId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_clicks_offers_offer_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Catalog.Product", null)
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_clicks_products_product_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Catalog.Seller", null)
+                        .WithMany()
+                        .HasForeignKey("SellerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_clicks_sellers_seller_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_clicks_users_user_id");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Engagement.PriceAlert", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.Catalog.Product", null)
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_price_alerts_products_product_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_price_alerts_users_user_id");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Engagement.SavedProduct", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.Catalog.Product", null)
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_saved_products_products_product_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_saved_products_users_user_id");
                 });
 
             modelBuilder.Entity("Kombin.Api.Persistence.Entities.Identity.RefreshToken", b =>

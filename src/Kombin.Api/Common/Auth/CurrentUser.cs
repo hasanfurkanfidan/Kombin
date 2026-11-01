@@ -8,6 +8,9 @@ internal interface ICurrentUser
 
     /// <summary>The authenticated user's ID. Reading it without authentication is a bug and throws.</summary>
     Guid UserId { get; }
+
+    /// <summary>The authenticated user's ID, or null for an anonymous caller. For endpoints that work signed in or out.</summary>
+    Guid? UserIdOrNull { get; }
 }
 
 internal sealed class CurrentUser(IHttpContextAccessor httpContextAccessor) : ICurrentUser
@@ -17,7 +20,8 @@ internal sealed class CurrentUser(IHttpContextAccessor httpContextAccessor) : IC
     public bool IsAuthenticated => Principal?.Identity?.IsAuthenticated == true;
 
     public Guid UserId =>
-        IsAuthenticated && Guid.TryParse(Principal!.FindFirstValue("sub"), out var userId)
-            ? userId
-            : throw new InvalidOperationException("There is no authenticated user with a valid 'sub' claim.");
+        UserIdOrNull ?? throw new InvalidOperationException("There is no authenticated user with a valid 'sub' claim.");
+
+    public Guid? UserIdOrNull =>
+        IsAuthenticated && Guid.TryParse(Principal!.FindFirstValue("sub"), out var userId) ? userId : null;
 }

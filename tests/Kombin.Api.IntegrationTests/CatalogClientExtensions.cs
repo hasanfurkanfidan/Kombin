@@ -25,7 +25,8 @@ internal static class CatalogClientExtensions
         string[]? imageUrls = null,
         string color = "Green",
         string audience = "Women",
-        Guid? canonicalProductId = null) =>
+        Guid? canonicalProductId = null,
+        string[]? sizes = null) =>
         new
         {
             externalId,
@@ -36,7 +37,7 @@ internal static class CatalogClientExtensions
             shippingCost,
             freeShippingThreshold,
             stockStatus,
-            availableSizes = new[] { "S", "M" },
+            availableSizes = sizes ?? ["S", "M"],
             imageUrls = imageUrls ?? [$"https://img.example.com/{externalId}.jpg"],
             product = new
             {

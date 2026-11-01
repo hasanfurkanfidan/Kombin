@@ -5,6 +5,7 @@ using Kombin.Api.Common.Http;
 using Kombin.Api.Common.Time;
 using Kombin.Api.Common.Validation;
 using Kombin.Api.Features.Catalog;
+using Kombin.Api.Features.Engagement;
 using Kombin.Api.Features.Identity;
 using Kombin.Api.Persistence;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
@@ -29,6 +30,8 @@ builder.Services.AddOpenApi();
 builder.Services.AddHealthChecks().AddCheck<PostgresHealthCheck>("postgres");
 builder.AddKombinPersistence();
 builder.Services.AddIdentityFeature();
+builder.Services.AddCatalogFeature();
+builder.Services.AddEngagementFeature();
 
 var app = builder.Build();
 
@@ -50,8 +53,10 @@ app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => fa
 app.MapHealthChecks("/health");
 app.MapIdentityEndpoints();
 app.MapCatalogEndpoints();
+app.MapEngagementEndpoints();
 
 await app.MigrateDatabaseOnStartupAsync();
+await app.SeedDatabaseOnStartupAsync();
 await app.RunAsync();
 
 static LogEventLevel RequestLogLevel(HttpContext context, double elapsedMilliseconds, Exception? exception)

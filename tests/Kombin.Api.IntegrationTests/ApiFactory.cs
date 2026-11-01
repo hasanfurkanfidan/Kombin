@@ -38,6 +38,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         {
             ["ConnectionStrings:Postgres"] = _postgres.GetConnectionString(),
             ["Database:MigrateOnStartup"] = "true",
+            // appsettings.Development.json turns seeding on; the shared database must only hold what each test creates.
+            ["Database:SeedOnStartup"] = "false",
             ["Jwt:Issuer"] = "kombin-tests",
             ["Jwt:Audience"] = "kombin-tests",
             ["Jwt:SigningKey"] = "integration-test-signing-key-9f8e7d6c5b4a3",

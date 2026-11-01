@@ -1,0 +1,437 @@
+{
+  "marketplaces": {
+    "trendyol": "https://www.trendyol.com",
+    "hepsiburada": "https://www.hepsiburada.com"
+  },
+  "brandStores": {
+    "Mavi": "https://www.mavi.com",
+    "Koton": "https://www.koton.com",
+    "LC Waikiki": "https://www.lcw.com",
+    "Zara": "https://www.zara.com/tr",
+    "Defacto": "https://www.defacto.com.tr",
+    "Boyner": "https://www.boyner.com.tr",
+    "Derimod": "https://www.derimod.com.tr",
+    "Nike": "https://www.nike.com/tr",
+    "Adidas": "https://www.adidas.com.tr",
+    "Beymen Club": "https://www.beymenclub.com",
+    "Jack & Jones": "https://www.jackjones.com.tr",
+    "Pull&Bear": "https://www.pullandbear.com/tr",
+    "Vakko": "https://www.vakko.com"
+  },
+  "sizeSets": {
+    "tops": ["XS", "S", "M", "L", "XL"],
+    "waist": ["28", "30", "32", "34", "36"],
+    "shoesWomen": ["36", "37", "38", "39", "40", "41"],
+    "shoesMen": ["40", "41", "42", "43", "44", "45"],
+    "shoesUnisex": ["38", "39", "40", "41", "42", "43", "44", "45"],
+    "belt": ["85", "90", "95", "100", "105", "110"],
+    "oneSize": ["Standart"]
+  },
+  "products": [
+    {
+      "brand": "Mavi", "name": "Erkek Beyaz Basic Bisiklet Yaka Tişört", "modelCode": "MV-001", "category": "ust-giyim/tisort",
+      "audience": "Men", "color": "White", "pattern": "Solid", "fit": "Regular", "formality": 2, "seasons": ["Spring", "Summer"],
+      "material": "%100 Pamuk", "description": "Günlük kullanım için %100 pamuklu, bisiklet yaka basic tişört.", "sizeSet": "tops", "images": 2,
+      "offers": [
+        { "seller": "trendyol", "price": 349.90, "originalPrice": 449.90, "shippingCost": 39.90, "freeShippingThreshold": 2000 },
+        { "seller": "hepsiburada", "price": 354.90, "shippingCost": 29.90, "freeShippingThreshold": 1750 },
+        { "seller": "store", "price": 399.90, "shippingCost": 0 }
+      ]
+    },
+    {
+      "brand": "Koton", "name": "Kadın Çizgili Kısa Kollu Crop Tişört", "modelCode": "KT-002", "category": "ust-giyim/tisort",
+      "audience": "Women", "color": "Navy", "pattern": "Striped", "fit": "Slim", "formality": 2, "seasons": ["Spring", "Summer"],
+      "material": "%95 Pamuk %5 Elastan", "description": "Lacivert beyaz çizgili, vücuda oturan kısa kesim tişört.", "sizeSet": "tops", "images": 3,
+      "offers": [
+        { "seller": "trendyol", "price": 329.90, "originalPrice": 429.90, "shippingCost": 39.90, "freeShippingThreshold": 2000 },
+        { "seller": "hepsiburada", "price": 334.90, "shippingCost": 29.90, "freeShippingThreshold": 1750 }
+      ]
+    },
+    {
+      "brand": "Nike", "name": "Sportswear Club Erkek Tişört", "modelCode": "NK-003", "category": "ust-giyim/tisort",
+      "audience": "Men", "color": "Black", "pattern": "Solid", "fit": "Regular", "formality": 1, "seasons": ["Spring", "Summer", "Autumn"],
+      "material": "%100 Pamuk", "description": "Göğüste Nike logolu, rahat kesim spor tişört.", "sizeSet": "tops", "images": 3,
+      "offers": [
+        { "seller": "trendyol", "price": 799.00, "originalPrice": 1049.00, "shippingCost": 39.90, "freeShippingThreshold": 2000 },
+        { "seller": "hepsiburada", "price": 829.00, "shippingCost": 29.90, "freeShippingThreshold": 1750, "stock": "LowStock" },
+        { "seller": "store", "price": 849.00, "shippingCost": 0 }
+      ]
+    },
+    {
+      "brand": "Zara", "name": "Keten Karışımlı Regular Fit Gömlek", "modelCode": "ZR-004", "category": "ust-giyim/gomlek",
+      "audience": "Men", "color": "Beige", "pattern": "Solid", "fit": "Regular", "formality": 3, "seasons": ["Spring", "Summer"],
+      "material": "%55 Keten %45 Pamuk", "description": "Yaz aylarının vazgeçilmezi, nefes alan keten karışımlı gömlek.", "sizeSet": "tops", "images": 2,
+      "offers": [
+        { "seller": "trendyol", "price": 1395.00, "shippingCost": 39.90, "freeShippingThreshold": 2000 },
+        { "seller": "hepsiburada", "price": 1425.00, "originalPrice": 1699.00, "shippingCost": 29.90, "freeShippingThreshold": 1750 },
+        { "seller": "store", "price": 1495.00, "shippingCost": 0 }
+      ]
+    },
+    {
+      "brand": "Beymen Club", "name": "Slim Fit Oxford Gömlek", "modelCode": "BC-005", "category": "ust-giyim/gomlek",
+      "audience": "Men", "color": "Blue", "pattern": "Solid", "fit": "Slim", "formality": 4, "seasons": ["Spring", "Autumn", "Winter"],
+      "material": "%100 Pamuk", "description": "Açık mavi, düğmeli yaka oxford dokuma gömlek.", "sizeSet": "tops", "images": 2,
+      "offers": [
+        { "seller": "trendyol", "price": 1890.00, "originalPrice": 2390.00, "shippingCost": 39.90, "freeShippingThreshold": 2000 },
+        { "seller": "store", "price": 1990.00 }
+      ]
+    },
+    {
+      "brand": "Defacto", "name": "Kadın Oversize Poplin Gömlek", "modelCode": "DF-006", "category": "ust-giyim/gomlek",
+      "audience": "Women", "color": "White", "pattern": "Solid", "fit": "Oversized", "formality": 3, "seasons": ["Spring", "Summer", "Autumn"],
+      "material": "%100 Pamuk", "description": "Bol kesim, uzun kollu beyaz poplin gömlek.", "sizeSet": "tops", "images": 3,
+      "offers": [
+        { "seller": "trendyol", "price": 649.90 },
+        { "seller": "hepsiburada", "price": 659.90, "originalPrice": 799.90, "shippingCost": 29.90, "freeShippingThreshold": 1750 }
+      ]
+    },
+    {
+      "brand": "LC Waikiki", "name": "Erkek Boğazlı Triko Kazak", "modelCode": "LW-007", "category": "ust-giyim/triko",
+      "audience": "Men", "color": "Grey", "pattern": "Textured", "fit": "Regular", "formality": 3, "seasons": ["Autumn", "Winter"],
+      "material": "%70 Akrilik %30 Yün", "description": "Kışlık, yumuşak dokulu gri boğazlı kazak.", "sizeSet": "tops", "images": 2,
+      "offers": [
+        { "seller": "trendyol", "price": 549.99, "originalPrice": 749.99, "shippingCost": 39.90, "freeShippingThreshold": 2000 },
+        { "seller": "hepsiburada", "price": 569.99, "shippingCost": 29.90, "freeShippingThreshold": 1750 }
+      ]
+    },
+    {
+      "brand": "Vakko", "name": "Kaşmir Karışımlı V Yaka Kazak", "modelCode": "VK-008", "category": "ust-giyim/triko",
+      "audience": "Women", "color": "Beige", "pattern": "Solid", "fit": "Regular", "formality": 4, "seasons": ["Autumn", "Winter"],
+      "material": "%70 Yün %30 Kaşmir", "description": "İnce örgü, kaşmir karışımlı bej V yaka kazak.", "sizeSet": "tops", "images": 3,
+      "offers": [
+        { "seller": "trendyol", "price": 4250.00, "shippingCost": 39.90, "freeShippingThreshold": 2000 },
+        { "seller": "store", "price": 4450.00 }
+      ]
+    },
+    {
+      "brand": "Pull&Bear", "name": "Oversize Balıkçı Yaka Örme Kazak", "modelCode": "PB-009", "category": "ust-giyim/triko",
+      "audience": "Unisex", "color": "Brown", "pattern": "Textured", "fit": "Oversized", "formality": 2, "seasons": ["Autumn", "Winter"],
+      "material": "%60 Akrilik %40 Pamuk", "description": "Bol kesim, kahverengi balıkçı yaka örme kazak.", "sizeSet": "tops", "images": 2,
+      "offers": [
+        { "seller": "trendyol", "price": 899.95, "shippingCost": 39.90, "freeShippingThreshold": 2000 },
+        { "seller": "hepsiburada", "price": 929.95, "shippingCost": 29.90, "freeShippingThreshold": 1750, "stock": "OutOfStock" }
+      ]
+    },
+    {
+      "brand": "Zara", "name": "Kruvaze Blazer Ceket", "modelCode": "ZR-010", "category": "ust-giyim/blazer",
+      "audience": "Women", "color": "Black", "pattern": "Solid", "fit": "Regular", "formality": 4, "seasons": ["Spring", "Autumn", "Winter"],
+      "material": "%67 Polyester %29 Viskon %4 Elastan", "description": "Çift sıra düğmeli, siyah kruvaze blazer ceket.", "sizeSet": "tops", "images": 3,
+      "offers": [
+        { "seller": "trendyol", "price": 2495.00, "shippingCost": 39.90, "freeShippingThreshold": 2000, "stock": "LowStock" },
+        { "seller": "hepsiburada", "price": 2595.00, "originalPrice": 3195.00, "shippingCost": 29.90, "freeShippingThreshold": 1750 },
+        { "seller": "store", "price": 2695.00, "shippingCost": 0 }
+      ]
+    },
+    {
+      "brand": "Jack & Jones", "name": "Slim Fit Ekose Blazer Ceket", "modelCode": "JJ-011", "category": "ust-giyim/blazer",
+      "audience": "Men", "color": "Navy", "pattern": "Checked", "fit": "Slim", "formality": 5, "seasons": ["Autumn", "Winter"],
+      "material": "%72 Polyester %25 Viskon %3 Elastan", "description": "Lacivert ekose desenli, dar kesim blazer ceket.", "sizeSet": "tops", "images": 2,
+      "offers": [
+        { "seller": "trendyol", "price": 2799.00, "originalPrice": 3499.00, "shippingCost": 39.90, "freeShippingThreshold": 2000 },
+        { "seller": "store", "price": 2899.00, "shippingCost": 0 }
+      ]
+    },
+    {
+      "brand": "Boyner", "name": "Kadın Keten Blazer Ceket", "modelCode": "BY-012", "category": "ust-giyim/blazer",
+      "audience": "Women", "color": "Beige", "pattern": "Solid", "fit": "Regular", "formality": 4, "seasons": ["Spring", "Summer"],
+      "material": "%100 Keten", "description": "Yazlık, astarsız bej keten blazer.", "sizeSet": "tops", "images": 2,
+      "offers": [
+        { "seller": "trendyol", "price": 1899.00, "shippingCost": 39.90, "freeShippingThreshold": 2000 },
+        { "seller": "hepsiburada", "price": 1949.00, "originalPrice": 2399.00, "shippingCost": 29.90, "freeShippingThreshold": 1750 }
+      ]
+    },
+    {
+      "brand": "Koton", "name": "Erkek Chino Pantolon", "modelCode": "KT-013", "category": "alt-giyim/pantolon",
+      "audience": "Men", "color": "Beige", "pattern": "Solid", "fit": "Regular", "formality": 3, "seasons": ["Spring", "Summer", "Autumn"],
+      "material": "%98 Pamuk %2 Elastan", "description": "Streç pamuklu, bej klasik chino pantolon.", "sizeSet": "waist", "images": 2,
+      "offers": [
+        { "seller": "trendyol", "price": 799.99, "shippingCost": 39.90, "freeShippingThreshold": 2000 },
+        { "seller": "hepsiburada", "price": 819.99, "originalPrice": 999.99, "shippingCost": 29.90, "freeShippingThreshold": 1750 }
+      ]
+    },
+    {
+      "brand": "Beymen Club", "name": "Yünlü Kumaş Pantolon", "modelCode": "BC-014", "category": "alt-giyim/pantolon",
+      "audience": "Men", "color": "Grey", "pattern": "Solid", "fit": "Slim", "formality": 5, "seasons": ["Autumn", "Winter"],
+      "material": "%60 Yün %40 Polyester", "description": "Takım elbiseyle uyumlu gri kumaş pantolon.", "sizeSet": "waist", "images": 2,
+      "offers": [
+        { "seller": "trendyol", "price": 2390.00, "originalPrice": 3190.00, "shippingCost": 39.90, "freeShippingThreshold": 2000 },
+        { "seller": "store", "price": 2490.00, "shippingCost": 0 }
+      ]
+    },
+    {
+      "brand": "Defacto", "name": "Kadın Wide Leg Pantolon", "modelCode": "DF-015", "category": "alt-giyim/pantolon",
+      "audience": "Women", "color": "Black", "pattern": "Solid", "fit": "Relaxed", "formality": 3, "seasons": ["Spring", "Autumn", "Winter"],
+      "material": "%65 Polyester %35 Viskon", "description": "Yüksek bel, geniş paça siyah pantolon.", "sizeSet": "waist", "images": 2,
+      "offers": [
+        { "seller": "trendyol", "price": 699.99 },
+        { "seller": "hepsiburada", "price": 709.99, "shippingCost": 29.90, "freeShippingThreshold": 1750 }
+      ]
+    },
+    {
+      "brand": "Mavi", "name": "Marcus Slim Straight Erkek Jean", "modelCode": "MV-016", "category": "alt-giyim/jean",
+      "audience": "Men", "color": "Blue", "pattern": "Solid", "fit": "Slim", "formality": 2, "seasons": ["Spring", "Summer", "Autumn", "Winter"],
+      "material": "%99 Pamuk %1 Elastan", "description": "Orta mavi yıkamalı, dar kalıp düz paça jean.", "sizeSet": "waist", "images": 3,
+      "offers": [
+        { "seller": "trendyol", "price": 1499.90, "originalPrice": 1899.90, "shippingCost": 39.90, "freeShippingThreshold": 2000 },
+        { "seller": "hepsiburada", "price": 1529.90, "shippingCost": 29.90, "freeShippingThreshold": 1750 },
+        { "seller": "store", "price": 1599.90, "shippingCost": 0 }
+      ]
+    },
+    {
+      "brand": "Mavi", "name": "Kadın Yüksek Bel Mom Jean", "modelCode": "MV-017", "category": "alt-giyim/jean",
+      "audience": "Women", "color": "Blue", "pattern": "Solid", "fit": "Relaxed", "formality": 2, "seasons": ["Spring", "Summer", "Autumn", "Winter"],
+      "material": "%100 Pamuk", "description": "Yüksek belli, rahat kalıp mom jean.", "sizeSet": "waist", "images": 2,
+      "offers": [
+        { "seller": "trendyol", "price": 1299.90, "shippingCost": 39.90, "freeShippingThreshold": 2000, "stock": "OutOfStock" }
+      ]
+    },
+    {
+      "brand": "Pull&Bear", "name": "Baggy Fit Siyah Jean", "modelCode": "PB-018", "category": "alt-giyim/jean",
+      "audience": "Unisex", "color": "Black", "pattern": "Solid", "fit": "Oversized", "formality": 1, "seasons": ["Spring", "Autumn", "Winter"],
+      "material": "%100 Pamuk", "description": "Bol paçalı, solmuş siyah baggy jean.", "sizeSet": "waist", "images": 2,
+      "offers": [
+        { "seller": "trendyol", "price": 1099.00, "shippingCost": 39.90, "freeShippingThreshold": 2000 },
+        { "seller": "store", "price": 1199.00, "originalPrice": 1499.00, "shippingCost": 49.90, "freeShippingThreshold": 1500 }
+      ]
+    },
+    {
+      "brand": "Defacto", "name": "Kadın Saten Midi Etek", "modelCode": "DF-019", "category": "alt-giyim/etek",
+      "audience": "Women", "color": "Green", "pattern": "Solid", "fit": "Regular", "formality": 4, "seasons": ["Spring", "Summer", "Autumn"],
+      "material": "%100 Polyester", "description": "Zümrüt yeşili, akışkan saten midi etek.", "sizeSet": "tops", "images": 3,
+      "offers": [
+        { "seller": "trendyol", "price": 899.99, "originalPrice": 1199.99 }
+      ]
+    },
+    {
+      "brand": "Koton", "name": "Mini Kareli Etek", "modelCode": "KT-020", "category": "alt-giyim/etek",
+      "audience": "Women", "color": "Red", "pattern": "Checked", "fit": "Regular", "formality": 2, "seasons": ["Autumn", "Winter"],
+      "material": "%60 Pamuk %40 Polyester", "description": "Kırmızı ekose desenli, pileli mini etek.", "sizeSet": "tops", "images": 2,
+      "offers": [
+        { "seller": "trendyol", "price": 549.99, "originalPrice": 699.99, "shippingCost": 39.90, "freeShippingThreshold": 2000 },
+        { "seller": "hepsiburada", "price": 569.99, "shippingCost": 29.90, "freeShippingThreshold": 1750 }
+      ]
+    },
+    {
+      "brand": "Vakko", "name": "Plise Midi Etek", "modelCode": "VK-021", "category": "alt-giyim/etek",
+      "audience": "Women", "color": "Black", "pattern": "Solid", "fit": "Regular", "formality": 4, "seasons": ["Spring", "Autumn", "Winter"],
+      "material": "%100 Polyester", "description": "İnce pliseli, siyah midi boy etek.", "sizeSet": "tops", "images": 3,
+      "offers": [
+        { "seller": "trendyol", "price": 2850.00, "shippingCost": 39.90, "freeShippingThreshold": 2000 }
+      ]
+    },
+    {
+      "brand": "Nike", "name": "Sportswear Therma-FIT Şişme Mont", "modelCode": "NK-022", "category": "dis-giyim/mont",
+      "audience": "Men", "color": "Black", "pattern": "Solid", "fit": "Regular", "formality": 1, "seasons": ["Autumn", "Winter"],
+      "material": "%100 Polyester", "description": "Isı yalıtımlı dolgulu, kapüşonlu siyah şişme mont.", "sizeSet": "tops", "images": 3,
+      "offers": [
+        { "seller": "trendyol", "price": 4299.00, "originalPrice": 5499.00, "shippingCost": 39.90, "freeShippingThreshold": 2000 },
+        { "seller": "hepsiburada", "price": 4399.00, "shippingCost": 29.90, "freeShippingThreshold": 1750 },
+        { "seller": "store", "price": 4499.00, "shippingCost": 0, "stock": "OutOfStock" }
+      ]
+    },
+    {
+      "brand": "LC Waikiki", "name": "Kadın Kapüşonlu Şişme Mont", "modelCode": "LW-023", "category": "dis-giyim/mont",
+      "audience": "Women", "color": "Pink", "pattern": "Solid", "fit": "Oversized", "formality": 1, "seasons": ["Autumn", "Winter"],
+      "material": "%100 Polyester", "description": "Pembe, bol kesim kapüşonlu kışlık mont.", "sizeSet": "tops", "images": 2,
+      "offers": [
+        { "seller": "trendyol", "price": 1299.99, "originalPrice": 1799.99, "shippingCost": 39.90, "freeShippingThreshold": 2000 },
+        { "seller": "hepsiburada", "price": 1349.99, "shippingCost": 29.90, "freeShippingThreshold": 1750 }
+      ]
+    },
+    {
+      "brand": "Jack & Jones", "name": "Kapüşonlu Erkek Parka", "modelCode": "JJ-024", "category": "dis-giyim/mont",
+      "audience": "Men", "color": "Green", "pattern": "Solid", "fit": "Regular", "formality": 2, "seasons": ["Autumn", "Winter"],
+      "material": "%100 Polyester", "description": "Haki yeşil, kürk astarlı kapüşonlu parka.", "sizeSet": "tops", "images": 3,
+      "offers": [
+        { "seller": "trendyol", "price": 2899.00, "originalPrice": 3599.00, "shippingCost": 39.90, "freeShippingThreshold": 2000 }
+      ]
+    },
+    {
+      "brand": "Vakko", "name": "Yün Karışımlı Uzun Kaban", "modelCode": "VK-025", "category": "dis-giyim/kaban",
+      "audience": "Women", "color": "Beige", "pattern": "Solid", "fit": "Regular", "formality": 5, "seasons": ["Autumn", "Winter"],
+      "material": "%80 Yün %20 Polyamid", "description": "Diz altı boy, bej yün karışımlı kaban.", "sizeSet": "tops", "images": 3,
+      "offers": [
+        { "seller": "trendyol", "price": 6900.00, "originalPrice": 8500.00, "shippingCost": 39.90, "freeShippingThreshold": 2000 },
+        { "seller": "store", "price": 6990.00 }
+      ]
+    },
+    {
+      "brand": "Beymen Club", "name": "Erkek Yün Palto", "modelCode": "BC-026", "category": "dis-giyim/kaban",
+      "audience": "Men", "color": "Navy", "pattern": "Solid", "fit": "Slim", "formality": 5, "seasons": ["Autumn", "Winter"],
+      "material": "%70 Yün %30 Polyester", "description": "Lacivert, dar kesim klasik erkek paltosu.", "sizeSet": "tops", "images": 2,
+      "offers": [
+        { "seller": "trendyol", "price": 6490.00, "shippingCost": 39.90, "freeShippingThreshold": 2000, "stock": "LowStock" },
+        { "seller": "hepsiburada", "price": 6590.00, "shippingCost": 29.90, "freeShippingThreshold": 1750 }
+      ]
+    },
+    {
+      "brand": "Boyner", "name": "Kadın Peluş Kaban", "modelCode": "BY-027", "category": "dis-giyim/kaban",
+      "audience": "Women", "color": "Brown", "pattern": "Textured", "fit": "Oversized", "formality": 3, "seasons": ["Autumn", "Winter"],
+      "material": "%100 Polyester", "description": "Kahverengi, yumuşak peluş dokulu bol kaban.", "sizeSet": "tops", "images": 2,
+      "offers": [
+        { "seller": "trendyol", "price": 3499.00, "originalPrice": 4299.00, "shippingCost": 39.90, "freeShippingThreshold": 2000 }
+      ]
+    },
+    {
+      "brand": "Derimod", "name": "Hakiki Deri Biker Ceket", "modelCode": "DR-028", "category": "dis-giyim/ceket",
+      "audience": "Men", "color": "Black", "pattern": "Solid", "fit": "Slim", "formality": 3, "seasons": ["Spring", "Autumn"],
+      "material": "Hakiki Deri", "description": "Asimetrik fermuarlı, siyah hakiki deri biker ceket.", "sizeSet": "tops", "images": 3,
+      "offers": [
+        { "seller": "trendyol", "price": 6490.00, "shippingCost": 39.90, "freeShippingThreshold": 2000 },
+        { "seller": "hepsiburada", "price": 6590.00, "shippingCost": 29.90, "freeShippingThreshold": 1750 },
+        { "seller": "store", "price": 6690.00, "shippingCost": 0 }
+      ]
+    },
+    {
+      "brand": "Adidas", "name": "Essentials Rüzgarlık", "modelCode": "AD-029", "category": "dis-giyim/ceket",
+      "audience": "Unisex", "color": "Navy", "pattern": "Solid", "fit": "Regular", "formality": 1, "seasons": ["Spring", "Autumn"],
+      "material": "%100 Polyester", "description": "Hafif, rüzgar geçirmeyen lacivert spor ceket.", "sizeSet": "tops", "images": 2,
+      "offers": [
+        { "seller": "trendyol", "price": 1899.00, "originalPrice": 2399.00, "shippingCost": 39.90, "freeShippingThreshold": 2000 },
+        { "seller": "hepsiburada", "price": 1929.00, "shippingCost": 29.90, "freeShippingThreshold": 1750 }
+      ]
+    },
+    {
+      "brand": "Mavi", "name": "Erkek Denim Ceket", "modelCode": "MV-030", "category": "dis-giyim/ceket",
+      "audience": "Men", "color": "Blue", "pattern": "Solid", "fit": "Regular", "formality": 2, "seasons": ["Spring", "Autumn"],
+      "material": "%100 Pamuk", "description": "Klasik kesim, orta mavi denim ceket.", "sizeSet": "tops", "images": 2,
+      "offers": [
+        { "seller": "trendyol", "price": 1799.90 },
+        { "seller": "store", "price": 1899.90, "originalPrice": 2299.90, "shippingCost": 0 }
+      ]
+    },
+    {
+      "brand": "Nike", "name": "Air Force 1 '07 Erkek Sneaker", "modelCode": "NK-031", "category": "ayakkabi/sneaker",
+      "audience": "Men", "color": "White", "pattern": "Solid", "fit": "Regular", "formality": 1, "seasons": ["Spring", "Summer", "Autumn", "Winter"],
+      "material": "Deri", "description": "Ikonik tasarımlı beyaz deri spor ayakkabı.", "sizeSet": "shoesMen", "images": 3,
+      "offers": [
+        { "seller": "trendyol", "price": 4499.00, "originalPrice": 5299.00, "shippingCost": 39.90, "freeShippingThreshold": 2000 },
+        { "seller": "hepsiburada", "price": 4599.00, "shippingCost": 29.90, "freeShippingThreshold": 1750, "stock": "OutOfStock" }
+      ]
+    },
+    {
+      "brand": "Adidas", "name": "Samba OG Sneaker", "modelCode": "AD-032", "category": "ayakkabi/sneaker",
+      "audience": "Unisex", "color": "Black", "pattern": "Solid", "fit": "Regular", "formality": 1, "seasons": ["Spring", "Summer", "Autumn", "Winter"],
+      "material": "Deri", "description": "Süet burun detaylı, siyah klasik Samba.", "sizeSet": "shoesUnisex", "images": 3,
+      "offers": [
+        { "seller": "trendyol", "price": 3799.00, "originalPrice": 4499.00, "shippingCost": 39.90, "freeShippingThreshold": 2000 },
+        { "seller": "hepsiburada", "price": 3899.00, "shippingCost": 29.90, "freeShippingThreshold": 1750 },
+        { "seller": "store", "price": 3999.00, "shippingCost": 0 }
+      ]
+    },
+    {
+      "brand": "Derimod", "name": "Hakiki Deri Beyaz Sneaker", "modelCode": "DR-033", "category": "ayakkabi/sneaker",
+      "audience": "Men", "color": "White", "pattern": "Solid", "fit": "Regular", "formality": 2, "seasons": ["Spring", "Summer", "Autumn"],
+      "material": "Hakiki Deri", "description": "Sade çizgili, hakiki deri beyaz sneaker.", "sizeSet": "shoesMen", "images": 2,
+      "offers": [
+        { "seller": "trendyol", "price": 3290.00, "originalPrice": 4390.00, "shippingCost": 39.90, "freeShippingThreshold": 2000 },
+        { "seller": "hepsiburada", "price": 3350.00, "shippingCost": 29.90, "freeShippingThreshold": 1750, "stock": "LowStock" }
+      ]
+    },
+    {
+      "brand": "Derimod", "name": "Hakiki Deri Chelsea Bot", "modelCode": "DR-034", "category": "ayakkabi/bot",
+      "audience": "Men", "color": "Brown", "pattern": "Solid", "fit": "Slim", "formality": 4, "seasons": ["Autumn", "Winter"],
+      "material": "Hakiki Deri", "description": "Esnek yan panelli, kahverengi chelsea bot.", "sizeSet": "shoesMen", "images": 3,
+      "offers": [
+        { "seller": "trendyol", "price": 4490.00, "shippingCost": 39.90, "freeShippingThreshold": 2000 },
+        { "seller": "store", "price": 4690.00, "shippingCost": 49.90, "freeShippingThreshold": 1500 }
+      ]
+    },
+    {
+      "brand": "Zara", "name": "Topuklu Deri Bilek Botu", "modelCode": "ZR-035", "category": "ayakkabi/bot",
+      "audience": "Women", "color": "Black", "pattern": "Solid", "fit": "Slim", "formality": 4, "seasons": ["Autumn", "Winter"],
+      "material": "Deri", "description": "Blok topuklu, siyah deri bilek botu.", "sizeSet": "shoesWomen", "images": 3,
+      "offers": [
+        { "seller": "trendyol", "price": 3295.00, "originalPrice": 4195.00, "shippingCost": 39.90, "freeShippingThreshold": 2000 },
+        { "seller": "hepsiburada", "price": 3395.00, "shippingCost": 29.90, "freeShippingThreshold": 1750 }
+      ]
+    },
+    {
+      "brand": "Nike", "name": "Manoa Leather Erkek Bot", "modelCode": "NK-036", "category": "ayakkabi/bot",
+      "audience": "Men", "color": "Brown", "pattern": "Solid", "fit": "Regular", "formality": 1, "seasons": ["Autumn", "Winter"],
+      "material": "Nubuk Deri", "description": "Su itici, kahverengi nubuk outdoor bot.", "sizeSet": "shoesMen", "images": 2,
+      "offers": [
+        { "seller": "trendyol", "price": 3999.00, "shippingCost": 39.90, "freeShippingThreshold": 2000, "stock": "OutOfStock" }
+      ]
+    },
+    {
+      "brand": "Derimod", "name": "Hakiki Deri Loafer", "modelCode": "DR-037", "category": "ayakkabi/loafer",
+      "audience": "Men", "color": "Brown", "pattern": "Solid", "fit": "Regular", "formality": 4, "seasons": ["Spring", "Summer", "Autumn"],
+      "material": "Hakiki Deri", "description": "Elde boyanmış, kahverengi hakiki deri loafer.", "sizeSet": "shoesMen", "images": 3,
+      "offers": [
+        { "seller": "trendyol", "price": 3190.00, "shippingCost": 39.90, "freeShippingThreshold": 2000 },
+        { "seller": "hepsiburada", "price": 3250.00, "originalPrice": 3990.00, "shippingCost": 29.90, "freeShippingThreshold": 1750 },
+        { "seller": "store", "price": 3390.00, "shippingCost": 0 }
+      ]
+    },
+    {
+      "brand": "Beymen Club", "name": "Deri Püsküllü Loafer", "modelCode": "BC-038", "category": "ayakkabi/loafer",
+      "audience": "Men", "color": "Black", "pattern": "Solid", "fit": "Regular", "formality": 5, "seasons": ["Spring", "Summer", "Autumn", "Winter"],
+      "material": "Deri", "description": "Püskül detaylı, siyah klasik deri loafer.", "sizeSet": "shoesMen", "images": 2,
+      "offers": [
+        { "seller": "trendyol", "price": 3890.00, "shippingCost": 39.90, "freeShippingThreshold": 2000 },
+        { "seller": "store", "price": 3990.00, "originalPrice": 4890.00 }
+      ]
+    },
+    {
+      "brand": "Vakko", "name": "Kadın Deri Loafer", "modelCode": "VK-039", "category": "ayakkabi/loafer",
+      "audience": "Women", "color": "Beige", "pattern": "Solid", "fit": "Regular", "formality": 4, "seasons": ["Spring", "Autumn"],
+      "material": "Deri", "description": "Bej deri, altın tokalı kadın loafer.", "sizeSet": "shoesWomen", "images": 3,
+      "offers": [
+        { "seller": "trendyol", "price": 3950.00, "shippingCost": 39.90, "freeShippingThreshold": 2000 }
+      ]
+    },
+    {
+      "brand": "Zara", "name": "Zincir Askılı Omuz Çantası", "modelCode": "ZR-040", "category": "aksesuar/canta",
+      "audience": "Women", "color": "Black", "pattern": "Solid", "fit": "Regular", "formality": 3, "seasons": ["Spring", "Summer", "Autumn", "Winter"],
+      "material": "Suni Deri", "description": "Zincir askılı, siyah küçük boy omuz çantası.", "sizeSet": "oneSize", "images": 3,
+      "offers": [
+        { "seller": "trendyol", "price": 1595.00, "shippingCost": 39.90, "freeShippingThreshold": 2000, "stock": "LowStock" },
+        { "seller": "hepsiburada", "price": 1645.00, "shippingCost": 29.90, "freeShippingThreshold": 1750 }
+      ]
+    },
+    {
+      "brand": "Vakko", "name": "Monogram Desenli Deri El Çantası", "modelCode": "VK-041", "category": "aksesuar/canta",
+      "audience": "Women", "color": "Brown", "pattern": "Printed", "fit": "Regular", "formality": 4, "seasons": ["Spring", "Summer", "Autumn", "Winter"],
+      "material": "Deri", "description": "Monogram baskılı, kahverengi deri el çantası.", "sizeSet": "oneSize", "images": 3,
+      "offers": [
+        { "seller": "trendyol", "price": 4750.00, "shippingCost": 39.90, "freeShippingThreshold": 2000 }
+      ]
+    },
+    {
+      "brand": "Adidas", "name": "Classic Sırt Çantası", "modelCode": "AD-042", "category": "aksesuar/canta",
+      "audience": "Unisex", "color": "Black", "pattern": "Solid", "fit": "Regular", "formality": 1, "seasons": ["Spring", "Summer", "Autumn", "Winter"],
+      "material": "%100 Polyester", "description": "Laptop bölmeli, siyah günlük sırt çantası.", "sizeSet": "oneSize", "images": 2,
+      "offers": [
+        { "seller": "trendyol", "price": 1299.00, "originalPrice": 1599.00, "shippingCost": 39.90, "freeShippingThreshold": 2000 },
+        { "seller": "hepsiburada", "price": 1349.00, "shippingCost": 29.90, "freeShippingThreshold": 1750 }
+      ]
+    },
+    {
+      "brand": "Jack & Jones", "name": "Deri Görünümlü Erkek Kemer", "modelCode": "JJ-043", "category": "aksesuar/kemer",
+      "audience": "Men", "color": "Black", "pattern": "Solid", "fit": "Regular", "formality": 3, "seasons": ["Spring", "Summer", "Autumn", "Winter"],
+      "material": "Suni Deri", "description": "Metal tokalı, siyah deri görünümlü kemer.", "sizeSet": "belt", "images": 1,
+      "offers": [
+        { "seller": "trendyol", "price": 549.00, "shippingCost": 39.90, "freeShippingThreshold": 2000, "stock": "OutOfStock" },
+        { "seller": "hepsiburada", "price": 569.00, "shippingCost": 29.90, "freeShippingThreshold": 1750, "stock": "OutOfStock" }
+      ]
+    },
+    {
+      "brand": "LC Waikiki", "name": "Erkek Klasik Kemer", "modelCode": "LW-044", "category": "aksesuar/kemer",
+      "audience": "Men", "color": "Black", "pattern": "Solid", "fit": "Regular", "formality": 4, "seasons": ["Spring", "Summer", "Autumn", "Winter"],
+      "material": "Suni Deri", "description": "Pantolonla uyumlu, siyah klasik kemer.", "sizeSet": "belt", "images": 2,
+      "offers": [
+        { "seller": "trendyol", "price": 299.99, "originalPrice": 399.99, "shippingCost": 39.90, "freeShippingThreshold": 2000 },
+        { "seller": "hepsiburada", "price": 319.99, "shippingCost": 29.90, "freeShippingThreshold": 1750 }
+      ]
+    },
+    {
+      "brand": "Koton", "name": "Kadın Zincir Detaylı Kemer", "modelCode": "KT-045", "category": "aksesuar/kemer",
+      "audience": "Women", "color": "Beige", "pattern": "Solid", "fit": "Regular", "formality": 3, "seasons": ["Spring", "Summer", "Autumn", "Winter"],
+      "material": "Suni Deri", "description": "Altın zincir detaylı, bej ince kemer.", "sizeSet": "belt", "images": 1,
+      "offers": [
+        { "seller": "trendyol", "price": 349.99, "shippingCost": 39.90, "freeShippingThreshold": 2000 }
+      ]
+    }
+  ]
+}

@@ -4,8 +4,9 @@ Backend for Kombin, a mobile app that learns a user's style, manages their wardr
 across Turkish retailers and redirects to retailers through affiliate links. .NET 10 Minimal API, vertical slices,
 PostgreSQL 18 via EF Core. See [CLAUDE.md](CLAUDE.md) for the architecture rules and the recipe for adding a use case.
 
-Currently implemented: **Identity** (register, login, refresh with rotation, logout, current user) and **Catalog**
-(products, sellers, offers, price history, plus an internal ingestion endpoint for scrapers).
+Currently implemented: **Identity** (register, login, refresh with rotation, logout, current user), **Catalog**
+(products, sellers, offers, price history, plus an internal ingestion endpoint for scrapers) and **Engagement** (saved
+products, price/stock alerts, and the `/go/{offerId}` affiliate redirect that records every buy click).
 
 ## Requirements
 
@@ -20,10 +21,27 @@ docker compose --file docker/compose.yaml up --build --detach --wait
 curl -i http://localhost:8080/health
 ```
 
-The compose stack runs the API in `Development` with `Database__MigrateOnStartup=true`, so the schema is created on first
-start. OpenAPI document (Development only): `http://localhost:8080/openapi/v1.json`.
+The compose stack runs the API in `Development` with `Database__MigrateOnStartup=true` and `Database__SeedOnStartup=true`,
+so the schema is created and filled on first start. OpenAPI document (Development only): `http://localhost:8080/openapi/v1.json`.
 
-To run the API from the IDE or CLI against the compose database only:
+### Demo data
+
+On an empty database the API seeds a realistic Turkish catalog (45 products from 13 brands, 90 offers on Trendyol,
+Hepsiburada and brand stores, 90 days of price history) and a demo user:
+
+| Email | Password | Display name |
+|---|---|---|
+| `demo@kombin.app` | `Demo1234!` | Demo Kullanıcı |
+
+```bash
+curl -X POST http://localhost:8080/api/v1/auth/login -H "Content-Type: application/json"   --data '{"email":"demo@kombin.app","password":"Demo1234!"}'
+```
+
+Seeding is idempotent (a restart only logs "already seeded") and only runs in `Development`; `Database:SeedOnStartup` is
+ignored with a warning anywhere else. The data lives in `src/Kombin.Api/Persistence/Seed/dev-catalog.json`. To start over:
+`docker compose --file docker/compose.yaml down --volumes`.
+
+To run the API from the IDE or CLI against the compose database only (`appsettings.Development.json` migrates and seeds too):
 
 ```bash
 docker compose --file docker/compose.yaml up --detach --wait db
@@ -73,6 +91,37 @@ curl -X POST http://localhost:8080/api/v1/internal/catalog/offers/upsert \
   -H "X-Internal-Key: $INTERNAL_API_KEY" -H "Content-Type: application/json" --data-binary @batch.json
 ```
 
+### Engagement
+
+Everything a signed-in user does on a product. All routes need a bearer token except `/go`.
+
+| Method | Route | Success | Errors |
+|---|---|---|---|
+| PUT | `/me/saved/{productId}` | 204, idempotent | 404 `Catalog.ProductNotFound` |
+| DELETE | `/me/saved/{productId}` | 204, idempotent | - |
+| GET | `/me/saved?page=&pageSize=` | 200 paged, newest first; the catalog list item fields plus `isActive` and `savedAt` | - |
+| GET | `/me/saved/ids` | 200 `{ productIds }` (newest 1000) | - |
+| POST | `/me/alerts` | 201 alert `{ id, kind, targetPrice, sizes, isActive, triggerCount, lastTriggeredAt, lastPriceAfter, createdAt, product }` | 400 validation or `Engagement.TargetNotBelowCurrent`, 404 `Catalog.ProductNotFound`, 409 `Engagement.AlertExists` |
+| GET | `/me/alerts?active=true` | 200 `{ items }`, newest first | - |
+| PATCH | `/me/alerts/{id}` | 200 alert; body `{ targetPrice?, sizes?, isActive? }` | 400, 404 `Engagement.AlertNotFound`, 409 `Engagement.AlertExists` |
+| DELETE | `/me/alerts/{id}` | 204; its triggers stay in the feed | 404 `Engagement.AlertNotFound` |
+| GET | `/me/alerts/triggers?page=&pageSize=` | 200 paged feed, newest first | - |
+| GET | `/me/clicks?page=&pageSize=` | 200 paged click history | - |
+| GET | `/go/{offerId}?src=&personaId=` | 302 to the seller (anonymous allowed), `Cache-Control: no-store` | 404 `Engagement.OfferNotAvailable` |
+
+**Buy links are always `/go/{offerId}`, never the seller's raw URL.** The redirect records a `Click` and builds the
+affiliate URL from the seller's `AffiliateUrlTemplate`/`AffiliateParams` (placeholders `{url}` URL-encoded offer URL,
+`{rawUrl}`, `{clickId}`, `{source}`, `{p.<key>}`). A seller without a template gets the offer URL with
+`utm_source=kombin&utm_medium=app&utm_campaign=<src>&kombin_click=<clickId>` merged into its query string; the two
+seeded marketplaces have none yet, real templates are configured per seller later. `src` is one of `product_detail`,
+`outfit`, `saved`, `alert`, `feed`; anything else is recorded as `unknown`. Clicks store a SHA-256 of the caller's IP and
+`Outbound:IpSalt` (env `Outbound__IpSalt`, `OUTBOUND_IP_SALT`; defaults to a Development-only placeholder in the compose
+file, at least 16 characters and not a placeholder elsewhere), never the IP. Rate limiting on `/go` is not implemented yet.
+
+```bash
+curl -i "http://localhost:8080/api/v1/go/$OFFER_ID?src=product_detail"
+```
+
 Health: `/health/live` (process only), `/health` (also checks PostgreSQL).
 
 Errors are `application/problem+json` with `errorCode` and `correlationId`; validation errors add an `errors` dictionary.
@@ -116,10 +165,31 @@ always echoed in the response header.
 - **Images** are added (de-duplicated by URL) when an offer is created or re-linked, not on plain re-observation.
 - **Enums** are stored as strings in the database and travel as names in JSON.
 
+### Engagement decisions
+
+- **Alerts are evaluated inside the upsert path.** After a group of offers is committed, `OfferUpserter` calls
+  `AlertEvaluator` for every existing offer whose effective price or stock status changed. An evaluation failure is
+  logged with the offer ID and never fails or rolls back the upsert (it runs after the commit).
+- **Rules**, all on the *effective* price (price + shipping). `PriceDrop` fires when the offer can be bought and its price
+  crosses the target from above (a price seen while out of stock counts as "above"); `BackInStock` when stock goes from
+  `OutOfStock`/`Unknown` to `InStock`/`LowStock`, and with `sizes` only if one of them is in the offer's
+  `AvailableSizes` (case-insensitive); `AnyChange` on a price move of at least 1 % or any stock status change. A new or
+  re-linked offer has no previous state and fires nothing. Firing keeps the alert active.
+- **Per offer, not per product.** An alert fires for the offer that changed, so a second seller dropping below a target that
+  another seller already beats still fires once.
+- **`lowestPrice`** in every product summary is the catalog's (sticker price of the cheapest buyable offer), while the
+  `PriceDrop` target is checked against the lowest *effective* price. A product with no buyable offer accepts any target.
+- **Saved list** items for a product nobody sells report `offerCount: 0` and `lowestPrice: 0`.
+- **Click IDs** are reserved from the identity sequence before the insert, because the ID goes into the redirect URL; the
+  `clicks` table is therefore only ever inserted into.
+- **Behind a proxy** the click's IP hash is that of the proxy until forwarded headers are configured.
+
 ## TODO
 
 - Rate limiting on the auth endpoints (out of scope for the foundation task).
 - Catalog: deactivating offers that stop being seen (`Offer.IsActive`, and `Product.IsActive` when none remain) needs a
   sweep job or an internal endpoint; nothing sets them to false yet except re-linking.
 - Catalog: full-text search (today `ILIKE`), entity resolution/image similarity for products without a `modelCode`,
-  copying images to our own storage, pgvector embeddings, TimescaleDB for `price_snapshots`, affiliate link wrapping.
+  copying images to our own storage, pgvector embeddings, TimescaleDB for `price_snapshots`.
+- Engagement: rate limiting and bot filtering on `/go`, push notifications and the job that consumes `alert_triggers`
+  (`ConsumedAt`), affiliate conversion/postback import, real affiliate templates per seller, forwarded-headers setup.

@@ -25,6 +25,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Embedded rather than copied to the output so the seed travels with the assembly (tests, Docker image) and needs no path lookup. -->
+    <EmbeddedResource Include="Persistence\Seed\dev-catalog.json" LogicalName="Kombin.Api.Persistence.Seed.dev-catalog.json" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="Kombin.Api.Tests" />
     <InternalsVisibleTo Include="Kombin.Api.IntegrationTests" />
   </ItemGroup>

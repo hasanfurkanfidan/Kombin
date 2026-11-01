@@ -1,16 +1,20 @@
 using Kombin.Api.Persistence.Interceptors;
+using Kombin.Api.Persistence.Seed;
 
 namespace Kombin.Api.Persistence;
 
-internal static class PersistenceExtensions
+internal static partial class PersistenceExtensions
 {
     public const string ConnectionStringName = "Postgres";
 
     public const string MigrateOnStartupKey = "Database:MigrateOnStartup";
 
+    public const string SeedOnStartupKey = "Database:SeedOnStartup";
+
     public static IHostApplicationBuilder AddKombinPersistence(this IHostApplicationBuilder builder)
     {
         builder.Services.AddSingleton<AuditInterceptor>();
+        builder.Services.AddScoped<DevSeeder>();
 
         // Configuration is read lazily so values supplied after Program.cs ran (tests, hosting overrides) are honoured.
         builder.Services.AddDbContext<KombinDbContext>((services, options) =>
@@ -42,4 +46,28 @@ internal static class PersistenceExtensions
         var db = scope.ServiceProvider.GetRequiredService<KombinDbContext>();
         await db.Database.MigrateAsync();
     }
+
+    /// <summary>
+    /// Seeds the development catalog and demo user when <c>Database:SeedOnStartup</c> is set. Run it after migrations.
+    /// Outside Development the flag is ignored (with a warning): sample data never reaches a real database.
+    /// </summary>
+    public static async Task SeedDatabaseOnStartupAsync(this WebApplication app)
+    {
+        if (!app.Configuration.GetValue<bool>(SeedOnStartupKey))
+        {
+            return;
+        }
+
+        if (!app.Environment.IsDevelopment())
+        {
+            LogSeedIgnored(app.Logger, app.Environment.EnvironmentName, SeedOnStartupKey);
+            return;
+        }
+
+        await using var scope = app.Services.CreateAsyncScope();
+        await scope.ServiceProvider.GetRequiredService<DevSeeder>().SeedAsync();
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "{Key} is set but the environment is {Environment}, not Development; seeding is skipped.")]
+    private static partial void LogSeedIgnored(ILogger logger, string environment, string key);
 }

@@ -10,6 +10,13 @@ namespace Kombin.Api.Features.Catalog;
 
 internal static class CatalogModule
 {
+    public static IServiceCollection AddCatalogFeature(this IServiceCollection services)
+    {
+        services.AddScoped<OfferUpserter>();
+
+        return services;
+    }
+
     public static IEndpointRouteBuilder MapCatalogEndpoints(this IEndpointRouteBuilder app)
     {
         // Public: the mobile app browses before login.
