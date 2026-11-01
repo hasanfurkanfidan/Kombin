@@ -22,6 +22,111 @@ namespace Kombin.Api.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Analytics.AnalyticsEvent", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("AnonymousId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("anonymous_id");
+
+                    b.Property<string>("AppVersion")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("app_version");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("name");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("occurred_at");
+
+                    b.Property<string>("Platform")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasColumnName("platform");
+
+                    b.Property<string>("Properties")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("properties");
+
+                    b.Property<DateTimeOffset>("ReceivedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("received_at");
+
+                    b.Property<string>("SessionId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("session_id");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_events");
+
+                    b.HasIndex("AnonymousId")
+                        .HasDatabaseName("ix_events_anonymous_id")
+                        .HasFilter("user_id is null and anonymous_id is not null");
+
+                    b.HasIndex("Name", "OccurredAt")
+                        .HasDatabaseName("ix_events_name_occurred_at");
+
+                    b.HasIndex("UserId", "OccurredAt")
+                        .HasDatabaseName("ix_events_user_id_occurred_at");
+
+                    b.ToTable("events", "analytics");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Analytics.WeeklyMetric", b =>
+                {
+                    b.Property<DateOnly>("WeekStart")
+                        .HasColumnType("date")
+                        .HasColumnName("week_start");
+
+                    b.Property<string>("Metric")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("metric");
+
+                    b.Property<DateTimeOffset>("ComputedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("computed_at");
+
+                    b.Property<long>("Denominator")
+                        .HasColumnType("bigint")
+                        .HasColumnName("denominator");
+
+                    b.Property<long>("Numerator")
+                        .HasColumnType("bigint")
+                        .HasColumnName("numerator");
+
+                    b.Property<decimal>("Value")
+                        .HasPrecision(7, 2)
+                        .HasColumnType("numeric(7,2)")
+                        .HasColumnName("value");
+
+                    b.HasKey("WeekStart", "Metric")
+                        .HasName("pk_weekly_metrics");
+
+                    b.ToTable("weekly_metrics", "analytics");
+                });
+
             modelBuilder.Entity("Kombin.Api.Persistence.Entities.Catalog.Brand", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1672,6 +1777,15 @@ namespace Kombin.Api.Persistence.Migrations
                         .HasDatabaseName("ix_user_profiles_active_persona_id");
 
                     b.ToTable("user_profiles", "profile");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Analytics.AnalyticsEvent", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_events_users_user_id");
                 });
 
             modelBuilder.Entity("Kombin.Api.Persistence.Entities.Catalog.Category", b =>

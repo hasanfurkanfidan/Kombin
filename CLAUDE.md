@@ -40,7 +40,8 @@ seed data lives in `src/Kombin.Api/Persistence/Seed/`.
 
 Internal endpoints (called by workers, not the app) live under `/api/v1/internal/...` and use `.RequireInternalKey()`. The ones that
 exist: `POST /internal/catalog/offers/upsert`, `POST /internal/catalog/offers/sweep`, `GET /internal/catalog/sellers/{sellerSlug}/offers`,
-`PUT /internal/catalog/sellers/{slug}` (see Catalog ingestion rules) and `POST /internal/notifications/test`.
+`PUT /internal/catalog/sellers/{slug}` (see Catalog ingestion rules), `POST /internal/notifications/test` and
+`GET /internal/analytics/weekly` (see Analytics rules).
 
 ## How to add a new use case
 
@@ -102,6 +103,10 @@ External Python workers (a separate repo) push the catalog through the internal 
   is the offer's stored stock and price, and the sweep leaves the offer out of stock at the same price, so the next upsert that finds
   it in stock is a restock to `BackInStock` and `PriceDrop` (and a change to `AnyChange`). Always pass a seller filter in tests: the
   unfiltered sweep retires every stale offer in the shared database.
+- **`GET /catalog/products` items carry `cheapestSeller { name, slug }`**: the seller of the offer that defines `lowestPrice` (the lowest
+  sellable offer, smallest offer ID among equals; the same ordering as `lowestOriginalPrice`). `GET /me/saved` items repeat it (a product
+  nobody sells has `null`), because saved items must contain every catalog list item field. The OpenAPI document is generated from the
+  records, so there is no schema file to edit.
 
 ## Engagement rules
 
@@ -184,11 +189,44 @@ External Python workers (a separate repo) push the catalog through the internal 
   (`QuietHours.Zone`). The Docker runtime image installs `tzdata` for it. Stored instants are always UTC (`timestamptz`).
 - **Hangfire wiring:** `AddNotificationFeature` registers storage lazily; `UseNotificationJobs` (called in `Program.cs` after the EF
   migrations and the seeds) is what first creates the `hangfire` schema, registers the recurring jobs (`UseCatalogJobs` adds the
-  Catalog's `offer-sweep` right after it, behind the same flag) and, **in Development only**,
+  Catalog's `offer-sweep` and `UseAnalyticsJobs` the Analytics' `weekly-metrics` right after it, behind the same flag) and, **in Development only**,
   maps the dashboard at `/hangfire` (open, no auth, unmapped in every other environment). Nothing happens unless `Hangfire:Enabled` is
   true (compose sets it; tests set it to false; `Development` defaults to true).
 - **Copy is Turkish and lives in `Features/Notification/Copy.cs`** (money as `2.149 ₺` / `849,90 ₺`, formatted by hand because the runtime
   image may run with invariant globalization). Clients read `Notification.Data.deepLink`; do not change its shape without the app team.
+
+## Analytics rules
+
+- **What exists:** `POST /api/v1/events` (public), the `analytics.events` table, `IAnalyticsIdentityLinker`, the `weekly-metrics` job with
+  `analytics.weekly_metrics` and `GET /internal/analytics/weekly`, `docs/metrics.sql`, and an optional Metabase in compose.
+- **The allow-list is the privacy guarantee.** `AnalyticsEventCatalog` (pure) lists every event name and, per event, its properties with
+  their types; the validator rejects anything else. A new event or property is a catalog entry plus a README row, nothing more. Property
+  values are GUIDs, integers, enum names or short identifiers, never free text (`search` sends `queryLength`, never the query). Keys named
+  like personal data (`email`, `name`, `phone`, `address`, `token`) are refused on every event, and so is any key not listed for the event.
+- **A bad event fails the whole batch.** An unknown name is 400 `Analytics.UnknownEvent` (the validation filter reports a rule's dotted error
+  code instead of `Validation.Failed`); other violations are 400 `Validation.Failed` with `events[i].properties.key` entries. Only two
+  things are per-event and non-fatal, reported in `rejected` of the 202: `duplicate` (same `sessionId`, `name` and client `occurredAt`
+  earlier in the batch; across batches nothing is deduplicated) and `missing_identity` (anonymous caller without `anonymousId`).
+- **Clock skew is clamped, not rejected** (`EventTiming`): `occurredAt` more than 7 days old or 5 minutes ahead becomes `ReceivedAt`.
+  `OccurredAt`/`ReceivedAt` are always UTC.
+- **Identity is linked after the commit and never breaks a sign-in.** Login and Register take an optional `anonymousId` and call
+  `IAnalyticsIdentityLinker.LinkAsync` (the only coupling between Identity and Analytics), which runs
+  `UPDATE analytics.events SET user_id = @user WHERE anonymous_id = @anon AND user_id IS NULL`, logs and swallows failures, and never takes
+  over events that already have a user. Events keep their `anonymous_id` after login.
+- **Metrics have one source of truth: `docs/metrics.sql`.** It is embedded in the assembly (`MetricSql`; the Dockerfile copies it into the
+  build) and each `-- name:` block is run with `:cohort_start`, `:cohort_end` and `:as_of` bound as Npgsql parameters, so what operators run
+  by hand is what the job runs. An actor is `COALESCE(user_id::text, anonymous_id)`; a cohort is the actors whose first `app_open` falls in
+  `[cohort_start, cohort_end)`. Each block returns `(numerator, denominator)`. Change a metric there, and update the README table.
+- **`WeeklyMetricsJob`** (plain class like the other jobs, `[DisableConcurrentExecution(60)]`, `[AutomaticRetry(Attempts = 0)]`, tests call
+  `ComputeAsync(asOf, ct)`, registered by `UseAnalyticsJobs` behind `Hangfire:Enabled`, called in `Program.cs` after `UseCatalogJobs`) runs
+  Monday 08:00 `Europe/Istanbul` (`weekly-metrics`) for the last 4 cohort weeks (Monday-based in Istanbul, `CohortWeeks`) and overwrites
+  the rows of `(week_start, metric)`. D7 retention of last week's cohort cannot exist yet, which is why it revisits earlier weeks; its
+  denominator counts only members whose day 8 is over. A metric with an empty cohort writes no row. Values are percentages (0-100).
+- **Tests for metrics seed a cohort in 2020** by inserting events directly (the API clamps old clocks), so no other test's data falls
+  into those weeks; never seed a cohort in recent weeks, the database is shared.
+- **Metabase** is a compose service behind the `metabase` profile (not part of `up` or CI's smoke test), loopback-only, with its own H2
+  file in a named volume. It connects as `metabase_ro` (`docker/postgres/metabase_ro.sql`, mounted into `docker-entrypoint-initdb.d`, so
+  a pre-existing volume needs the file run by hand once): read-only, and limited to the `analytics`, `engagement` and `catalog` schemas.
 
 ## Commands
 
@@ -234,11 +272,12 @@ the shared test database stays independent of the seed. `ApiFactory` switches se
 
 ## Explicitly out of scope (do not add)
 
-Rate limiting (including on `/go`), email verification, password reset, social login, admin UI, MediatR/CQRS, generic
-repositories, AutoMapper, email/SMS/marketing notifications, A/B testing, scraping workers, affiliate conversion import, a generic
-analytics event stream. Features that exist: Identity (auth, me), Catalog (brands, sellers, categories, products, offers, price
+Rate limiting (including on `/go` and `/events`), email verification, password reset, social login, admin UI, MediatR/CQRS, generic
+repositories, AutoMapper, email/SMS/marketing notifications, A/B testing, scraping workers, affiliate conversion import, a free-form
+analytics event stream (Analytics accepts only its allow-list). Features that exist: Identity (auth, me), Catalog (brands, sellers, categories, products, offers, price
 snapshots, internal upsert, seller bootstrap and listing, offer sweep), Engagement (saved products, price alerts and their trigger feed, `/go` redirect, click
 history) and Profile (user profile and measurements, personas, swipe onboarding with style cards, derived style profile,
 rule-based match score, size map with hints) and Notification (devices, notification preferences, the notification feed, push
-delivery through Expo, and the Hangfire jobs above). Learning from clicks/saves and outfit generation are the Recommendation task,
+delivery through Expo, and the Hangfire jobs above) and Analytics (the allow-listed event intake, identity linking, the weekly beta
+metrics and the operators' Metabase). Learning from clicks/saves and outfit generation are the Recommendation task,
 not Profile. Add other features only when a task asks for them.

@@ -1,4 +1,5 @@
 using FluentValidation;
+using Kombin.Api.Features.Analytics;
 
 namespace Kombin.Api.Features.Identity.Login;
 
@@ -18,5 +19,7 @@ internal sealed class LoginValidator : AbstractValidator<LoginRequest>
 
         RuleFor(request => request.DeviceName)
             .MaximumLength(100);
+
+        RuleFor(request => request.AnonymousId).MustBeAnonymousId();
     }
 }

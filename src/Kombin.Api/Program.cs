@@ -4,6 +4,7 @@ using Kombin.Api.Common.Health;
 using Kombin.Api.Common.Http;
 using Kombin.Api.Common.Time;
 using Kombin.Api.Common.Validation;
+using Kombin.Api.Features.Analytics;
 using Kombin.Api.Features.Catalog;
 using Kombin.Api.Features.Engagement;
 using Kombin.Api.Features.Identity;
@@ -35,6 +36,7 @@ builder.Services.AddIdentityFeature();
 builder.Services.AddCatalogFeature();
 builder.Services.AddEngagementFeature();
 builder.Services.AddNotificationFeature();
+builder.Services.AddAnalyticsFeature();
 
 var app = builder.Build();
 
@@ -59,6 +61,7 @@ app.MapCatalogEndpoints();
 app.MapEngagementEndpoints();
 app.MapProfileEndpoints();
 app.MapNotificationEndpoints();
+app.MapAnalyticsEndpoints();
 
 await app.MigrateDatabaseOnStartupAsync();
 await app.SeedStyleCardsOnStartupAsync();
@@ -67,6 +70,7 @@ await app.SeedDatabaseOnStartupAsync();
 // Last on purpose: this is what first touches the Hangfire storage, so its schema is created after the EF migrations ran.
 app.UseNotificationJobs();
 app.UseCatalogJobs();
+app.UseAnalyticsJobs();
 await app.RunAsync();
 
 static LogEventLevel RequestLogLevel(HttpContext context, double elapsedMilliseconds, Exception? exception)

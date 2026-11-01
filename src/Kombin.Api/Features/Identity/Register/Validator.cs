@@ -1,4 +1,5 @@
 using FluentValidation;
+using Kombin.Api.Features.Analytics;
 
 namespace Kombin.Api.Features.Identity.Register;
 
@@ -22,5 +23,7 @@ internal sealed class RegisterValidator : AbstractValidator<RegisterRequest>
             .NotEmpty()
             .Must(displayName => displayName.Trim().Length is >= 2 and <= 50)
             .WithMessage("'Display Name' must be between 2 and 50 characters.");
+
+        RuleFor(request => request.AnonymousId).MustBeAnonymousId();
     }
 }

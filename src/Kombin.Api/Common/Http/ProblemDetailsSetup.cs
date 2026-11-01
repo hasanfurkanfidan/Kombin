@@ -10,11 +10,13 @@ internal static class Problems
             detail: detail,
             extensions: Extensions(context, errorCode));
 
-    public static IResult Validation(HttpContext context, IDictionary<string, string[]> errors) =>
+    public const string ValidationFailed = "Validation.Failed";
+
+    public static IResult Validation(HttpContext context, IDictionary<string, string[]> errors, string errorCode = ValidationFailed) =>
         TypedResults.ValidationProblem(
             errors,
             title: "One or more validation errors occurred.",
-            extensions: Extensions(context, "Validation.Failed"));
+            extensions: Extensions(context, errorCode));
 
     private static Dictionary<string, object?> Extensions(HttpContext context, string? errorCode)
     {

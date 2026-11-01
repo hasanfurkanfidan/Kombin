@@ -8,7 +8,7 @@ Currently implemented: **Identity** (register, login, refresh with rotation, log
 (products, sellers, offers, price history, plus an internal ingestion endpoint for scrapers) and **Engagement** (saved
 products, price/stock alerts, and the `/go/{offerId}` affiliate redirect that records every buy click) and
 **Notification** (device registration, notification preferences and feed, push delivery through Expo, background jobs on
-Hangfire).
+Hangfire) and **Analytics** (an event intake for the app, the four beta metrics, an optional Metabase for operators).
 
 ## Requirements
 
@@ -62,8 +62,8 @@ Integration tests start their own PostgreSQL container with Testcontainers, so D
 
 | Method | Route | Auth | Success | Errors |
 |---|---|---|---|---|
-| POST | `/auth/register` | - | 201 `{ accessToken, refreshToken, expiresIn }` | 400 validation, 409 `Identity.EmailTaken` |
-| POST | `/auth/login` | - | 200 same shape | 400, 401 `Identity.InvalidCredentials` |
+| POST | `/auth/register` | - | 201 `{ accessToken, refreshToken, expiresIn }`; body `{ email, password, displayName, anonymousId? }` | 400 validation, 409 `Identity.EmailTaken` |
+| POST | `/auth/login` | - | 200 same shape; body `{ email, password, deviceName?, anonymousId? }` | 400, 401 `Identity.InvalidCredentials` |
 | POST | `/auth/refresh` | - | 200 same shape; old token revoked | 401 `Identity.InvalidRefreshToken` |
 | POST | `/auth/logout` | Bearer | 204 | 401 |
 | GET | `/me` | Bearer | 200 `{ id, email, displayName, createdAt }` | 401 |
@@ -80,6 +80,9 @@ Public reads need no auth (the app browses before login).
 | GET | `/catalog/products/{id}` | 200 product, images, active offers by effective price, `priceSummary` | 404 `Catalog.ProductNotFound` |
 | GET | `/catalog/products/{id}/price-history?days=90` | 200 `[{ offerId, seller, points: [{ date, minPrice, stockStatus }] }]`, one point per UTC day | 404 `Catalog.ProductNotFound` |
 | POST | `/internal/catalog/offers/upsert` | 200 `{ created, updated, snapshotsWritten, errors: [{ index, externalId, errorCode, message }] }` | 400 validation or `Catalog.BatchTooLarge`, 401 `Catalog.InvalidInternalKey`, 404 `Catalog.SellerNotFound` |
+
+List items carry `cheapestSeller { name, slug }`: the seller of the offer that defines `lowestPrice`. The OpenAPI document
+(`/openapi/v1.json`, Development) is generated from the endpoints and records, so it follows.
 
 `sort` is `relevance` (default, newest first for now), `priceAsc`, `priceDesc` or `newest`; enum filters are case-insensitive.
 `categorySlug` includes descendants. Category slugs are path-style (`ust-giyim`, `ust-giyim/blazer`).
@@ -183,6 +186,85 @@ curl -X POST http://localhost:8080/api/v1/internal/notifications/test   -H "X-In
 A fake or stale token comes back as `status: "Suppressed"` / `failureReason: "DeviceNotRegistered"` and the device is deactivated;
 any other Expo error is `Failed` with the reason. Only if "enhanced push security" is turned on for the Expo project, set
 `Expo__AccessToken` (an Expo access token) on the backend.
+
+### Analytics
+
+Product analytics for the beta: the app reports what people do, an allow-list keeps personal data out, and a weekly job turns the
+events into the four beta metrics. Events are for operators; nothing in the app reads them back.
+
+| Method | Route | Auth | Success | Errors |
+|---|---|---|---|---|
+| POST | `/events` | optional bearer | 202 `{ accepted, rejected: [{ index, reason }] }` | 400 validation, 400 `Analytics.UnknownEvent` |
+| GET | `/internal/analytics/weekly?from=` | internal key | 200 `{ items: [{ weekStart, metric, value, numerator, denominator, computedAt }] }`, newest week first | 401 |
+
+`POST /events` takes `{ events: [1-50] }`; each event is `{ name, properties?, sessionId, platform: Ios|Android, appVersion, occurredAt,
+anonymousId? }`. A valid bearer token attributes the batch to the user; an anonymous caller must send `anonymousId` (a stable random id the
+app generates before login, at most 64 characters of `A-Za-z0-9-_.:`) on every event, or the event is rejected as `missing_identity`.
+
+- **Names and properties come from an allow-list** (`AnalyticsEventCatalog`). One unknown name, an unlisted property, a wrong value, a
+  property bigger than 2 KB in total or a key named like personal data (`email`, `name`, `phone`, `address`, `token`) fails the **whole
+  batch** with a 400 (the unknown name with `errorCode: Analytics.UnknownEvent`, the rest with `Validation.Failed` and an `errors`
+  dictionary keyed `events[3].properties.email`), so a client has to send only names it knows.
+
+  | Event | Properties |
+  |---|---|
+  | `app_open`, `app_background` | - |
+  | `screen_view` | `screen` |
+  | `product_view` | `productId`, `personaId?`, `source` |
+  | `product_list_view` | `sort` (a catalog sort), `filters` (comma-separated filter names, may be empty) |
+  | `swipe` | `personaId`, `decision` (`Like`, `Dislike` or `Skip`) |
+  | `onboarding_step` | `step`, `action` (`next`, `skip` or `done`) |
+  | `alert_created` | `kind` (`PriceDrop`, `BackInStock` or `AnyChange`) |
+  | `buy_click` | `offerId`, `source` |
+  | `search` | `queryLength` (0-200; never the text) |
+  | `notification_open` | `notificationId`, `kind` |
+
+  Values are GUIDs, integers, enum names or short identifiers (letters, digits and `_ . : / -`), never free text.
+- **A wrong clock does not cost the event.** `occurredAt` more than 7 days old or more than 5 minutes ahead is replaced by the server's
+  receive time.
+- **Repeats within a batch** (same `sessionId`, `name` and `occurredAt`) are dropped and listed in `rejected` as `duplicate`; a client
+  that resends a whole batch after a lost response will store it twice.
+- **Linking.** `POST /auth/login` and `POST /auth/register` accept an optional `anonymousId`; the events that device sent while anonymous
+  (`user_id` still null) are attached to the user. Events that already belong to a user are never taken over.
+
+Metrics: [`docs/metrics.sql`](docs/metrics.sql) holds the four queries as plain SQL (cohort window as parameters, runnable with `psql -v`);
+the `weekly-metrics` job (Monday 08:00 `Europe/Istanbul`) runs that same file for the cohorts of the last four weeks and upserts
+`analytics.weekly_metrics`, which `GET /internal/analytics/weekly` serves. A cohort is the people whose first `app_open` fell in a week.
+
+| Metric | Value |
+|---|---|
+| `d7_retention` | share that opened the app again on day 6, 7 or 8 after the first open (calendar days, Istanbul) |
+| `alert_rate` | share with at least one alert (`engagement.price_alerts`, or an `alert_created` event) |
+| `click_rate` | share with at least one signed-in buy click (`engagement.clicks`) |
+| `onboarding_completion` | of those who started onboarding, share that sent `onboarding_step` with `action: done` |
+
+Values are percentages (0-100) "as of `computedAt`". `d7_retention` can only be known days after a cohort ends, so each run also
+revisits the three weeks before last week: a young cohort's row counts only the members whose day 8 is over (its `denominator` shows
+how many) and is completed by the next runs. A metric whose cohort is empty has no row.
+
+#### Metabase (operators only)
+
+`docker/compose.yaml` has an optional `metabase` service for dashboards over the analytics, engagement and catalog schemas. It is behind a
+compose profile, so `up` (and CI's smoke test) never starts it, and it listens on `127.0.0.1:3000` (`METABASE_PORT`) only. Its own data
+(users, questions, dashboards) is an embedded H2 file in the `kombin-metabase-data` volume.
+
+```bash
+docker compose --file docker/compose.yaml --profile metabase up --detach metabase
+```
+
+Metabase connects to the database as `metabase_ro`, a read-only role created by `docker/postgres/metabase_ro.sql`, which the `db` service
+mounts into `docker-entrypoint-initdb.d`. PostgreSQL runs it only when it creates an empty data directory, so **a volume that already
+exists needs the role created by hand, once**:
+
+```bash
+docker compose --file docker/compose.yaml exec -T db sh -c 'psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB"' < docker/postgres/metabase_ro.sql
+```
+
+First run: open http://localhost:3000, create the admin account, then **Add your data** -> PostgreSQL with host `db`, port `5432`,
+database `kombin` (your `POSTGRES_DB`), user `metabase_ro`, password `metabase_ro_dev_password`. The role reads the `analytics`,
+`engagement` and `catalog` schemas only (not `identity`, `notification`, `profile` or `hangfire`) and its transactions are read-only. The
+password is a development placeholder: change it with `ALTER ROLE metabase_ro PASSWORD '...'` before pointing Metabase at real data.
+A good first dashboard is `analytics.weekly_metrics` (a line per `metric`, `week_start` on the x axis).
 
 ## Decisions worth knowing
 

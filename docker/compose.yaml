@@ -11,9 +11,13 @@ services:
     ports:
       # Loopback only: the database is never reachable from the network.
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    networks:
+      - backend
     volumes:
       # PostgreSQL 18 images keep versioned data directories below /var/lib/postgresql.
       - kombin-pgdata:/var/lib/postgresql
+      # Creates the read-only role Metabase connects with. Runs only when the data directory is empty (see the README for existing volumes).
+      - ./postgres/metabase_ro.sql:/docker-entrypoint-initdb.d/10-metabase-ro.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready --username=$${POSTGRES_USER} --dbname=$${POSTGRES_DB}"]
       interval: 5s
@@ -29,6 +33,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    networks:
+      - backend
     ports:
       - "${API_PORT:-8080}:8080"
     environment:
@@ -50,5 +56,29 @@ services:
       # Optional: only needed when "enhanced push security" is enforced for the Expo project.
       Expo__AccessToken: ${EXPO_ACCESS_TOKEN:-}
 
+  # For operators only: dashboards over the analytics tables. Not started by a plain `up`, so CI's smoke test and day-to-day development
+  # never pull or run it; start it with `docker compose --file docker/compose.yaml --profile metabase up --detach metabase`.
+  metabase:
+    image: metabase/metabase:latest
+    profiles: ["metabase"]
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - backend
+    ports:
+      # Loopback only: Metabase has its own login but is not meant to be exposed.
+      - "127.0.0.1:${METABASE_PORT:-3000}:3000"
+    environment:
+      # Metabase's own application database (users, questions, dashboards) is an embedded H2 file in the named volume below.
+      MB_DB_FILE: /metabase-data/metabase.db
+    volumes:
+      - kombin-metabase-data:/metabase-data
+
+networks:
+  backend:
+
 volumes:
   kombin-pgdata:
+  kombin-metabase-data:

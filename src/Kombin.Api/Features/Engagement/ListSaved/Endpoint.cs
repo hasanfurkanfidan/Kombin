@@ -22,6 +22,7 @@ internal sealed record SavedProductItem(
     decimal? LowestOriginalPrice,
     int OfferCount,
     int DiscountPercent,
+    SellerRef? CheapestSeller,
     bool IsActive,
     DateTimeOffset SavedAt)
 {
@@ -41,6 +42,7 @@ internal sealed record SavedProductItem(
             item.LowestOriginalPrice,
             item.OfferCount,
             item.DiscountPercent,
+            item.CheapestSeller,
             card.IsActive,
             savedAt);
     }

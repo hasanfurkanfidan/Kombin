@@ -30,7 +30,11 @@ internal sealed class ValidationFilter<TRequest> : IEndpointFilter
             .GroupBy(failure => ToCamelCase(failure.PropertyName))
             .ToDictionary(group => group.Key, group => group.Select(failure => failure.ErrorMessage).Distinct().ToArray());
 
-        return Problems.Validation(context.HttpContext, errors);
+        // A rule can name a feature error code ("Analytics.UnknownEvent"); FluentValidation's own codes ("NotEmptyValidator") have no dot.
+        var errorCode = result.Errors.Select(failure => failure.ErrorCode).FirstOrDefault(code => code?.Contains('.', StringComparison.Ordinal) == true)
+            ?? Problems.ValidationFailed;
+
+        return Problems.Validation(context.HttpContext, errors, errorCode);
     }
 
     private static string ToCamelCase(string propertyPath) =>

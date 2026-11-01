@@ -20,7 +20,8 @@ internal sealed record ProductCard(
     bool IsActive,
     decimal? LowestPrice,
     decimal? LowestOriginalPrice,
-    int OfferCount)
+    int OfferCount,
+    SellerRef? CheapestSeller)
 {
     public ProductSummary ToSummary() => new(Id, Name, Brand.Name, PrimaryImageUrl, LowestPrice);
 
@@ -36,7 +37,8 @@ internal sealed record ProductCard(
         LowestPrice.GetValueOrDefault(),
         LowestOriginalPrice,
         OfferCount,
-        ListProductsEndpoint.DiscountPercent(LowestPrice.GetValueOrDefault(), LowestOriginalPrice));
+        ListProductsEndpoint.DiscountPercent(LowestPrice.GetValueOrDefault(), LowestOriginalPrice),
+        CheapestSeller);
 }
 
 internal static class ProductSummaries
@@ -77,6 +79,14 @@ internal static class ProductSummaries
                     .Select(offer => offer.OriginalPrice)
                     .FirstOrDefault(),
                 OfferCount = sellableOffers.Count(offer => offer.ProductId == product.Id),
+
+                // The seller of the offer that defines Lowest (same ordering as LowestOriginal).
+                CheapestSeller = sellableOffers
+                    .Where(offer => offer.ProductId == product.Id)
+                    .OrderBy(offer => offer.CurrentPrice)
+                    .ThenBy(offer => offer.Id)
+                    .Select(offer => new { offer.Seller.Name, offer.Seller.Slug })
+                    .FirstOrDefault(),
             })
             .ToListAsync(cancellationToken);
 
@@ -93,6 +103,7 @@ internal static class ProductSummaries
                 row.IsActive,
                 row.Lowest,
                 row.LowestOriginal,
-                row.OfferCount));
+                row.OfferCount,
+                row.CheapestSeller is null ? null : new SellerRef(row.CheapestSeller.Name, row.CheapestSeller.Slug)));
     }
 }

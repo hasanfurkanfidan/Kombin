@@ -7,7 +7,10 @@ internal sealed record BrandRef(Guid Id, string Name, string Slug);
 
 internal sealed record CategoryRef(Guid Id, string Slug);
 
-/// <summary>Prices are those of the product's lowest active, in-stock offer. <c>MatchScore</c> (0-100) is present only when the request named a persona.</summary>
+/// <summary>The seller of the offer that defines <c>lowestPrice</c>, for the "from X" label next to the price.</summary>
+internal sealed record SellerRef(string Name, string Slug);
+
+/// <summary>Prices and <c>CheapestSeller</c> are those of the product's lowest active, in-stock offer. <c>MatchScore</c> (0-100) is present only when the request named a persona.</summary>
 internal sealed record ProductListItem(
     Guid Id,
     string Name,
@@ -20,4 +23,5 @@ internal sealed record ProductListItem(
     decimal? LowestOriginalPrice,
     int OfferCount,
     int DiscountPercent,
+    SellerRef? CheapestSeller,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? MatchScore = null);

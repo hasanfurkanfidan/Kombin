@@ -89,6 +89,10 @@ internal static class ListProductsEndpoint
 
         public int OfferCount { get; init; }
 
+        public string? CheapestSellerName { get; init; }
+
+        public string? CheapestSellerSlug { get; init; }
+
         public ProductTraits Traits => new(PrimaryColor, Formality, Fit, Seasons, Pattern, CategorySlug);
 
         public ProductListItem ToItem(int? matchScore) => new(
@@ -103,6 +107,7 @@ internal static class ListProductsEndpoint
             LowestOriginal,
             OfferCount,
             DiscountPercent(Lowest.GetValueOrDefault(), LowestOriginal),
+            CheapestSellerName is null || CheapestSellerSlug is null ? null : new SellerRef(CheapestSellerName, CheapestSellerSlug),
             matchScore);
     }
 
@@ -231,6 +236,20 @@ internal static class ListProductsEndpoint
                     .Select(offer => offer.OriginalPrice)
                     .FirstOrDefault(),
                 OfferCount = sellableOffers.Count(offer => offer.ProductId == product.Id),
+
+                // Same ordering as LowestOriginal: the offer that defines the lowest price, the smallest ID among equals.
+                CheapestSellerName = sellableOffers
+                    .Where(offer => offer.ProductId == product.Id)
+                    .OrderBy(offer => offer.CurrentPrice)
+                    .ThenBy(offer => offer.Id)
+                    .Select(offer => offer.Seller.Name)
+                    .FirstOrDefault(),
+                CheapestSellerSlug = sellableOffers
+                    .Where(offer => offer.ProductId == product.Id)
+                    .OrderBy(offer => offer.CurrentPrice)
+                    .ThenBy(offer => offer.Id)
+                    .Select(offer => offer.Seller.Slug)
+                    .FirstOrDefault(),
             })
             .Where(row => row.Lowest != null);
 
