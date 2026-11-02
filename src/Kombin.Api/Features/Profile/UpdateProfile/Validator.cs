@@ -2,6 +2,7 @@ using FluentValidation;
 using Kombin.Api.Common.Time;
 using Kombin.Api.Features.Catalog;
 using Kombin.Api.Persistence.Entities.Catalog;
+using Kombin.Api.Persistence.Entities.Profile;
 
 namespace Kombin.Api.Features.Profile.UpdateProfile;
 
@@ -27,5 +28,13 @@ internal sealed class UpdateProfileValidator : AbstractValidator<UpdateProfileRe
         RuleFor(request => request.WaistCm).InclusiveBetween(50, 200);
         RuleFor(request => request.HipCm).InclusiveBetween(50, 200);
         RuleFor(request => request.ShoeSizeEu).InclusiveBetween(30m, 52m).PrecisionScale(4, 1, ignoreTrailingZeros: true);
+
+        // A place name, not free text: letters, spaces, dots, apostrophes and hyphens.
+        RuleFor(request => request.City!)
+            .Must(city => city.Trim().Length <= UserProfile.MaxCityLength)
+            .WithMessage($"'City' must be {UserProfile.MaxCityLength} characters or fewer.")
+            .Must(city => city.All(character => char.IsLetter(character) || character is ' ' or '.' or '\'' or '-'))
+            .WithMessage("'City' may only contain letters, spaces, dots, apostrophes and hyphens.")
+            .When(request => !string.IsNullOrWhiteSpace(request.City));
     }
 }

@@ -49,20 +49,55 @@ public sealed class SellerIngestionTests(ApiFactory factory)
         Assert.Equal("42", stored.AffiliateParams!["aid"]);
         Assert.False(stored.IsActive);
 
-        // Second put: same seller, whole resource replaced; what is left out is cleared.
+        // Second put: same seller, the shop fields replaced; the affiliate fields it leaves out stay as they were.
         var updated = await client.PutSellerOkAsync(slug, SellerBody(slug, "Marketplace", name: $"Renamed {slug}", websiteUrl: "https://new.example.com"), Ct);
 
         Assert.False(updated.GetProperty("created").GetBoolean());
         Assert.Equal(created.GetProperty("id").GetGuid(), updated.GetProperty("id").GetGuid());
+        Assert.Equal("awin", updated.GetProperty("affiliateNetwork").GetString());
 
         var restored = await SellerAsync(slug);
         Assert.Equal($"Renamed {slug}", restored.Name);
         Assert.Equal(SellerKind.Marketplace, restored.Kind);
         Assert.Equal("https://new.example.com", restored.WebsiteUrl);
-        Assert.Null(restored.AffiliateNetwork);
-        Assert.Null(restored.AffiliateUrlTemplate);
-        Assert.Null(restored.AffiliateParams);
+        Assert.Equal("awin", restored.AffiliateNetwork);
+        Assert.Equal("https://track.example.com/c?u={url}&aid={p.aid}", restored.AffiliateUrlTemplate);
+        Assert.Equal("42", restored.AffiliateParams!["aid"]);
         Assert.True(restored.IsActive);
+    }
+
+    [Fact]
+    public async Task APutClearsAffiliateFieldsOnlyWhenTheyAreExplicitlyNull()
+    {
+        using var client = factory.CreateClient();
+        var slug = NewSlug("Clr");
+        await client.PutSellerOkAsync(
+            slug,
+            SellerBody(
+                slug,
+                affiliateNetwork: "awin",
+                affiliateUrlTemplate: "https://track.example.com/c?u={url}",
+                affiliateParams: new Dictionary<string, string> { ["aid"] = "7" }),
+            Ct);
+
+        // Only the template is sent, as null: it alone is cleared.
+        await client.PutSellerOkAsync(
+            slug,
+            new Dictionary<string, object?> { ["name"] = $"Seller {slug}", ["kind"] = "Marketplace", ["websiteUrl"] = "https://www.seller.example.com", ["affiliateUrlTemplate"] = null },
+            Ct);
+
+        var partly = await SellerAsync(slug);
+        Assert.Equal("awin", partly.AffiliateNetwork);
+        Assert.Null(partly.AffiliateUrlTemplate);
+        Assert.Equal("7", partly.AffiliateParams!["aid"]);
+
+        // All three as explicit nulls: all cleared.
+        await client.PutSellerOkAsync(slug, SellerBody(slug, clearAffiliate: true), Ct);
+
+        var cleared = await SellerAsync(slug);
+        Assert.Null(cleared.AffiliateNetwork);
+        Assert.Null(cleared.AffiliateUrlTemplate);
+        Assert.Null(cleared.AffiliateParams);
     }
 
     [Fact]

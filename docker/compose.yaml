@@ -132,6 +132,11 @@ services:
       Storage__ForcePathStyle: "true"
       Vision__BaseUrl: http://vision:8090
       Vision__InternalKey: ${VISION_INTERNAL_KEY:-}
+      # Outfit engine: Open-Meteo forecasts (free, no key) for the profile's city; narration by templates unless an Anthropic key is set
+      # and NARRATION_PROVIDER=Anthropic, in which case template lines are upgraded in the background (outfit-narrate job).
+      Weather__Enabled: ${WEATHER_ENABLED:-true}
+      Narration__Provider: ${NARRATION_PROVIDER:-Template}
+      Anthropic__ApiKey: ${ANTHROPIC_API_KEY:-}
 
   # For operators only: dashboards over the analytics tables. Not started by a plain `up`, so CI's smoke test and day-to-day development
   # never pull or run it; start it with `docker compose --file docker/compose.yaml --profile metabase up --detach metabase`.

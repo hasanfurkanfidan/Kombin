@@ -671,6 +671,10 @@ namespace Kombin.Api.Persistence.Migrations
                         .IsUnique()
                         .HasDatabaseName("ix_products_brand_id_slug");
 
+                    b.HasIndex("CategoryId", "PrimaryColor", "Formality")
+                        .HasDatabaseName("ix_products_category_id_primary_color_formality")
+                        .HasFilter("is_active");
+
                     b.ToTable("products", "catalog", t =>
                         {
                             t.HasCheckConstraint("ck_products_formality", "formality BETWEEN 1 AND 5");
@@ -1738,6 +1742,11 @@ namespace Kombin.Api.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("chest_cm");
 
+                    b.Property<string>("City")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("city");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -1779,6 +1788,278 @@ namespace Kombin.Api.Persistence.Migrations
                         .HasDatabaseName("ix_user_profiles_active_persona_id");
 
                     b.ToTable("user_profiles", "profile");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Recommendation.Outfit", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Completeness")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("completeness");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("DismissReason")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("dismiss_reason");
+
+                    b.Property<DateTimeOffset?>("DismissedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("dismissed_at");
+
+                    b.Property<DateOnly>("ForDate")
+                        .HasColumnType("date")
+                        .HasColumnName("for_date");
+
+                    b.Property<string>("Hash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("hash");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Narration")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("narration");
+
+                    b.Property<string>("NarrationHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("narration_hash");
+
+                    b.Property<string>("NarrationInput")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("narration_input");
+
+                    b.Property<string>("NarrationProvider")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("narration_provider");
+
+                    b.Property<string>("Occasion")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("occasion");
+
+                    b.Property<Guid?>("PersonaId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("persona_id");
+
+                    b.Property<string>("Rule")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("rule");
+
+                    b.Property<DateTimeOffset?>("SavedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("saved_at");
+
+                    b.Property<int>("Score")
+                        .HasColumnType("integer")
+                        .HasColumnName("score");
+
+                    b.Property<int>("Seed")
+                        .HasColumnType("integer")
+                        .HasColumnName("seed");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("WeatherJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("weather_json");
+
+                    b.Property<DateTimeOffset?>("WornAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("worn_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_outfits");
+
+                    b.HasIndex("PersonaId")
+                        .HasDatabaseName("ix_outfits_persona_id");
+
+                    b.HasIndex("UserId", "Hash")
+                        .HasDatabaseName("ix_outfits_user_id_hash");
+
+                    b.HasIndex("UserId", "SavedAt")
+                        .HasDatabaseName("ix_outfits_user_id_saved_at")
+                        .HasFilter("saved_at IS NOT NULL");
+
+                    b.ToTable("outfits", "recommendation", t =>
+                        {
+                            t.HasCheckConstraint("ck_outfits_score", "score BETWEEN 0 AND 100");
+                        });
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Recommendation.OutfitFeedback", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("action");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("OutfitId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("outfit_id");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("reason");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_outfit_feedback");
+
+                    b.HasIndex("OutfitId")
+                        .HasDatabaseName("ix_outfit_feedback_outfit_id");
+
+                    b.HasIndex("UserId", "CreatedAt")
+                        .HasDatabaseName("ix_outfit_feedback_user_id_created_at");
+
+                    b.ToTable("outfit_feedback", "recommendation");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Recommendation.OutfitItem", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<Guid?>("OfferId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("offer_id");
+
+                    b.Property<Guid>("OutfitId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("outfit_id");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("integer")
+                        .HasColumnName("position");
+
+                    b.Property<decimal?>("Price")
+                        .HasPrecision(12, 2)
+                        .HasColumnType("numeric(12,2)")
+                        .HasColumnName("price");
+
+                    b.Property<Guid?>("ProductId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("product_id");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("role");
+
+                    b.Property<string>("Slot")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("slot");
+
+                    b.Property<Guid?>("WardrobeItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("wardrobe_item_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_outfit_items");
+
+                    b.HasIndex("OfferId")
+                        .HasDatabaseName("ix_outfit_items_offer_id");
+
+                    b.HasIndex("OutfitId")
+                        .HasDatabaseName("ix_outfit_items_outfit_id");
+
+                    b.HasIndex("ProductId")
+                        .HasDatabaseName("ix_outfit_items_product_id");
+
+                    b.HasIndex("WardrobeItemId")
+                        .HasDatabaseName("ix_outfit_items_wardrobe_item_id");
+
+                    b.ToTable("outfit_items", "recommendation", t =>
+                        {
+                            t.HasCheckConstraint("ck_outfit_items_source", "(wardrobe_item_id IS NULL) <> (product_id IS NULL)");
+                        });
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Recommendation.OutfitNarration", b =>
+                {
+                    b.Property<string>("Hash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("hash");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Model")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("model");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("text");
+
+                    b.HasKey("Hash")
+                        .HasName("pk_narrations");
+
+                    b.ToTable("narrations", "recommendation");
                 });
 
             modelBuilder.Entity("Kombin.Api.Persistence.Entities.Wardrobe.WardrobeItem", b =>
@@ -2308,6 +2589,67 @@ namespace Kombin.Api.Persistence.Migrations
                         .HasConstraintName("fk_user_profiles_users_user_id");
                 });
 
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Recommendation.Outfit", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.Profile.Persona", null)
+                        .WithMany()
+                        .HasForeignKey("PersonaId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_outfits_personas_persona_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_outfits_users_user_id");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Recommendation.OutfitFeedback", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.Recommendation.Outfit", null)
+                        .WithMany()
+                        .HasForeignKey("OutfitId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_outfit_feedback_outfits_outfit_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_outfit_feedback_users_user_id");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Recommendation.OutfitItem", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.Catalog.Offer", null)
+                        .WithMany()
+                        .HasForeignKey("OfferId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_outfit_items_offers_offer_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Recommendation.Outfit", null)
+                        .WithMany("Items")
+                        .HasForeignKey("OutfitId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_outfit_items_outfits_outfit_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Catalog.Product", null)
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasConstraintName("fk_outfit_items_products_product_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Wardrobe.WardrobeItem", null)
+                        .WithMany()
+                        .HasForeignKey("WardrobeItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasConstraintName("fk_outfit_items_wardrobe_items_wardrobe_item_id");
+                });
+
             modelBuilder.Entity("Kombin.Api.Persistence.Entities.Wardrobe.WardrobeItem", b =>
                 {
                     b.HasOne("Kombin.Api.Persistence.Entities.Catalog.Brand", null)
@@ -2358,6 +2700,11 @@ namespace Kombin.Api.Persistence.Migrations
                     b.Navigation("Images");
 
                     b.Navigation("Offers");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Recommendation.Outfit", b =>
+                {
+                    b.Navigation("Items");
                 });
 #pragma warning restore 612, 618
         }

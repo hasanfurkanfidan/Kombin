@@ -8,7 +8,7 @@ namespace Kombin.Api.Features.Profile.UpdateProfile;
 
 /// <summary>
 /// Replaces the measurements: a field that is left out is cleared. <c>Audience</c> is the exception, a null keeps the current one
-/// (a profile always has an audience).
+/// (a profile always has an audience). <c>City</c> (at most 80 characters; blank clears it) is where the outfit engine reads the weather.
 /// </summary>
 internal sealed record UpdateProfileRequest(
     string? Audience,
@@ -18,7 +18,8 @@ internal sealed record UpdateProfileRequest(
     int? ChestCm,
     int? WaistCm,
     int? HipCm,
-    decimal? ShoeSizeEu);
+    decimal? ShoeSizeEu,
+    string? City = null);
 
 internal static class UpdateProfileEndpoint
 {
@@ -46,6 +47,7 @@ internal static class UpdateProfileEndpoint
         profile.WaistCm = request.WaistCm;
         profile.HipCm = request.HipCm;
         profile.ShoeSizeEu = request.ShoeSizeEu;
+        profile.City = string.IsNullOrWhiteSpace(request.City) ? null : request.City.Trim();
 
         await db.SaveChangesAsync(cancellationToken);
 

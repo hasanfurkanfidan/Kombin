@@ -449,7 +449,8 @@ public sealed class WardrobeTests(ApiFactory factory)
             stats.GetProperty("byCategory").EnumerateArray().Select(row => (row.GetProperty("slug").GetString(), row.GetProperty("count").GetInt32())));
         Assert.Equal(3, stats.GetProperty("byColor").GetArrayLength());
         Assert.Equal(2, stats.GetProperty("unwornFor180Days").GetInt32());
-        Assert.Equal(JsonValueKind.Null, stats.GetProperty("possibleOutfits").ValueKind);
+        // Two tees and jeans, but the only shoes are archived: nothing is complete.
+        Assert.Equal(0, stats.GetProperty("possibleOutfits").GetInt32());
 
         var mostWorn = stats.GetProperty("mostWorn").EnumerateArray().Select(item => item.GetProperty("id").GetGuid()).ToList();
         Assert.Equal([favorite, jeans], mostWorn);

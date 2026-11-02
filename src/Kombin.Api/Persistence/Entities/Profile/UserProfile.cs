@@ -5,6 +5,8 @@ namespace Kombin.Api.Persistence.Entities.Profile;
 /// <summary>Per-user shopping preferences and body measurements. Not a <see cref="BaseEntity"/>: the user ID is the identity. Created lazily.</summary>
 internal sealed class UserProfile : IAuditable
 {
+    public const int MaxCityLength = 80;
+
     public Guid UserId { get; set; }
 
     /// <summary>What the user shops for: Women, Men or Unisex (never Kids).</summary>
@@ -23,6 +25,9 @@ internal sealed class UserProfile : IAuditable
     public int? HipCm { get; set; }
 
     public decimal? ShoeSizeEu { get; set; }
+
+    /// <summary>Set by the app; the outfit engine reads the weather for it. Null means no weather component.</summary>
+    public string? City { get; set; }
 
     public Guid? ActivePersonaId { get; set; }
 

@@ -11,6 +11,7 @@ using Kombin.Api.Features.Engagement;
 using Kombin.Api.Features.Identity;
 using Kombin.Api.Features.Notification;
 using Kombin.Api.Features.Profile;
+using Kombin.Api.Features.Recommendation;
 using Kombin.Api.Features.Wardrobe;
 using Kombin.Api.Persistence;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
@@ -41,6 +42,7 @@ builder.Services.AddNotificationFeature();
 builder.Services.AddAnalyticsFeature();
 builder.Services.AddObjectStorage();
 builder.Services.AddWardrobeFeature();
+builder.Services.AddRecommendationFeature();
 
 var app = builder.Build();
 
@@ -67,6 +69,7 @@ app.MapProfileEndpoints();
 app.MapNotificationEndpoints();
 app.MapAnalyticsEndpoints();
 app.MapWardrobeEndpoints();
+app.MapRecommendationEndpoints();
 
 await app.MigrateDatabaseOnStartupAsync();
 await app.SeedStyleCardsOnStartupAsync();

@@ -4,9 +4,9 @@ using Kombin.Api.Features.Catalog;
 using Kombin.Api.Features.Engagement;
 using Kombin.Api.Features.Notification;
 using Kombin.Api.Features.Profile;
+using Kombin.Api.Features.Recommendation;
 using Kombin.Api.Persistence;
 using Kombin.Api.Persistence.Entities.Catalog;
-using Kombin.Api.Persistence.Entities.Wardrobe;
 
 namespace Kombin.Api.Features.Wardrobe.GetGaps;
 
@@ -44,17 +44,14 @@ internal static class GetGapsEndpoint
             .ToListAsync(cancellationToken);
         var persona = personas.FirstOrDefault(candidate => candidate.Id == profile?.ActivePersonaId) ?? personas.FirstOrDefault();
 
-        var categories = await db.Categories.AsNoTracking().ToDictionaryAsync(category => category.Id, category => category.Slug, cancellationToken);
-        var owned = await db.WardrobeItems.AsNoTracking()
-            .Where(item => item.UserId == userId && !item.IsArchived && item.Status == WardrobeItemStatus.Ready && item.CategoryId != null)
-            .Select(item => new { CategoryId = item.CategoryId!.Value, item.PrimaryColor, item.Formality, item.ProductId })
-            .ToListAsync(cancellationToken);
+        var wardrobe = await OutfitSources.LoadWardrobeAsync(db, userId, scoring: null, cancellationToken);
+        var ownedProductIds = await OutfitSources.OwnedProductIdsAsync(db, userId, cancellationToken);
 
-        var pieces = owned
-            .Select(item => new GapPiece(SizeGroups.ForCategorySlug(categories[item.CategoryId]), item.PrimaryColor, item.Formality))
-            .ToList();
         var styleProfile = persona is null ? null : await StyleProfiles.LoadOrDeriveAsync(db, persona, clock.UtcNow, cancellationToken);
-        var gaps = GapAnalysis.Analyze(pieces, persona is null ? null : GapPersona.From(persona, styleProfile));
+        var gaps = GapAnalysis.Analyze(
+            [.. wardrobe.Select(OutfitCounts.ToGapPiece)],
+            persona is null ? null : GapPersona.From(persona, styleProfile),
+            gap => OutfitCounts.Unlocks(wardrobe, gap));
 
         var suggestions = gaps.Count == 0
             ? []
@@ -63,7 +60,7 @@ internal static class GetGapsEndpoint
                 gaps[0],
                 persona is null ? null : new PersonaScoring(persona, styleProfile!),
                 profile?.Audience ?? Audience.Unisex,
-                [.. owned.Select(item => item.ProductId).OfType<Guid>()],
+                ownedProductIds,
                 cancellationToken);
 
         return TypedResults.Ok(new WardrobeGapsResponse(persona?.Id, gaps, suggestions));

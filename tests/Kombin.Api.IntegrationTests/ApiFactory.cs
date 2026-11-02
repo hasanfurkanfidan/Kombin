@@ -1,6 +1,7 @@
 using Hangfire;
 using Kombin.Api.Common.Storage;
 using Kombin.Api.Features.Notification;
+using Kombin.Api.Features.Recommendation.Weather;
 using Kombin.Api.Features.Wardrobe;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -69,6 +70,9 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
             services.AddSingleton<IBackgroundJobClient>(provider => provider.GetRequiredService<RecordingJobClient>());
 
             services.AddHttpClient(WardrobeModule.CatalogImageClient).ConfigurePrimaryHttpMessageHandler(() => new FakeCatalogImageHandler());
+
+            services.RemoveAll<IWeatherProvider>();
+            services.AddSingleton<IWeatherProvider, FakeWeatherProvider>();
         });
 
         builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(new Dictionary<string, string?>
