@@ -205,6 +205,40 @@ public sealed class CatalogReadTests(ApiFactory factory)
         Assert.Equal(Slug(brand), item.GetProperty("brand").GetProperty("slug").GetString());
         Assert.Equal("ust-giyim/blazer", item.GetProperty("category").GetProperty("slug").GetString());
         Assert.Equal("Green", item.GetProperty("primaryColor").GetString());
+        Assert.Equal("Trendyol", item.GetProperty("cheapestSeller").GetProperty("name").GetString());
+        Assert.Equal("trendyol", item.GetProperty("cheapestSeller").GetProperty("slug").GetString());
+    }
+
+    [Fact]
+    public async Task ListItemsNameTheSellerOfTheOfferThatDefinesTheLowestPrice()
+    {
+        using var client = factory.CreateClient();
+        var brand = Unique("Chp");
+
+        // Trendyol asks 300, Hepsiburada 100 for the same product: the cheapest seller is Hepsiburada, whatever the order of arrival.
+        await client.UpsertOkAsync("trendyol", [Item($"c1-{Guid.NewGuid():N}", 300m, brand, "Shared Coat", modelCode: "CH-1")], Ct);
+        await client.UpsertOkAsync("hepsiburada", [Item($"c2-{Guid.NewGuid():N}", 100m, brand, "Shared Coat", modelCode: "CH-1")], Ct);
+        var item = (await client.GetJsonAsync($"/api/v1/catalog/products?brandSlug={Slug(brand)}", Ct)).GetProperty("items")[0];
+
+        Assert.Equal(100m, item.GetProperty("lowestPrice").GetDecimal());
+        Assert.Equal(2, item.GetProperty("offerCount").GetInt32());
+        Assert.Equal("Hepsiburada", item.GetProperty("cheapestSeller").GetProperty("name").GetString());
+        Assert.Equal("hepsiburada", item.GetProperty("cheapestSeller").GetProperty("slug").GetString());
+    }
+
+    [Fact]
+    public async Task TheCheapestSellerIgnoresOffersThatCannotBeBought()
+    {
+        using var client = factory.CreateClient();
+        var brand = Unique("Chs");
+
+        // The cheaper listing is sold out, so the seller of the cheapest offer one can buy is named.
+        await client.UpsertOkAsync("trendyol", [Item($"s1-{Guid.NewGuid():N}", 50m, brand, "Odd Coat", modelCode: "CS-1", stockStatus: "OutOfStock")], Ct);
+        await client.UpsertOkAsync("hepsiburada", [Item($"s2-{Guid.NewGuid():N}", 200m, brand, "Odd Coat", modelCode: "CS-1")], Ct);
+        var item = (await client.GetJsonAsync($"/api/v1/catalog/products?brandSlug={Slug(brand)}", Ct)).GetProperty("items")[0];
+
+        Assert.Equal(200m, item.GetProperty("lowestPrice").GetDecimal());
+        Assert.Equal("hepsiburada", item.GetProperty("cheapestSeller").GetProperty("slug").GetString());
     }
 
     [Fact]

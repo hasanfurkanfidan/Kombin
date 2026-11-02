@@ -11,7 +11,8 @@ internal readonly record struct SweepSummary(int OffersDeactivated, int Products
 
 /// <summary>
 /// Retires listings that disappeared: an active offer not seen for 48 hours (<see cref="OfferSweepRules"/>) is deactivated, gets a
-/// closing out-of-stock price snapshot and goes through <see cref="AlertEvaluator"/> like any other change. Afterwards every
+/// closing out-of-stock price snapshot and goes through <see cref="AlertEvaluator"/> with <see cref="EvaluationReason.Sweep"/>, which
+/// fires no alert (the next upsert that finds the offer in stock is what fires back-in-stock and price-drop). Afterwards every
 /// product's <c>IsActive</c> is repaired to match its offers, in both directions. Idempotent: a rerun finds nothing left to do.
 /// </summary>
 internal sealed partial class OfferSweepJob(KombinDbContext db, IClock clock, AlertEvaluator alerts, ILogger<OfferSweepJob> logger)

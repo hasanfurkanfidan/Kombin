@@ -9,6 +9,8 @@ COPY src/Kombin.Api/Kombin.Api.csproj src/Kombin.Api/
 RUN dotnet restore src/Kombin.Api/Kombin.Api.csproj
 
 COPY src/Kombin.Api/ src/Kombin.Api/
+# Embedded into the assembly: the weekly-metrics job runs the same queries operators run by hand.
+COPY docs/metrics.sql docs/metrics.sql
 RUN dotnet publish src/Kombin.Api/Kombin.Api.csproj \
     --configuration Release \
     --no-restore \

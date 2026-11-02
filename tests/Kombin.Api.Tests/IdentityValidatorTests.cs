@@ -10,6 +10,26 @@ public class IdentityValidatorTests
 
     private static RegisterRequest ValidRegistration() => new("ada@example.com", "Passw0rdOk", "Ada Lovelace");
 
+    [Theory]
+    [InlineData(null, true)]
+    [InlineData("0b1f6c3e-5f7a-4b19-9d57-0d3a8f3a9c11", true)]
+    [InlineData("", false)]
+    [InlineData("has space", false)]
+    public void TheAnonymousIdIsOptionalOnRegistrationAndLogin(string? anonymousId, bool valid)
+    {
+        Assert.Equal(valid, _register.Validate(ValidRegistration() with { AnonymousId = anonymousId }).IsValid);
+        Assert.Equal(valid, _login.Validate(new LoginRequest("ada@example.com", "Passw0rdOk", null, anonymousId)).IsValid);
+    }
+
+    [Fact]
+    public void TheAnonymousIdIsAtMost64CharactersOnRegistrationAndLogin()
+    {
+        var tooLong = new string('a', 65);
+
+        Assert.False(_register.Validate(ValidRegistration() with { AnonymousId = tooLong }).IsValid);
+        Assert.False(_login.Validate(new LoginRequest("ada@example.com", "Passw0rdOk", null, tooLong)).IsValid);
+    }
+
     [Fact]
     public void ValidRegistrationPasses()
     {

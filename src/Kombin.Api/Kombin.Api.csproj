@@ -30,6 +30,8 @@
     <!-- Embedded rather than copied to the output so the seed travels with the assembly (tests, Docker image) and needs no path lookup. -->
     <EmbeddedResource Include="Persistence\Seed\dev-catalog.json" LogicalName="Kombin.Api.Persistence.Seed.dev-catalog.json" />
     <EmbeddedResource Include="Persistence\Seed\style-cards.json" LogicalName="Kombin.Api.Persistence.Seed.style-cards.json" />
+    <!-- The metric queries live in docs/ (operators run them by hand); the weekly-metrics job runs the very same file. -->
+    <EmbeddedResource Include="..\..\docs\metrics.sql" LogicalName="Kombin.Api.Analytics.metrics.sql" />
   </ItemGroup>
 
   <ItemGroup>

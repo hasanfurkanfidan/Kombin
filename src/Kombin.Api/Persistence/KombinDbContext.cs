@@ -1,3 +1,4 @@
+using Kombin.Api.Persistence.Entities.Analytics;
 using Kombin.Api.Persistence.Entities.Catalog;
 using Kombin.Api.Persistence.Entities.Engagement;
 using Kombin.Api.Persistence.Entities.Identity;
@@ -51,6 +52,10 @@ internal sealed class KombinDbContext(DbContextOptions<KombinDbContext> options)
     public DbSet<NotificationPreference> NotificationPreferences => Set<NotificationPreference>();
 
     public DbSet<Entities.Notification.Notification> Notifications => Set<Entities.Notification.Notification>();
+
+    public DbSet<AnalyticsEvent> AnalyticsEvents => Set<AnalyticsEvent>();
+
+    public DbSet<WeeklyMetric> WeeklyMetrics => Set<WeeklyMetric>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder) =>
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(KombinDbContext).Assembly);

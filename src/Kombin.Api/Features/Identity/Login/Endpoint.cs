@@ -1,13 +1,15 @@
 using Kombin.Api.Common.Results;
 using Kombin.Api.Common.Time;
 using Kombin.Api.Common.Validation;
+using Kombin.Api.Features.Analytics;
 using Kombin.Api.Persistence;
 using Kombin.Api.Persistence.Entities.Identity;
 using Microsoft.AspNetCore.Identity;
 
 namespace Kombin.Api.Features.Identity.Login;
 
-internal sealed record LoginRequest(string Email, string Password, string? DeviceName = null);
+/// <summary><c>AnonymousId</c> is the analytics ID the app used before login; its earlier events are attached to the user.</summary>
+internal sealed record LoginRequest(string Email, string Password, string? DeviceName = null, string? AnonymousId = null);
 
 internal static class LoginEndpoint
 {
@@ -30,6 +32,7 @@ internal static class LoginEndpoint
         KombinDbContext db,
         IPasswordHasher<User> passwordHasher,
         AuthTokenIssuer tokens,
+        IAnalyticsIdentityLinker analyticsLinker,
         IClock clock,
         CancellationToken cancellationToken)
     {
@@ -57,6 +60,7 @@ internal static class LoginEndpoint
         user.LastLoginAt = clock.UtcNow;
         var issued = tokens.Issue(user, request.DeviceName);
         await db.SaveChangesAsync(cancellationToken);
+        await analyticsLinker.LinkAsync(user.Id, request.AnonymousId, cancellationToken);
 
         return Results.Ok(issued.Response);
     }
