@@ -65,6 +65,12 @@ public class AnalyticsValidatorTests
             ["buy_click"] = $$"""{"offerId":"{{ProductId}}","source":"product_detail"}""",
             ["search"] = """{"queryLength":0}""",
             ["notification_open"] = """{"notificationId":42,"kind":"BackInStock"}""",
+            ["wardrobe_add_start"] = """{"source":"camera"}""",
+            ["wardrobe_add_done"] = """{"status":"Ready","durationMs":7100}""",
+            ["outfit_view"] = """{"kind":"Daily","status":"NeedsOne","occasion":"office"}""",
+            ["outfit_shuffle"] = null,
+            ["outfit_feedback"] = """{"action":"Dismiss","reason":"TooFormal"}""",
+            ["outfit_gap_click"] = null,
         };
 
         Assert.Equal(samples.Keys.Order(), AnalyticsEventCatalog.Names.Order());
@@ -153,6 +159,13 @@ public class AnalyticsValidatorTests
     [InlineData("search", """{"queryLength":"7"}""", "queryLength")]
     [InlineData("search", """{"queryLength":1.5}""", "queryLength")]
     [InlineData("notification_open", """{"notificationId":0,"kind":"System"}""", "notificationId")]
+    [InlineData("wardrobe_add_start", """{"source":"clipboard"}""", "source")]
+    [InlineData("wardrobe_add_done", """{"status":"Done","durationMs":10}""", "status")]
+    [InlineData("wardrobe_add_done", """{"status":"Ready","durationMs":-1}""", "durationMs")]
+    [InlineData("outfit_view", """{"kind":"Weekly","status":"Complete"}""", "kind")]
+    [InlineData("outfit_view", """{"kind":"Daily","status":"Complete","occasion":"picnic"}""", "occasion")]
+    [InlineData("outfit_feedback", """{"action":"Love"}""", "action")]
+    [InlineData("outfit_feedback", """{"action":"Dismiss","reason":"Boring"}""", "reason")]
     [InlineData("product_list_view", """{"sort":"cheapest","filters":""}""", "sort")]
     [InlineData("product_list_view", """{"sort":"newest","filters":"a b"}""", "filters")]
     public void PropertyValuesAreCheckedAgainstTheirType(string name, string json, string expectedKey)
