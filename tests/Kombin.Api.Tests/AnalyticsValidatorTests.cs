@@ -4,6 +4,10 @@ using Kombin.Api.Features.Analytics.RecordEvents;
 
 namespace Kombin.Api.Tests;
 
+/// <summary>
+/// Two layers: the request validator, whose failures are a 400 for the whole body, and <see cref="AnalyticsEventCatalog.Reject"/>, whose
+/// verdict costs only the one event (<c>unknown_event</c>, <c>invalid_properties</c>).
+/// </summary>
 public class AnalyticsValidatorTests
 {
     private const string ProductId = "3f2c8f0e-8f3e-4c1b-9a53-5d7b0b3a1c11";
@@ -12,6 +16,12 @@ public class AnalyticsValidatorTests
 
     private static Dictionary<string, JsonElement> Props(string json) =>
         JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(json)!;
+
+    private static string? Reject(string? name, string? properties = null) =>
+        AnalyticsEventCatalog.Reject(name, properties is null ? null : Props(properties));
+
+    private static IEnumerable<string> BadKeys(string name, string json) =>
+        AnalyticsEventCatalog.Check(name, Props(json)).Select(problem => problem.Key);
 
     private static EventItem Event(string name = "app_open", string? properties = null, string? anonymousId = "anon-1") =>
         new(name, properties is null ? null : Props(properties), "session-1", "Ios", "1.0.0", DateTimeOffset.UtcNow, anonymousId);
@@ -26,6 +36,14 @@ public class AnalyticsValidatorTests
             Event("screen_view", """{"screen":"product_detail"}"""),
             Event("product_view", $$"""{"productId":"{{ProductId}}","source":"feed"}"""),
             Event("search", """{"queryLength":7}"""));
+
+        Assert.True(_validator.Validate(request).IsValid);
+    }
+
+    [Fact]
+    public void TheRequestValidatorLeavesNamesAndPropertiesToTheCatalog()
+    {
+        var request = Batch(Event("purchase"), Event("search", """{"query":"gömlek","email":"a@b.com"}"""));
 
         Assert.True(_validator.Validate(request).IsValid);
     }
@@ -53,8 +71,7 @@ public class AnalyticsValidatorTests
 
         foreach (var (name, properties) in samples)
         {
-            var result = _validator.Validate(Batch(Event(name, properties)));
-            Assert.True(result.IsValid, $"{name}: {string.Join("; ", result.Errors.Select(error => error.ErrorMessage))}");
+            Assert.Null(Reject(name, properties));
         }
     }
 
@@ -64,14 +81,8 @@ public class AnalyticsValidatorTests
     [InlineData("app_open ")]
     [InlineData("")]
     [InlineData(null)]
-    public void AnEventOutsideTheAllowListIsRejectedWithItsOwnErrorCode(string? name)
-    {
-        var result = _validator.Validate(Batch(Event("app_open"), Event(name!)));
-
-        var failure = Assert.Single(result.Errors);
-        Assert.Equal("Analytics.UnknownEvent", failure.ErrorCode);
-        Assert.Equal("Events[1].Name", failure.PropertyName);
-    }
+    public void AnEventOutsideTheAllowListIsRejectedAsUnknown(string? name) =>
+        Assert.Equal("unknown_event", Reject(name));
 
     [Theory]
     [InlineData("email")]
@@ -83,48 +94,51 @@ public class AnalyticsValidatorTests
     [InlineData("E-Mail")]
     [InlineData("e_mail")]
     [InlineData("PHONE")]
-    public void PropertyKeysThatNamePersonalDataAreRejectedOnAnyEvent(string key)
+    public void PropertyKeysThatNamePersonalDataMakeTheEventsPropertiesInvalid(string key)
     {
         var json = $$"""{"screen":"home","{{key}}":"someone"}""";
 
-        var result = _validator.Validate(Batch(Event("screen_view", json)));
+        Assert.Equal("invalid_properties", Reject("screen_view", json));
 
-        var failure = Assert.Single(result.Errors);
-        Assert.Equal($"Events[0].Properties.{key}", failure.PropertyName);
-        Assert.Contains("personal data", failure.ErrorMessage, StringComparison.Ordinal);
+        var problem = Assert.Single(AnalyticsEventCatalog.Check("screen_view", Props(json)));
+        Assert.Equal(key, problem.Key);
+        Assert.Contains("personal data", problem.Message, StringComparison.Ordinal);
     }
 
     [Fact]
     public void ASearchCarriesItsLengthAndNeverItsText()
     {
-        var result = _validator.Validate(Batch(Event("search", """{"queryLength":5,"query":"gömlek"}""")));
-
-        var failure = Assert.Single(result.Errors);
-        Assert.Equal("Events[0].Properties.query", failure.PropertyName);
+        Assert.Equal("invalid_properties", Reject("search", """{"queryLength":5,"query":"gömlek"}"""));
+        Assert.Equal(["query"], BadKeys("search", """{"queryLength":5,"query":"gömlek"}"""));
     }
 
     [Fact]
-    public void PropertiesNotListedForTheEventAreRejected()
+    public void PropertiesNotListedForTheEventAreInvalid()
     {
-        var result = _validator.Validate(Batch(Event("app_open", """{"anything":1}""")));
-
-        Assert.Equal("Events[0].Properties.anything", Assert.Single(result.Errors).PropertyName);
+        Assert.Equal("invalid_properties", Reject("app_open", """{"anything":1}"""));
+        Assert.Equal(["anything"], BadKeys("app_open", """{"anything":1}"""));
     }
 
     [Theory]
-    [InlineData("""{}""", "screen")]
-    [InlineData("""{"screen":null}""", "screen")]
-    [InlineData("""{"screen":""}""", "screen")]
-    [InlineData("""{"screen":"free text with spaces"}""", "screen")]
-    [InlineData("""{"screen":"a@b.com"}""", "screen")]
-    [InlineData("""{"screen":5}""", "screen")]
-    [InlineData("""{"screen":{"a":1}}""", "screen")]
-    [InlineData("""{"screen":["a"]}""", "screen")]
-    public void RequiredPropertiesMustBeFlatIdentifiers(string json, string expectedKey)
+    [InlineData("""{}""")]
+    [InlineData("""{"screen":null}""")]
+    [InlineData("""{"screen":""}""")]
+    [InlineData("""{"screen":"free text with spaces"}""")]
+    [InlineData("""{"screen":"a@b.com"}""")]
+    [InlineData("""{"screen":5}""")]
+    [InlineData("""{"screen":{"a":1}}""")]
+    [InlineData("""{"screen":["a"]}""")]
+    public void RequiredPropertiesMustBeFlatIdentifiers(string json)
     {
-        var result = _validator.Validate(Batch(Event("screen_view", json)));
+        Assert.Equal("invalid_properties", Reject("screen_view", json));
+        Assert.Contains("screen", BadKeys("screen_view", json));
+    }
 
-        Assert.Contains(result.Errors, failure => failure.PropertyName == $"Events[0].Properties.{expectedKey}");
+    [Fact]
+    public void AMissingPropertiesObjectIsInvalidWhenTheEventNeedsProperties()
+    {
+        Assert.Equal("invalid_properties", Reject("screen_view"));
+        Assert.Null(Reject("app_open"));
     }
 
     [Theory]
@@ -143,16 +157,15 @@ public class AnalyticsValidatorTests
     [InlineData("product_list_view", """{"sort":"newest","filters":"a b"}""", "filters")]
     public void PropertyValuesAreCheckedAgainstTheirType(string name, string json, string expectedKey)
     {
-        var result = _validator.Validate(Batch(Event(name, json)));
-
-        Assert.Contains(result.Errors, failure => failure.PropertyName == $"Events[0].Properties.{expectedKey}");
+        Assert.Equal("invalid_properties", Reject(name, json));
+        Assert.Contains(expectedKey, BadKeys(name, json));
     }
 
     [Fact]
     public void OptionalPropertiesMayBeLeftOutOrNull()
     {
-        Assert.True(_validator.Validate(Batch(Event("product_view", $$"""{"productId":"{{ProductId}}","source":"feed"}"""))).IsValid);
-        Assert.True(_validator.Validate(Batch(Event("product_view", $$"""{"productId":"{{ProductId}}","personaId":null,"source":"feed"}"""))).IsValid);
+        Assert.Null(Reject("product_view", $$"""{"productId":"{{ProductId}}","source":"feed"}"""));
+        Assert.Null(Reject("product_view", $$"""{"productId":"{{ProductId}}","personaId":null,"source":"feed"}"""));
     }
 
     [Fact]
@@ -163,9 +176,7 @@ public class AnalyticsValidatorTests
             ["screen"] = JsonSerializer.SerializeToElement(new string('a', AnalyticsEventCatalog.MaxPropertiesBytes)),
         };
 
-        var result = _validator.Validate(Batch(Event("screen_view") with { Properties = oversized }));
-
-        Assert.Contains(result.Errors, failure => failure.PropertyName == "Events[0].Properties" && failure.ErrorMessage.Contains("larger", StringComparison.Ordinal));
+        Assert.Equal("invalid_properties", AnalyticsEventCatalog.Reject("screen_view", oversized));
     }
 
     [Fact]
@@ -176,6 +187,10 @@ public class AnalyticsValidatorTests
         Assert.True(_validator.Validate(Batch([.. Enumerable.Range(0, 50).Select(_ => Event())])).IsValid);
         Assert.False(_validator.Validate(Batch([.. Enumerable.Range(0, 51).Select(_ => Event())])).IsValid);
     }
+
+    [Fact]
+    public void ANullEventInTheBatchIsAMalformedBody() =>
+        Assert.False(_validator.Validate(Batch(Event(), null!)).IsValid);
 
     [Theory]
     [InlineData("Windows")]

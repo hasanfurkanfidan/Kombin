@@ -4,6 +4,10 @@ using Kombin.Api.Persistence.Entities.Analytics;
 
 namespace Kombin.Api.Features.Analytics.RecordEvents;
 
+/// <summary>
+/// Only the shape of the body fails the request (400). Whether an event is one the API accepts (its name and properties) is decided per
+/// event by <see cref="AnalyticsEventCatalog.Reject"/> and costs only that event.
+/// </summary>
 internal sealed class RecordEventsValidator : AbstractValidator<RecordEventsRequest>
 {
     public const int MaxEvents = 50;
@@ -29,12 +33,6 @@ internal sealed class EventItemValidator : AbstractValidator<EventItem>
 {
     public EventItemValidator()
     {
-        // The error code is what the API reports (Analytics.UnknownEvent) when any event of the batch has an unknown name.
-        RuleFor(item => item.Name)
-            .Must(AnalyticsEventCatalog.IsKnown)
-            .WithErrorCode(AnalyticsErrors.UnknownEvent.Code)
-            .WithMessage(item => $"'{Truncate(item.Name)}' is not an event name the API accepts.");
-
         RuleFor(item => item.SessionId).NotEmpty().MaximumLength(64).Matches("^[A-Za-z0-9\\-_.:]+$");
 
         RuleFor(item => item.Platform)
@@ -44,21 +42,5 @@ internal sealed class EventItemValidator : AbstractValidator<EventItem>
         RuleFor(item => item.AppVersion).NotEmpty().MaximumLength(40);
         RuleFor(item => item.OccurredAt).NotNull();
         RuleFor(item => item.AnonymousId).MustBeAnonymousId();
-
-        RuleFor(item => item.Properties)
-            .Must(properties => AnalyticsEventCatalog.SerializedSize(properties) <= AnalyticsEventCatalog.MaxPropertiesBytes)
-            .WithMessage($"'Properties' must not be larger than {AnalyticsEventCatalog.MaxPropertiesBytes} bytes.");
-
-        RuleFor(item => item.Properties).Custom((properties, context) =>
-        {
-            foreach (var (key, message) in AnalyticsEventCatalog.Check(context.InstanceToValidate.Name, properties))
-            {
-                context.AddFailure($"Properties.{key}", message);
-            }
-        });
     }
-
-    // The name is client input echoed in the error; keep a hostile one from bloating the response.
-    private static string Truncate(string? name) =>
-        name is null ? string.Empty : name.Length <= AnalyticsEventCatalog.MaxNameLength ? name : name[..AnalyticsEventCatalog.MaxNameLength];
 }

@@ -76,35 +76,104 @@ public sealed class AnalyticsEventsTests(ApiFactory factory)
     }
 
     [Fact]
-    public async Task AnUnknownEventFailsTheWholeBatchWithItsOwnErrorCode()
+    public async Task AnUnknownEventIsRejectedAloneAndTheRestOfTheBatchIsStored()
     {
         using var client = factory.CreateClient();
         var anonymousId = NewAnonymousId();
 
-        using var response = await client.PostEventsAsync([Event("app_open", anonymousId: anonymousId), Event("purchase_completed", anonymousId: anonymousId)], Ct);
+        var body = await client.PostEventsOkAsync(
+            [
+                Event("app_open", anonymousId: anonymousId),
+                Event("purchase_completed", anonymousId: anonymousId),
+                Event("app_background", anonymousId: anonymousId),
+            ],
+            Ct);
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        var problem = await response.ReadProblemAsync(Ct);
-        Assert.Equal("Analytics.UnknownEvent", problem.GetProperty("errorCode").GetString());
-        Assert.True(problem.GetProperty("errors").TryGetProperty("events[1].name", out _));
-        Assert.True(response.Headers.Contains("X-Correlation-ID"));
-        Assert.Empty(await factory.EventsOfAnonymousIdAsync(anonymousId, Ct));
+        Assert.Equal(2, body.GetProperty("accepted").GetInt32());
+        Assert.Equal([(1, "unknown_event")], Rejections(body));
+        Assert.Equal(["app_open", "app_background"], (await factory.EventsOfAnonymousIdAsync(anonymousId, Ct)).Select(analyticsEvent => analyticsEvent.Name));
     }
 
     [Fact]
-    public async Task APropertyNamedLikePersonalDataFailsTheBatchAndNothingIsStored()
+    public async Task APropertyNamedLikePersonalDataRejectsOnlyThatEvent()
     {
         using var client = factory.CreateClient();
         var anonymousId = NewAnonymousId();
 
-        using var response = await client.PostEventsAsync(
-            [Event("screen_view", new Dictionary<string, object> { ["screen"] = "home", ["email"] = "ada@example.com" }, anonymousId: anonymousId)], Ct);
+        var body = await client.PostEventsOkAsync(
+            [
+                Event("screen_view", new Dictionary<string, object> { ["screen"] = "home", ["email"] = "ada@example.com" }, anonymousId: anonymousId),
+                Event("screen_view", new { screen = "search" }, anonymousId: anonymousId),
+            ],
+            Ct);
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        var problem = await response.ReadProblemAsync(Ct);
-        Assert.Equal("Validation.Failed", problem.GetProperty("errorCode").GetString());
-        Assert.True(problem.GetProperty("errors").TryGetProperty("events[0].properties.email", out _));
-        Assert.Empty(await factory.EventsOfAnonymousIdAsync(anonymousId, Ct));
+        Assert.Equal(1, body.GetProperty("accepted").GetInt32());
+        Assert.Equal([(0, "invalid_properties")], Rejections(body));
+
+        var stored = Assert.Single(await factory.EventsOfAnonymousIdAsync(anonymousId, Ct));
+        Assert.Contains("search", stored.Properties, StringComparison.Ordinal);
+        Assert.DoesNotContain("ada@example.com", stored.Properties, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task EveryKindOfBadPropertiesIsRejectedPerEventWithItsOriginalIndex()
+    {
+        using var client = factory.CreateClient();
+        var anonymousId = NewAnonymousId();
+
+        var body = await client.PostEventsOkAsync(
+            [
+                Event("app_open", anonymousId: anonymousId),
+                Event("search", new { queryLength = 4, query = "gömlek" }, anonymousId: anonymousId),
+                Event("screen_view", anonymousId: anonymousId),
+                Event("screen_view", new { screen = new { nested = 1 } }, anonymousId: anonymousId),
+                Event("screen_view", new { screen = new string('a', 3000) }, anonymousId: anonymousId),
+                Event("swipe", new { personaId = Guid.NewGuid(), decision = "Love" }, anonymousId: anonymousId),
+                Event("nope", anonymousId: anonymousId),
+                Event("search", new { queryLength = 4 }, anonymousId: anonymousId),
+            ],
+            Ct);
+
+        Assert.Equal(2, body.GetProperty("accepted").GetInt32());
+        Assert.Equal(
+            [(1, "invalid_properties"), (2, "invalid_properties"), (3, "invalid_properties"), (4, "invalid_properties"), (5, "invalid_properties"), (6, "unknown_event")],
+            Rejections(body));
+        Assert.Equal(["app_open", "search"], (await factory.EventsOfAnonymousIdAsync(anonymousId, Ct)).Select(analyticsEvent => analyticsEvent.Name));
+    }
+
+    [Fact]
+    public async Task ARejectedEventDoesNotUseUpTheDuplicateSlotOfAValidOne()
+    {
+        using var client = factory.CreateClient();
+        var anonymousId = NewAnonymousId();
+        var at = DateTimeOffset.UtcNow.AddMinutes(-1);
+        var session = $"session-{Guid.NewGuid():N}";
+
+        var body = await client.PostEventsOkAsync(
+            [
+                Event("screen_view", new { screen = "bad screen" }, session, occurredAt: at, anonymousId: anonymousId),
+                Event("screen_view", new { screen = "home" }, session, occurredAt: at, anonymousId: anonymousId),
+            ],
+            Ct);
+
+        Assert.Equal(1, body.GetProperty("accepted").GetInt32());
+        Assert.Equal([(0, "invalid_properties")], Rejections(body));
+    }
+
+    [Fact]
+    public async Task OnlyAMalformedBodyIsA400()
+    {
+        using var client = factory.CreateClient();
+
+        using var noEvents = await client.PostAsJsonAsync("/api/v1/events", new { }, Ct);
+        using var nullEvent = await client.PostAsJsonAsync("/api/v1/events", new { events = new object?[] { null } }, Ct);
+        using var badPlatform = await client.PostEventsAsync([Event(platform: "Windows", anonymousId: NewAnonymousId())], Ct);
+
+        Assert.Equal(HttpStatusCode.BadRequest, noEvents.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, nullEvent.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, badPlatform.StatusCode);
+        Assert.Equal("Validation.Failed", (await badPlatform.ReadProblemAsync(Ct)).GetProperty("errorCode").GetString());
+        Assert.True(badPlatform.Headers.Contains("X-Correlation-ID"));
     }
 
     [Fact]

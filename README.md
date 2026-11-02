@@ -194,17 +194,26 @@ events into the four beta metrics. Events are for operators; nothing in the app 
 
 | Method | Route | Auth | Success | Errors |
 |---|---|---|---|---|
-| POST | `/events` | optional bearer | 202 `{ accepted, rejected: [{ index, reason }] }` | 400 validation, 400 `Analytics.UnknownEvent` |
+| POST | `/events` | optional bearer | 202 `{ accepted, rejected: [{ index, reason }] }` | 400 validation (malformed body only) |
 | GET | `/internal/analytics/weekly?from=` | internal key | 200 `{ items: [{ weekStart, metric, value, numerator, denominator, computedAt }] }`, newest week first | 401 |
 
 `POST /events` takes `{ events: [1-50] }`; each event is `{ name, properties?, sessionId, platform: Ios|Android, appVersion, occurredAt,
 anonymousId? }`. A valid bearer token attributes the batch to the user; an anonymous caller must send `anonymousId` (a stable random id the
 app generates before login, at most 64 characters of `A-Za-z0-9-_.:`) on every event, or the event is rejected as `missing_identity`.
 
-- **Names and properties come from an allow-list** (`AnalyticsEventCatalog`). One unknown name, an unlisted property, a wrong value, a
-  property bigger than 2 KB in total or a key named like personal data (`email`, `name`, `phone`, `address`, `token`) fails the **whole
-  batch** with a 400 (the unknown name with `errorCode: Analytics.UnknownEvent`, the rest with `Validation.Failed` and an `errors`
-  dictionary keyed `events[3].properties.email`), so a client has to send only names it knows.
+Events are judged one by one: a bad event is listed in `rejected` with its index in the request and a `reason`, and the rest of the batch is
+stored. Only a malformed body is a 400 (`Validation.Failed`, with an `errors` dictionary): no `events`, none or more than 50, a null event,
+or a bad `sessionId`, `platform`, `appVersion`, `occurredAt` or `anonymousId`.
+
+| `reason` | The event |
+|---|---|
+| `unknown_event` | has a name outside the allow-list below |
+| `invalid_properties` | has a property that is not listed for it, is missing, has the wrong type or value, or is nested; has properties over 2 KB in total; or has a key named like personal data (`email`, `name`, `phone`, `address`, `token`) |
+| `missing_identity` | was sent by an anonymous caller without `anonymousId` |
+| `duplicate` | repeats an earlier event of the same batch (same `sessionId`, `name` and `occurredAt`) |
+
+- **Names and properties come from an allow-list** (`AnalyticsEventCatalog`), so a client that is newer than the backend only loses the
+  events it invented, and the rest of its batch still counts.
 
   | Event | Properties |
   |---|---|
@@ -222,8 +231,7 @@ app generates before login, at most 64 characters of `A-Za-z0-9-_.:`) on every e
   Values are GUIDs, integers, enum names or short identifiers (letters, digits and `_ . : / -`), never free text.
 - **A wrong clock does not cost the event.** `occurredAt` more than 7 days old or more than 5 minutes ahead is replaced by the server's
   receive time.
-- **Repeats within a batch** (same `sessionId`, `name` and `occurredAt`) are dropped and listed in `rejected` as `duplicate`; a client
-  that resends a whole batch after a lost response will store it twice.
+- **Repeats** are only detected within a batch; a client that resends a whole batch after a lost response will store it twice.
 - **Linking.** `POST /auth/login` and `POST /auth/register` accept an optional `anonymousId`; the events that device sent while anonymous
   (`user_id` still null) are attached to the user. Events that already belong to a user are never taken over.
 

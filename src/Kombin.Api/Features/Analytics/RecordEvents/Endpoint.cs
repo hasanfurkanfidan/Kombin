@@ -29,12 +29,6 @@ internal sealed record RecordEventsResponse(int Accepted, IReadOnlyList<Rejected
 
 internal static class RecordEventsEndpoint
 {
-    /// <summary>The event repeats one earlier in the same batch with the same session, name and time.</summary>
-    public const string Duplicate = "duplicate";
-
-    /// <summary>An anonymous caller sent the event without an <c>anonymousId</c>, so it could never be attributed.</summary>
-    public const string MissingIdentity = "missing_identity";
-
     public static void Map(RouteGroupBuilder group) =>
         group.MapPost("/", Handle)
             .WithName("RecordEvents")
@@ -43,8 +37,10 @@ internal static class RecordEventsEndpoint
             .ProducesProblem(StatusCodes.Status400BadRequest);
 
     /// <summary>
-    /// Public: the app reports before login. A valid bearer token adds the user to every event. A bad clock is clamped, not rejected;
-    /// what is not stored (a repeat within the batch, an event nobody could be blamed for) is listed in <c>rejected</c> with its index.
+    /// Public: the app reports before login. A valid bearer token adds the user to every event. A bad clock is clamped, not rejected.
+    /// Events are judged one by one: what is not stored (an unknown name, bad properties, no identity, a repeat within the batch) is listed
+    /// in <c>rejected</c> with its index and a <see cref="RejectionReasons"/> value, and the rest of the batch is stored. Only a malformed
+    /// body is a 400.
     /// </summary>
     private static async Task<IResult> Handle(RecordEventsRequest request, ICurrentUser currentUser, KombinDbContext db, IClock clock, CancellationToken cancellationToken)
     {
@@ -59,16 +55,22 @@ internal static class RecordEventsEndpoint
         {
             var item = request.Events[index];
 
+            if (AnalyticsEventCatalog.Reject(item.Name, item.Properties) is { } reason)
+            {
+                rejected.Add(new RejectedEvent(index, reason));
+                continue;
+            }
+
             if (userId is null && item.AnonymousId is null)
             {
-                rejected.Add(new RejectedEvent(index, MissingIdentity));
+                rejected.Add(new RejectedEvent(index, RejectionReasons.MissingIdentity));
                 continue;
             }
 
             // The client's own time is the key, before clamping: two different moments must not collapse into one just because both were clamped.
             if (!seen.Add((item.SessionId, item.Name, item.OccurredAt!.Value)))
             {
-                rejected.Add(new RejectedEvent(index, Duplicate));
+                rejected.Add(new RejectedEvent(index, RejectionReasons.Duplicate));
                 continue;
             }
 

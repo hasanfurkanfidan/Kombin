@@ -203,10 +203,13 @@ External Python workers (a separate repo) push the catalog through the internal 
   their types; the validator rejects anything else. A new event or property is a catalog entry plus a README row, nothing more. Property
   values are GUIDs, integers, enum names or short identifiers, never free text (`search` sends `queryLength`, never the query). Keys named
   like personal data (`email`, `name`, `phone`, `address`, `token`) are refused on every event, and so is any key not listed for the event.
-- **A bad event fails the whole batch.** An unknown name is 400 `Analytics.UnknownEvent` (the validation filter reports a rule's dotted error
-  code instead of `Validation.Failed`); other violations are 400 `Validation.Failed` with `events[i].properties.key` entries. Only two
-  things are per-event and non-fatal, reported in `rejected` of the 202: `duplicate` (same `sessionId`, `name` and client `occurredAt`
-  earlier in the batch; across batches nothing is deduplicated) and `missing_identity` (anonymous caller without `anonymousId`).
+- **A bad event costs only itself.** `AnalyticsEventCatalog.Reject` judges each event; the handler stores the rest and lists the others in
+  `rejected` of the 202 as `{ index, reason }` (`RejectionReasons`): `unknown_event` (name outside the allow-list), `invalid_properties`
+  (unlisted, missing, wrongly typed or nested property, a PII-named key, over 2 KB), `missing_identity` (anonymous caller without
+  `anonymousId`) and `duplicate` (same `sessionId`, `name` and client `occurredAt` earlier in the batch; across batches nothing is
+  deduplicated). A rejected event does not use up a duplicate slot. 400 `Validation.Failed` is only for a malformed body (the validator
+  checks the envelope: 1-50 events, no null event, `sessionId`, `platform`, `appVersion`, `occurredAt`, `anonymousId`); never move the
+  name or property rules back into the request validator.
 - **Clock skew is clamped, not rejected** (`EventTiming`): `occurredAt` more than 7 days old or 5 minutes ahead becomes `ReceivedAt`.
   `OccurredAt`/`ReceivedAt` are always UTC.
 - **Identity is linked after the commit and never breaks a sign-in.** Login and Register take an optional `anonymousId` and call

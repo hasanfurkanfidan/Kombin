@@ -18,8 +18,6 @@ internal sealed record EventProperty(string Key, bool Required, Func<JsonElement
 /// </summary>
 internal static partial class AnalyticsEventCatalog
 {
-    public const int MaxNameLength = 60;
-
     public const int MaxPropertiesBytes = 2048;
 
     /// <summary>Keys that are refused on every event, whatever the catalog says, because they name personal data.</summary>
@@ -45,6 +43,22 @@ internal static partial class AnalyticsEventCatalog
     public static IEnumerable<string> Names => Events.Keys;
 
     public static bool IsKnown(string? name) => name is not null && Events.ContainsKey(name);
+
+    /// <summary>
+    /// Whether the event can be stored: null when it can, otherwise <see cref="RejectionReasons.UnknownEvent"/> or
+    /// <see cref="RejectionReasons.InvalidProperties"/>. Judges the event alone, so one bad event never costs the rest of its batch.
+    /// </summary>
+    public static string? Reject(string? name, IReadOnlyDictionary<string, JsonElement>? properties)
+    {
+        if (!IsKnown(name))
+        {
+            return RejectionReasons.UnknownEvent;
+        }
+
+        return SerializedSize(properties) > MaxPropertiesBytes || Check(name, properties).Any()
+            ? RejectionReasons.InvalidProperties
+            : null;
+    }
 
     /// <summary>
     /// What is wrong with <paramref name="properties"/> for the event <paramref name="name"/>, as (key, message) pairs; empty when it is fine.
