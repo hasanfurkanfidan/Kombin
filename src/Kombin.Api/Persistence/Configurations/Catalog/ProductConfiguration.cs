@@ -33,6 +33,9 @@ internal sealed class ProductConfiguration : IEntityTypeConfiguration<Product>
         builder.HasIndex(product => new { product.BrandId, product.ModelCode }).IsUnique();
         builder.HasIndex(product => product.CategoryId);
 
+        // The outfit engine's gap prefetch: category + colour + formality band of active products, a few dozen rows out of 50k.
+        builder.HasIndex(product => new { product.CategoryId, product.PrimaryColor, product.Formality }).HasFilter("is_active");
+
         builder.HasOne(product => product.Brand)
             .WithMany()
             .HasForeignKey(product => product.BrandId)

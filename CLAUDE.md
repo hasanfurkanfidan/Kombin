@@ -14,7 +14,7 @@ sells anything itself. This repository is its backend: a .NET 10 Minimal API on 
 - **Handlers use `KombinDbContext` directly.** There is no repository or service layer in between.
 - **Entities are shared across slices**, so they live in `src/Kombin.Api/Persistence/Entities/<Schema>/`, never inside a slice.
   Their EF configuration lives in `Persistence/Configurations/<Schema>/`.
-- **One PostgreSQL schema per feature** (`identity`, `catalog`, `engagement`, `profile`, ...). Tables and columns are snake_case (naming convention
+- **One PostgreSQL schema per feature** (`identity`, `catalog`, `engagement`, `profile`, `recommendation`, ...). Tables and columns are snake_case (naming convention
   is global). Migrations live in `Persistence/Migrations`.
 - Types are `internal` by default; the test projects see them through `InternalsVisibleTo`. Only `Program` is public.
 - C# latest, nullable on, implicit usings, file-scoped namespaces. `TreatWarningsAsErrors=true`,
@@ -79,8 +79,9 @@ External Python workers (a separate repo) push the catalog through the internal 
   also happens on an existing offer). `imageUrls` holds at most 6 entries. Image, brand website and seller website URLs must be
   absolute http(s) with a host, no credentials and no whitespace (`UpsertOfferItemValidator.IsPublicHttpUrl`).
 - **`PUT /internal/catalog/sellers/{slug}`** with `{ name, kind, websiteUrl, affiliateNetwork?, affiliateUrlTemplate?, affiliateParams?,
-  isActive }` registers or updates a seller before the first upsert. It is a full replacement: optional fields left out are cleared, and
-  `isActive` defaults to true. `kind` is `Marketplace` or `BrandStore`, the slug is kebab-case, and a template must contain `{url}` or
+  isActive }` registers or updates a seller before the first upsert. `name`, `kind`, `websiteUrl` and `isActive` (default
+  true) are replaced on every call; the affiliate fields are not: **left out = unchanged, explicit null = cleared**, so a worker that only
+  knows the shop never wipes hand-configured affiliate settings. `kind` is `Marketplace` or `BrandStore`, the slug is kebab-case, and a template must contain `{url}` or
   `{rawUrl}`. A name another seller uses is 409 `Catalog.SellerNameTaken`. The upsert's `<brand>-store` auto-create stays for backward
   compatibility (a PUT may take such a seller over).
 - **`GET /internal/catalog/sellers/{sellerSlug}/offers?updatedAfter=&page=&pageSize=`** pages through every offer of a seller, inactive
@@ -190,7 +191,7 @@ External Python workers (a separate repo) push the catalog through the internal 
 - **Hangfire wiring:** `AddNotificationFeature` registers storage lazily; `UseNotificationJobs` (called in `Program.cs` after the EF
   migrations and the seeds) is what first creates the `hangfire` schema, registers the recurring jobs (`UseCatalogJobs` adds the
   Catalog's `offer-sweep`, `UseAnalyticsJobs` the Analytics' `weekly-metrics` and `UseWardrobeJobs` the Wardrobe's `wardrobe-cleanup`
-  right after it, behind the same flag) and, **in Development only**,
+  right after it, behind the same flag; `outfit-narrate` is fire-and-forget, not recurring) and, **in Development only**,
   maps the dashboard at `/hangfire` (open, no auth, unmapped in every other environment). Nothing happens unless `Hangfire:Enabled` is
   true (compose sets it; tests set it to false; `Development` defaults to true). The storage uses `EnableLongPolling`
   (LISTEN/NOTIFY), so an enqueued fire-and-forget job (`wardrobe-analyze`) starts at once instead of on the next 15-second queue poll.
@@ -263,8 +264,9 @@ External Python workers (a separate repo) push the catalog through the internal 
   image into storage as both cutout and thumbnail, unchanged (no background removal, no resizing: there is no image library here). A failed
   copy still creates the item, which then shows the catalog image. The same product twice returns the existing item.
 - **Wears** are a set of days per item (unique `(item_id, worn_on)`, `wornOn` defaults to today in `Europe/Istanbul`); `WearCount` and
-  `LastWornAt` are recomputed from the rows after every change (`WearRules.Summarize`), never incremented. `OutfitId` has no foreign key
-  until outfits exist (Task 12), and `GET /stats` returns `possibleOutfits: null` until then.
+  `LastWornAt` are recomputed from the rows after every change (`WearRules.Summarize`), never incremented. `OutfitId` (no foreign key) is
+  set when an outfit is marked worn. Recording a day goes through `WearSummaries.RecordAsync`, shared with the outfit engine's `worn`.
+  `GET /stats.possibleOutfits` and `GET /gaps.unlocksEstimate` come from the outfit engine (see Recommendation rules).
 - **Gap analysis** is the pure `GapAnalysis.Analyze` (rules at the top of the file, unit-tested with synthetic wardrobes). Change a rule there
   and in that comment block together. Suggested products for the first gap follow the catalog persona convention (match score ≥ 60 with a
   persona; `GetGapsEndpoint.MinMatchScore`).
@@ -283,6 +285,44 @@ External Python workers (a separate repo) push the catalog through the internal 
   `not-garment`), `FakeObjectStorage` (in memory; the S3 implementation is exercised against MinIO in the compose walkthrough, not in the
   test suite), `RecordingJobClient` for `IBackgroundJobClient` (jobs are recorded, the test runs them), and `FakeCatalogImageHandler` on the
   `wardrobe-catalog-images` HttpClient.
+
+## Recommendation rules
+
+- **What exists:** the outfit engine (`Features/Recommendation`, design in `docs/design/outfit-engine.md`), schema `recommendation`
+  (`outfits`, `outfit_items`, `outfit_feedback`, `narrations`), `UserProfile.City`, and `/api/v1/me/outfits`: `GET /daily?date=&occasion=&seed=
+  &personaId=`, `GET /how-to-wear?productId=|wardrobeItemId=&count=&seed=&occasion=&personaId=`, `GET /saved`, `GET /{id}`, `POST /{id}/save`,
+  `POST /{id}/worn`, `POST /{id}/feedback`, `DELETE /{id}?reason=`.
+- **Rules + scores, no ML, no LLM in the generation path.** The rules are tables with a comment per entry (`OutfitRules.cs`: colour, formality,
+  silhouette, pattern; `WeatherRules.cs`; `Occasions.cs`); the formula is the comment block at the top of `OutfitScoring.cs`. Change a table and its
+  comment and `OutfitRulesTests` together. Everything in the engine is pure (`OutfitGenerator`, `OutfitCounter`, `OutfitScoring`); the I/O is in
+  `OutfitSources` (loading) and `OutfitStore` (persisting).
+- **Determinism and variety.** Same inputs and seed give the same outfits. Daily: the seed plus the day index a diverse list whose entries differ
+  pairwise in ≥ 2 pieces (`PickDaily`), so "another one" (next seed) always changes two pieces when the wardrobe allows. How-to-wear: a seeded
+  FNV jitter re-ranks near-equals; no companion piece in more than 2 outfits (`PickAround`); the picks are returned
+  `Complete` before `NeedsOne` before `CatalogOnly` regardless of score, score order within each group. Seed 0 is the plain ranking.
+- **Honesty about gaps.** `Complete` (no catalog piece besides the anchor), `NeedsOne` (one), `CatalogOnly` (more). Daily asks the catalog only when
+  the wardrobe alone cannot reach the acceptance threshold (60), and then for one neutral piece; an empty wardrobe gets `kind: Shopping` ideas with
+  `wardrobeEmpty: true` and a message. Gap pieces carry their cheapest offer by effective price (`GetProductEndpoint.EffectivePrice`, the product
+  page's order) and a `goPath`, never a seller URL; `completionPrice` sums them. Catalog candidates come only from the narrow per-slot prefetch
+  (`OutfitSources.LoadCatalogAsync`: slot categories, colour family, formality band, active with a sellable offer, audience, persona budget, newest
+  30, backed by the partial index `(category_id, primary_color, formality) WHERE is_active`). Never score the catalog in bulk.
+- **Persona:** the catalog convention (`personaId`, else active, else first, else none). Pieces carry their `MatchScorer` score; the persona's
+  formality range, family weights, avoided colours and budget feed the context. An explicit occasion overrides the persona's band.
+- **Weather:** `IWeatherProvider` (Open-Meteo, `Weather:Enabled`, env `Weather__Enabled`; cached per city/day/hour in memory, never throws, null
+  on any failure); no city or no forecast → the date's season. How-to-wear ignores the day (`WeatherRules.Neutral`). Tests use
+  `FakeWeatherProvider` (answers by city name: `Rainville`, `Coldville`, `Hotville`, `Istanbul`).
+- **Narration never blocks.** Requests answer with `TemplateNarrator` (Turkish, ≥ 12 templates, grammar in `TurkishGrammar`) or an LLM line
+  already cached for the same `OutfitSummary` hash. With `Narration:Provider = Anthropic` (env `Narration__Provider`, key `Anthropic:ApiKey`,
+  model `claude-haiku-5-5`) the store enqueues `outfit-narrate` (`OutfitNarrationJob`, fire-and-forget, `[AutomaticRetry(Attempts = 0)]`),
+  which calls `AnthropicNarrator` (plain `HttpClient`, one call per set, 60 output tokens per outfit, strict JSON schema, 3 s, template fallback on
+  any failure, cache 7 days in `recommendation.narrations`) and updates the rows; the app sees it on `GET /{id}`.
+- **Repeat requests reuse rows**: same user, kind, day, occasion, persona and piece hash (not dismissed) → the stored outfit. A dismissed hash is
+  never suggested again for 30 days. Feedback rows are append-only; `worn` marks wardrobe pieces through `WearSummaries.RecordAsync`.
+- **Counts:** `OutfitCounter` (core triples, rule components only, capped at 999) behind `OutfitCounts.PossibleOutfitsAsync`, cached in memory
+  under a wardrobe fingerprint (count + latest `UpdatedAt`) so any wardrobe change invalidates it; `GapAnalysis.Analyze` takes the engine's
+  `unlocks` estimator (`OutfitCounts.Unlocks`).
+- **Performance budget:** daily and how-to-wear ≤ 300 ms p95 at 200 pieces / 50k products, measured by `OutfitPerformanceTests` on its own
+  PostgreSQL container (50k rows would disturb the shared test database). Keep it passing.
 
 ## Commands
 
@@ -336,5 +376,5 @@ history) and Profile (user profile and measurements, personas, swipe onboarding 
 rule-based match score, size map with hints) and Notification (devices, notification preferences, the notification feed, push
 delivery through Expo, and the Hangfire jobs above) and Analytics (the allow-listed event intake, identity linking, the weekly beta
 metrics and the operators' Metabase) and Wardrobe (photo items analysed by kombin-vision, catalog items, object storage, wears, stats, gap
-analysis). Learning from clicks/saves and outfit generation are the Recommendation task,
-not Profile. Add other features only when a task asks for them.
+analysis) and Recommendation (the rule-based outfit engine: daily, how-to-wear, saved outfits, feedback, weather, narration). Learning from
+clicks, saves and outfit feedback is still to come, and not Profile's job. Add other features only when a task asks for them.

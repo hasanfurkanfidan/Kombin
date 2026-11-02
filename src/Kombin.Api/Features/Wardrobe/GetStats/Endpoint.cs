@@ -1,9 +1,11 @@
 using Kombin.Api.Common.Auth;
 using Kombin.Api.Common.Storage;
 using Kombin.Api.Common.Time;
+using Kombin.Api.Features.Recommendation;
 using Kombin.Api.Persistence;
 using Kombin.Api.Persistence.Entities.Catalog;
 using Kombin.Api.Persistence.Entities.Wardrobe;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace Kombin.Api.Features.Wardrobe.GetStats;
 
@@ -14,7 +16,8 @@ internal sealed record ColorCount(ProductColor Color, int Count);
 
 /// <summary>
 /// Over the wardrobe (not archived, not failed). An item counts as unworn for 180 days when its last wear, or its creation when it was
-/// never worn, is more than 180 days ago. <c>PossibleOutfits</c> is always null for now: outfits arrive with Task 12, which fills it.
+/// never worn, is more than 180 days ago. <c>PossibleOutfits</c> is the outfit engine's count of complete, wearable core outfits (top,
+/// bottom, shoes) the wardrobe makes, capped at 999 (see <c>OutfitCounter</c>); never null since Task 12.
 /// </summary>
 internal sealed record WardrobeStatsResponse(
     int ItemCount,
@@ -37,7 +40,8 @@ internal static class GetStatsEndpoint
             .Produces<WardrobeStatsResponse>()
             .ProducesProblem(StatusCodes.Status401Unauthorized);
 
-    private static async Task<IResult> Handle(ICurrentUser currentUser, KombinDbContext db, IObjectStorage storage, IClock clock, CancellationToken cancellationToken)
+    private static async Task<IResult> Handle(
+        ICurrentUser currentUser, KombinDbContext db, IObjectStorage storage, IClock clock, IMemoryCache cache, CancellationToken cancellationToken)
     {
         var now = clock.UtcNow;
         var cutoffDay = WearRules.Today(now).AddDays(-UnwornDays);
@@ -97,6 +101,6 @@ internal static class GetStatsEndpoint
             unworn,
             await WardrobeItemResponses.SummarizeAsync(db, storage, mostWorn, cancellationToken),
             await WardrobeItemResponses.SummarizeAsync(db, storage, leastWorn, cancellationToken),
-            PossibleOutfits: null));
+            await OutfitCounts.PossibleOutfitsAsync(db, cache, currentUser.UserId, cancellationToken)));
     }
 }

@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Kombin.Api.Common.Results;
 using Kombin.Api.Common.Validation;
 using Kombin.Api.Persistence;
@@ -8,15 +9,61 @@ namespace Kombin.Api.Features.Catalog.PutSeller;
 /// <summary>The seller named in the route, validated on its own because the body does not carry it.</summary>
 internal sealed record PutSellerRoute(string SellerSlug);
 
-/// <summary>The whole seller: optional fields that are left out are cleared, as PUT means.</summary>
-internal sealed record PutSellerRequest(
-    string Name,
-    string Kind,
-    string WebsiteUrl,
-    string? AffiliateNetwork,
-    string? AffiliateUrlTemplate,
-    Dictionary<string, string>? AffiliateParams,
-    bool IsActive = true);
+/// <summary>
+/// The seller. <c>Name</c>, <c>Kind</c>, <c>WebsiteUrl</c> and <c>IsActive</c> are replaced on every PUT. The affiliate fields are the
+/// exception, because workers that only know the shop would otherwise wipe what was configured by hand: left out = unchanged, an explicit
+/// null (or blank) = cleared. The <c>*Set</c> flags record which of them the body contained; the JSON reader only calls an init accessor
+/// for a property that is present.
+/// </summary>
+internal sealed record PutSellerRequest
+{
+    public string Name { get; init; } = string.Empty;
+
+    public string Kind { get; init; } = string.Empty;
+
+    public string WebsiteUrl { get; init; } = string.Empty;
+
+    public string? AffiliateNetwork
+    {
+        get;
+        init
+        {
+            field = value;
+            AffiliateNetworkSet = true;
+        }
+    }
+
+    public string? AffiliateUrlTemplate
+    {
+        get;
+        init
+        {
+            field = value;
+            AffiliateUrlTemplateSet = true;
+        }
+    }
+
+    public Dictionary<string, string>? AffiliateParams
+    {
+        get;
+        init
+        {
+            field = value;
+            AffiliateParamsSet = true;
+        }
+    }
+
+    public bool IsActive { get; init; } = true;
+
+    [JsonIgnore]
+    public bool AffiliateNetworkSet { get; private init; }
+
+    [JsonIgnore]
+    public bool AffiliateUrlTemplateSet { get; private init; }
+
+    [JsonIgnore]
+    public bool AffiliateParamsSet { get; private init; }
+}
 
 internal sealed record PutSellerResponse(
     Guid Id,
@@ -65,10 +112,22 @@ internal static class PutSellerEndpoint
         seller.Name = name;
         seller.Kind = Enum.Parse<SellerKind>(request.Kind, ignoreCase: true);
         seller.WebsiteUrl = request.WebsiteUrl.Trim();
-        seller.AffiliateNetwork = NullIfBlank(request.AffiliateNetwork);
-        seller.AffiliateUrlTemplate = NullIfBlank(request.AffiliateUrlTemplate);
-        seller.AffiliateParams = request.AffiliateParams is { Count: > 0 } parameters ? parameters : null;
         seller.IsActive = request.IsActive;
+
+        if (request.AffiliateNetworkSet)
+        {
+            seller.AffiliateNetwork = NullIfBlank(request.AffiliateNetwork);
+        }
+
+        if (request.AffiliateUrlTemplateSet)
+        {
+            seller.AffiliateUrlTemplate = NullIfBlank(request.AffiliateUrlTemplate);
+        }
+
+        if (request.AffiliateParamsSet)
+        {
+            seller.AffiliateParams = request.AffiliateParams is { Count: > 0 } parameters ? parameters : null;
+        }
 
         await db.SaveChangesAsync(cancellationToken);
 

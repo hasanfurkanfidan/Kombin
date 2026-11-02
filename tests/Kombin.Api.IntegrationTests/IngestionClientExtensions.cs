@@ -41,17 +41,24 @@ internal static class IngestionClientExtensions
         string? affiliateNetwork = null,
         string? affiliateUrlTemplate = null,
         Dictionary<string, string>? affiliateParams = null,
-        bool? isActive = null)
+        bool? isActive = null,
+        bool clearAffiliate = false)
     {
         var body = new Dictionary<string, object?>
         {
             ["name"] = name ?? $"Seller {slug}",
             ["kind"] = kind,
             ["websiteUrl"] = websiteUrl,
-            ["affiliateNetwork"] = affiliateNetwork,
-            ["affiliateUrlTemplate"] = affiliateUrlTemplate,
-            ["affiliateParams"] = affiliateParams,
         };
+
+        // Affiliate fields that are not given are left out (the stored ones stay); clearAffiliate sends them as explicit nulls instead.
+        foreach (var (key, value) in new (string, object?)[] { ("affiliateNetwork", affiliateNetwork), ("affiliateUrlTemplate", affiliateUrlTemplate), ("affiliateParams", affiliateParams) })
+        {
+            if (value is not null || clearAffiliate)
+            {
+                body[key] = value;
+            }
+        }
 
         // Left out rather than null when not given: that is what the default of true is for.
         if (isActive is { } active)

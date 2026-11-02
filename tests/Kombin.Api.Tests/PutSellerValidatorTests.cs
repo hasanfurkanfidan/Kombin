@@ -9,7 +9,7 @@ public class PutSellerValidatorTests
     private readonly PutSellerRouteValidator _routeValidator = new();
 
     private static PutSellerRequest Valid() =>
-        new("Mavi Store", "BrandStore", "https://www.mavi.com", null, null, null);
+        new() { Name = "Mavi Store", Kind = "BrandStore", WebsiteUrl = "https://www.mavi.com" };
 
     [Fact]
     public void MinimalSellerPasses()

@@ -53,9 +53,27 @@ internal static class RecordWearEndpoint
             return Problems.Validation(httpContext, new Dictionary<string, string[]> { ["wornOn"] = [error] });
         }
 
-        if (!await db.WardrobeWears.AnyAsync(wear => wear.ItemId == item.Id && wear.WornOn == day, cancellationToken))
+        var summary = await WearSummaries.RecordAsync(db, item, day, now, outfitId: null, cancellationToken);
+
+        return TypedResults.Ok(new WearResponse(item.Id, day, summary.WearCount, summary.LastWornAt));
+    }
+}
+
+internal static class WearSummaries
+{
+    /// <summary>
+    /// Marks the tracked <paramref name="item"/> worn on <paramref name="day"/> (once per day: a second mark changes nothing, except that
+    /// it fills in <paramref name="outfitId"/> on a day recorded without one) and refreshes its summary. Shared by the wardrobe's
+    /// <c>wear</c> endpoint and the outfit engine's <c>worn</c>.
+    /// </summary>
+    public static async Task<(int WearCount, DateOnly? LastWornAt)> RecordAsync(
+        KombinDbContext db, WardrobeItem item, DateOnly day, DateTimeOffset now, Guid? outfitId, CancellationToken cancellationToken)
+    {
+        var existing = await db.WardrobeWears.SingleOrDefaultAsync(wear => wear.ItemId == item.Id && wear.WornOn == day, cancellationToken);
+
+        if (existing is null)
         {
-            db.WardrobeWears.Add(new WardrobeWear { ItemId = item.Id, UserId = item.UserId, WornOn = day, CreatedAt = now });
+            db.WardrobeWears.Add(new WardrobeWear { ItemId = item.Id, UserId = item.UserId, WornOn = day, OutfitId = outfitId, CreatedAt = now });
 
             try
             {
@@ -67,15 +85,14 @@ internal static class RecordWearEndpoint
                 db.ChangeTracker.Entries<WardrobeWear>().ToList().ForEach(entry => entry.State = EntityState.Detached);
             }
         }
+        else if (existing.OutfitId is null && outfitId is not null)
+        {
+            existing.OutfitId = outfitId;
+        }
 
-        var summary = await WearSummaries.RefreshAsync(db, item, cancellationToken);
-
-        return TypedResults.Ok(new WearResponse(item.Id, day, summary.WearCount, summary.LastWornAt));
+        return await RefreshAsync(db, item, cancellationToken);
     }
-}
 
-internal static class WearSummaries
-{
     /// <summary>Recomputes <c>WearCount</c> and <c>LastWornAt</c> of the tracked <paramref name="item"/> from its wear rows and saves.</summary>
     public static async Task<(int WearCount, DateOnly? LastWornAt)> RefreshAsync(KombinDbContext db, WardrobeItem item, CancellationToken cancellationToken)
     {

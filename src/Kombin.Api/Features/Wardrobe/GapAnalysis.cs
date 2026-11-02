@@ -22,9 +22,10 @@ namespace Kombin.Api.Features.Wardrobe;
 //   default order (DefaultNeutrals). Its formality is the band's center (Casual 2, Smart 3,
 //   Formal 4; outerwear takes the first band's).
 //
-//   unlocksEstimate = the outfits the piece would complete: bottoms × shoes for a top, tops × shoes for a bottom, tops × bottoms for
-//   shoes and for outerwear, counting only pieces whose formality is within 1 of the suggested piece's. Colors are not checked: a
-//   neutral piece goes with every color.
+//   unlocksEstimate = the outfits the piece would complete. The endpoint passes the outfit engine's count (OutfitCounts.Unlocks: the
+//   core outfits with the piece that pass the outfit rules and the acceptance threshold; for outerwear, the core outfits it can be worn
+//   over). Without it (the unit tests) the rough estimate is used: bottoms × shoes for a top, tops × shoes for a bottom, tops ×
+//   bottoms for shoes and for outerwear, counting only pieces whose formality is within 1 of the suggested piece's.
 //
 //   Order: unlocksEstimate (descending), then missing_{band}_* before missing_neutral_* before missing_outerwear, then band
 //   (Casual, Smart, Formal), then group (Tops, Bottoms, Shoes). At most MaxGaps. The band adjective appears in a missing_neutral
@@ -102,9 +103,12 @@ internal static class GapAnalysis
         MissingOuterwear,
     }
 
-    public static IReadOnlyList<WardrobeGap> Analyze(IReadOnlyCollection<GapPiece> pieces, GapPersona? persona)
+    /// <summary><paramref name="unlocks"/> replaces the rough <c>unlocksEstimate</c> (before ordering) when given.</summary>
+    public static IReadOnlyList<WardrobeGap> Analyze(IReadOnlyCollection<GapPiece> pieces, GapPersona? persona, Func<WardrobeGap, int>? unlocks = null)
     {
         ArgumentNullException.ThrowIfNull(pieces);
+
+        WardrobeGap Estimate(WardrobeGap gap) => unlocks is null ? gap : gap with { UnlocksEstimate = unlocks(gap) };
 
         persona ??= GapPersona.Default;
         var bands = BandsOf(persona);
@@ -131,7 +135,7 @@ internal static class GapAnalysis
                     ? $"Dolabında hiç {Adjective(band)} {Noun(group)} yok"
                     : $"Dolabında {ColorName(color)} tonlarda {(multiBand ? $"{Adjective(band)} " : string.Empty)}{Noun(group)} yok";
 
-                candidates.Add((new WardrobeGap(kind, message, RootSlug(group), color, formality, Unlocks(pieces, group, formality)), rule, band, groupOrder));
+                candidates.Add((Estimate(new WardrobeGap(kind, message, RootSlug(group), color, formality, Unlocks(pieces, group, formality))), rule, band, groupOrder));
             }
         }
 
@@ -141,7 +145,7 @@ internal static class GapAnalysis
             var color = SuggestColor(SizeGroup.Outerwear, persona);
 
             candidates.Add((
-                new WardrobeGap("missing_outerwear", "Dolabında soğuk günler için dış giyim yok", RootSlug(SizeGroup.Outerwear), color, formality, Unlocks(pieces, SizeGroup.Outerwear, formality)),
+                Estimate(new WardrobeGap("missing_outerwear", "Dolabında soğuk günler için dış giyim yok", RootSlug(SizeGroup.Outerwear), color, formality, Unlocks(pieces, SizeGroup.Outerwear, formality))),
                 Rule.MissingOuterwear,
                 bands[0],
                 CoreGroups.Length));

@@ -16,6 +16,7 @@ internal sealed class UserProfileConfiguration : IEntityTypeConfiguration<UserPr
         builder.Property(profile => profile.Audience).HasConversion<string>().HasMaxLength(20);
         builder.Property(profile => profile.WeightKg).HasPrecision(4, 1);
         builder.Property(profile => profile.ShoeSizeEu).HasPrecision(4, 1);
+        builder.Property(profile => profile.City).HasMaxLength(UserProfile.MaxCityLength);
 
         builder.HasOne<User>()
             .WithOne()
