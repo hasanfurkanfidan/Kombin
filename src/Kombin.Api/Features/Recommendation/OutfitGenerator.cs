@@ -220,7 +220,8 @@ internal static class OutfitGenerator
 
     /// <summary>
     /// How-to-wear: up to <paramref name="count"/> outfits, re-ranked by a seeded jitter (seed 0 keeps the plain ranking), no companion
-    /// piece in more than <see cref="MaxPieceUses"/> of them.
+    /// piece in more than <see cref="MaxPieceUses"/> of them. The picks are returned with the complete ones first, then those that need one
+    /// piece, then catalog-only ones, whatever their scores: what the user can wear today leads. Within each group the ranking order stays.
     /// </summary>
     public static IReadOnlyList<OutfitCandidate> PickAround(IReadOnlyList<OutfitCandidate> ranked, string anchorKey, int seed, int count)
     {
@@ -245,7 +246,8 @@ internal static class OutfitGenerator
             }
         }
 
-        return kept;
+        // OrderBy is stable, so each group keeps its ranking order.
+        return [.. kept.OrderBy(candidate => candidate.Completeness(anchorKey))];
     }
 
     /// <summary>Adds the best wardrobe accessory that keeps the outfit allowed and does not lower its score; otherwise returns it unchanged.</summary>

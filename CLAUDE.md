@@ -298,7 +298,8 @@ External Python workers (a separate repo) push the catalog through the internal 
   `OutfitSources` (loading) and `OutfitStore` (persisting).
 - **Determinism and variety.** Same inputs and seed give the same outfits. Daily: the seed plus the day index a diverse list whose entries differ
   pairwise in ≥ 2 pieces (`PickDaily`), so "another one" (next seed) always changes two pieces when the wardrobe allows. How-to-wear: a seeded
-  FNV jitter re-ranks near-equals; no companion piece in more than 2 outfits (`PickAround`). Seed 0 is the plain ranking.
+  FNV jitter re-ranks near-equals; no companion piece in more than 2 outfits (`PickAround`); the picks are returned
+  `Complete` before `NeedsOne` before `CatalogOnly` regardless of score, score order within each group. Seed 0 is the plain ranking.
 - **Honesty about gaps.** `Complete` (no catalog piece besides the anchor), `NeedsOne` (one), `CatalogOnly` (more). Daily asks the catalog only when
   the wardrobe alone cannot reach the acceptance threshold (60), and then for one neutral piece; an empty wardrobe gets `kind: Shopping` ideas with
   `wardrobeEmpty: true` and a message. Gap pieces carry their cheapest offer by effective price (`GetProductEndpoint.EffectivePrice`, the product

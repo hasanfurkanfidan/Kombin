@@ -259,8 +259,10 @@ public sealed class RecommendationTests(ApiFactory factory)
             Assert.Equal(shirt, outfit.Pieces().Single(piece => piece.GetProperty("role").GetString() == "Anchor").GetProperty("wardrobeItemId").GetGuid());
         });
 
-        // Forty pieces leave the catalog little to add: the wardrobe is preferred.
+        // Forty pieces leave the catalog little to add: the wardrobe is preferred, and complete outfits are listed first.
         Assert.Contains(outfits, outfit => outfit.GetProperty("completeness").GetString() == "Complete");
+        var order = outfits.Select(outfit => Enum.Parse<OutfitCompleteness>(outfit.GetProperty("completeness").GetString()!)).ToList();
+        Assert.Equal(order.Order(), order);
 
         // A product the user added to the wardrobe is anchored as the wardrobe item.
         var product = await user.Client.SeedProductAsync("ust-giyim/gomlek", "Black", 3, cancellationToken: Ct);

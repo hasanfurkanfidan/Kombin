@@ -17,7 +17,8 @@ A **rule table + weighted score + diverse pick** pipeline, pure and in memory, f
 4. **Pick diverse.** Sort by score; greedily keep outfits that differ from *every* kept one in at least two pieces (up to 12). For
    *daily*, `seed` (plus the day, so tomorrow does not repeat today) indexes into that list, so any two seeds that land on
    different entries differ in ≥ 2 pieces; the next two entries are the `alternatives`. For *how to wear*, a seeded, order-free
-   jitter (FNV hash of seed + outfit) re-ranks near-equals, and selection caps every non-anchor piece at 2 of the 5 outfits.
+   jitter (FNV hash of seed + outfit) re-ranks near-equals, and selection caps every non-anchor piece at 2 of the 5 outfits. The
+   picks are listed `Complete` first, then `NeedsOne`, whatever their scores (score order within each group).
 5. **Gaps** (catalog pieces) are fetched only when needed: daily asks the catalog only when the wardrobe cannot produce a
    `Complete` outfit above the threshold (the honest commercial moment), and then fills exactly one slot; how-to-wear fills the
    slots the wardrobe cannot (around the anchor's colour partners and formality ± 1, ignoring the day). The prefetch is one narrow query per slot: leaf categories of the slot, colours that harmonise with

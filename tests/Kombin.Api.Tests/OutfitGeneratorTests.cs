@@ -170,6 +170,40 @@ public class OutfitGeneratorTests
     }
 
     [Fact]
+    public void HowToWearListsCompleteOutfitsBeforeThoseThatNeedAPieceWhateverTheScore()
+    {
+        var anchor = Shirt(ProductColor.White, 3, "anchor-shirt");
+        var wardrobe = new[]
+        {
+            Trousers(ProductColor.Navy, 3, "trousers-navy") with { PersonaScore = 10 },
+            Trousers(ProductColor.Grey, 3, "trousers-grey") with { PersonaScore = 10 },
+            Trousers(ProductColor.Beige, 3, "trousers-beige") with { PersonaScore = 10 },
+            Sneaker(ProductColor.White, 2, "sneaker-white") with { PersonaScore = 10 },
+        };
+
+        // Shoes the persona loves: the outfits that need them outscore the complete ones by far.
+        var shop = new[]
+        {
+            Piece("ayakkabi/loafer", ProductColor.Brown, 3, name: "shop-loafer", source: PieceSource.Catalog, personaScore: 100, price: 1500m),
+            Piece("ayakkabi/bot", ProductColor.Black, 3, name: "shop-boot", source: PieceSource.Catalog, personaScore: 100, price: 2000m),
+        };
+
+        var ranked = Generate(wardrobe, catalog: shop, maxGaps: 1, anchor: anchor);
+        var picks = OutfitGenerator.PickAround(ranked, anchor.Key, 0, 5);
+        var completeness = picks.Select(candidate => candidate.Completeness(anchor.Key)).ToList();
+
+        Assert.Equal(OutfitCompleteness.NeedsOne, ranked[0].Completeness(anchor.Key));
+        Assert.Contains(OutfitCompleteness.Complete, completeness);
+        Assert.Contains(OutfitCompleteness.NeedsOne, completeness);
+        Assert.Equal(completeness.Order(), completeness);
+
+        foreach (var group in picks.GroupBy(candidate => candidate.Completeness(anchor.Key)))
+        {
+            Assert.Equal(group.Select(candidate => candidate.Score).OrderDescending(), group.Select(candidate => candidate.Score));
+        }
+    }
+
+    [Fact]
     public void AnAccessoryAnchorIsInEveryOutfitAndPartOfItsIdentity()
     {
         var bag = Piece("aksesuar/canta", ProductColor.Black, 3, name: "anchor-bag", source: PieceSource.Catalog);
