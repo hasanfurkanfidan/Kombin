@@ -35,7 +35,7 @@ src/Kombin.Api/Persistence/Entities/Identity/User.cs
 src/Kombin.Api/Persistence/Configurations/Identity/UserConfiguration.cs
 ```
 
-Cross-cutting code lives in `src/Kombin.Api/Common/` (Results, Http, Auth, Validation, Pagination, Time, Health). Development
+Cross-cutting code lives in `src/Kombin.Api/Common/` (Results, Http, Auth, Validation, Pagination, Time, Health, Storage). Development
 seed data lives in `src/Kombin.Api/Persistence/Seed/`.
 
 Internal endpoints (called by workers, not the app) live under `/api/v1/internal/...` and use `.RequireInternalKey()`. The ones that
@@ -189,9 +189,13 @@ External Python workers (a separate repo) push the catalog through the internal 
   (`QuietHours.Zone`). The Docker runtime image installs `tzdata` for it. Stored instants are always UTC (`timestamptz`).
 - **Hangfire wiring:** `AddNotificationFeature` registers storage lazily; `UseNotificationJobs` (called in `Program.cs` after the EF
   migrations and the seeds) is what first creates the `hangfire` schema, registers the recurring jobs (`UseCatalogJobs` adds the
-  Catalog's `offer-sweep` and `UseAnalyticsJobs` the Analytics' `weekly-metrics` right after it, behind the same flag) and, **in Development only**,
+  Catalog's `offer-sweep`, `UseAnalyticsJobs` the Analytics' `weekly-metrics` and `UseWardrobeJobs` the Wardrobe's `wardrobe-cleanup`
+  right after it, behind the same flag) and, **in Development only**,
   maps the dashboard at `/hangfire` (open, no auth, unmapped in every other environment). Nothing happens unless `Hangfire:Enabled` is
-  true (compose sets it; tests set it to false; `Development` defaults to true).
+  true (compose sets it; tests set it to false; `Development` defaults to true). The storage uses `EnableLongPolling`
+  (LISTEN/NOTIFY), so an enqueued fire-and-forget job (`wardrobe-analyze`) starts at once instead of on the next 15-second queue poll.
+- **Push payload:** the message `data` is the stored `Notification.Data` plus `notificationId` and `kind` (`NotificationData.ForPush`), so
+  the app reports `notification_open` for exactly that row. Keep both keys when changing the payload.
 - **Copy is Turkish and lives in `Features/Notification/Copy.cs`** (money as `2.149 ₺` / `849,90 ₺`, formatted by hand because the runtime
   image may run with invariant globalization). Clients read `Notification.Data.deepLink`; do not change its shape without the app team.
 
@@ -231,6 +235,55 @@ External Python workers (a separate repo) push the catalog through the internal 
   file in a named volume. It connects as `metabase_ro` (`docker/postgres/metabase_ro.sql`, mounted into `docker-entrypoint-initdb.d`, so
   a pre-existing volume needs the file run by hand once): read-only, and limited to the `analytics`, `engagement` and `catalog` schemas.
 
+## Wardrobe rules
+
+- **The rule: a garment from a photo in ~3 seconds, with at most one tap to confirm.** The server does the work (background removal,
+  category, colors, pattern); the user only corrects. Every change to this feature is judged against it: no extra required field, no
+  extra round trip on the photo path, nothing that makes the user wait for something the server could guess. `PATCH {}` is the one tap.
+- **Flow:** `POST /me/wardrobe/items/upload-url` creates a `Processing` item and a presigned PUT for its original → the app uploads
+  straight to storage → `POST /items/{id}/process` checks the object (missing 409, over 8 MB 400) and enqueues `wardrobe-analyze` →
+  the app polls `GET /items/{id}`. Items created but never processed are hidden from lists and stats (`VisibleOf`) and deleted after a day.
+- **Vision service contract** (`kombin-vision`, a separate repo; its `README.md` is the source of truth). `POST /v1/garment/analyze`,
+  multipart field `image`, header `X-Internal-Key` = `Vision:InternalKey` (env `Vision__InternalKey`, compose `VISION_INTERNAL_KEY`; not our
+  own `Internal:ApiKey`). Answer: base64 `cutout` (PNG) and `thumbnail` (WEBP), `category` + `categoryCandidates` (top 3, slugs of our
+  leaf categories), `primaryColor`/`secondaryColor` (`ProductColor` names + hex), `pattern` (`ProductPattern` name), a 512-float unit
+  `embedding`, `quality { isGarment, confidence, warnings }`. Errors are `{ "detail": "<code>" }`. The typed client is `IVisionClient`
+  (`Features/Wardrobe/VisionClient.cs`, 30 s timeout); like the Expo client it never throws for a failed call: 4xx (except 401/408/429)
+  is permanent, the rest transient. It also reads `/health`'s `clipModel` once per process for `EmbeddingModel`.
+- **`wardrobe-analyze`** (`Jobs/WardrobeAnalyzeJob.cs`): fire-and-forget per item, `[AutomaticRetry(Attempts = 3)]` with 5/15/30 s delays.
+  It only works on a `Processing` item and writes the same keys and fields on every run (idempotent). Category = top candidate when its
+  confidence is ≥ 0.35 (`WardrobeAnalysis.CategoryThreshold`), else null and `needsCategory`. `isGarment=false` is still `Ready`, with the
+  `not_garment` warning. A permanent error fails the item at once; transient errors are counted on the item (`AnalysisAttempts`) and the
+  4th makes it `Failed` (the count is ours, not Hangfire's, so tests drive it by calling `AnalyzeAsync`). `AnalysisJson` is the answer
+  without images and embedding. A failed item can be filled in by hand (any PATCH makes it `Ready`) or processed again.
+- **`wardrobe-cleanup`** (daily 05:00 `Europe/Istanbul`, `[DisableConcurrentExecution(60)]`, `[AutomaticRetry(Attempts = 0)]`, tests call
+  `CleanupAsync(userId, ct)`): deletes the objects of items archived more than 30 days ago (rows and wear history stay, keys set to null)
+  and the abandoned uploads above.
+- **From the catalog:** `POST /items/from-product` makes a `Ready`, already confirmed item (`FromCatalog`) and copies the product's primary
+  image into storage as both cutout and thumbnail, unchanged (no background removal, no resizing: there is no image library here). A failed
+  copy still creates the item, which then shows the catalog image. The same product twice returns the existing item.
+- **Wears** are a set of days per item (unique `(item_id, worn_on)`, `wornOn` defaults to today in `Europe/Istanbul`); `WearCount` and
+  `LastWornAt` are recomputed from the rows after every change (`WearRules.Summarize`), never incremented. `OutfitId` has no foreign key
+  until outfits exist (Task 12), and `GET /stats` returns `possibleOutfits: null` until then.
+- **Gap analysis** is the pure `GapAnalysis.Analyze` (rules at the top of the file, unit-tested with synthetic wardrobes). Change a rule there
+  and in that comment block together. Suggested products for the first gap follow the catalog persona convention (match score ≥ 60 with a
+  persona; `GetGapsEndpoint.MinMatchScore`).
+- **Storage** (`Common/Storage`, shared by later features): `IObjectStorage` (`PutAsync`, `GetAsync`, `GetSizeAsync`, `GetPresignedUploadUrl`,
+  `GetPresignedDownloadUrl`, `GetPublicUrl`, `DeleteAsync`) over AWSSDK.S3, so MinIO, S3 and R2 all work. Keys are
+  `{area}/{userId}/{ownerId}/{original|cutout|thumb}.{ext}` (`StorageKeys.Build`). **Visibility is decided by the file name**: the bucket
+  policy (`docker/minio/public-read.json`, applied by the `minio-init` container) makes `*/cutout.*` and `*/thumb.*` anonymously readable;
+  everything else, originals included, is private and served through a presigned GET. Never store anything private under those names.
+  Settings `Storage:Endpoint/PresignEndpoint/Bucket/AccessKey/SecretKey/PublicBaseUrl/ForcePathStyle`, validated when the store is first
+  used (not at start-up). `PresignEndpoint` exists because a presigned URL is signed for its host: compose's API talks to `minio:9000`
+  while the app uploads to `STORAGE_PUBLIC_URL`.
+- **pgvector** is installed (`CREATE EXTENSION vector` in the `Wardrobe` migration via `HasPostgresExtension`, `UseVector()` on the Npgsql
+  options, image `pgvector/pgvector:pg18` in compose and in the test containers). `WardrobeItem.Embedding` (`vector(512)`) is the only vector
+  column so far; nothing queries it yet. A test that builds its own `DbContextOptions` must call `UseVector()` too.
+- **Tests** replace the outside world in `ApiFactory`: `FakeVisionClient` (answers by the photo's text: `unreachable`, `refused`, `unsure`,
+  `not-garment`), `FakeObjectStorage` (in memory; the S3 implementation is exercised against MinIO in the compose walkthrough, not in the
+  test suite), `RecordingJobClient` for `IBackgroundJobClient` (jobs are recorded, the test runs them), and `FakeCatalogImageHandler` on the
+  `wardrobe-catalog-images` HttpClient.
+
 ## Commands
 
 ```bash
@@ -244,7 +297,7 @@ dotnet test --project tests/Kombin.Api.Tests                            # unit t
 docker compose --file docker/compose.yaml up --build --detach --wait db
 dotnet run --project src/Kombin.Api
 
-# Whole stack
+# Whole stack: db (pgvector/pgvector:pg18), minio + minio-init (bucket and policy), vision (built from ../kombin-vision), api
 docker compose --file docker/compose.yaml up --build --detach --wait
 
 # Migrations (local tool, version pinned in .config/dotnet-tools.json)
@@ -282,5 +335,6 @@ snapshots, internal upsert, seller bootstrap and listing, offer sweep), Engageme
 history) and Profile (user profile and measurements, personas, swipe onboarding with style cards, derived style profile,
 rule-based match score, size map with hints) and Notification (devices, notification preferences, the notification feed, push
 delivery through Expo, and the Hangfire jobs above) and Analytics (the allow-listed event intake, identity linking, the weekly beta
-metrics and the operators' Metabase). Learning from clicks/saves and outfit generation are the Recommendation task,
+metrics and the operators' Metabase) and Wardrobe (photo items analysed by kombin-vision, catalog items, object storage, wears, stats, gap
+analysis). Learning from clicks/saves and outfit generation are the Recommendation task,
 not Profile. Add other features only when a task asks for them.

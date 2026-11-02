@@ -4,6 +4,7 @@ using Kombin.Api.Persistence.Entities.Engagement;
 using Kombin.Api.Persistence.Entities.Identity;
 using Kombin.Api.Persistence.Entities.Notification;
 using Kombin.Api.Persistence.Entities.Profile;
+using Kombin.Api.Persistence.Entities.Wardrobe;
 
 namespace Kombin.Api.Persistence;
 
@@ -57,6 +58,14 @@ internal sealed class KombinDbContext(DbContextOptions<KombinDbContext> options)
 
     public DbSet<WeeklyMetric> WeeklyMetrics => Set<WeeklyMetric>();
 
-    protected override void OnModelCreating(ModelBuilder modelBuilder) =>
+    public DbSet<WardrobeItem> WardrobeItems => Set<WardrobeItem>();
+
+    public DbSet<WardrobeWear> WardrobeWears => Set<WardrobeWear>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        // pgvector, for the wardrobe embeddings (the only vector columns so far).
+        modelBuilder.HasPostgresExtension("vector");
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(KombinDbContext).Assembly);
+    }
 }

@@ -192,7 +192,7 @@ public class AlertEvaluatorTests
     {
         // Nothing listens on port 1, so the first query fails like any database outage would.
         var options = new DbContextOptionsBuilder<KombinDbContext>()
-            .UseNpgsql("Host=127.0.0.1;Port=1;Database=none;Username=none;Password=none;Timeout=1;Command Timeout=1;Pooling=false")
+            .UseNpgsql("Host=127.0.0.1;Port=1;Database=none;Username=none;Password=none;Timeout=1;Command Timeout=1;Pooling=false", npgsql => npgsql.UseVector())
             .Options;
         await using var db = new KombinDbContext(options);
         var logger = new CapturingLogger();

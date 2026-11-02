@@ -1,4 +1,7 @@
+using Hangfire;
+using Kombin.Api.Common.Storage;
 using Kombin.Api.Features.Notification;
+using Kombin.Api.Features.Wardrobe;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -16,10 +19,17 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
     public const string InternalApiKey = "integration-test-internal-key-3c1d5e7f9a2b4d6e";
 
-    private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("postgres:18-alpine").Build();
+    // The same image as compose: PostgreSQL 18 with the pgvector extension the Wardrobe migration creates.
+    private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("pgvector/pgvector:pg18").Build();
 
     /// <summary>The Expo push service as the jobs see it. It answers by token (see <see cref="FakeExpoPushClient"/>), so tests running in parallel do not disturb each other.</summary>
     internal FakeExpoPushClient Expo => Services.GetRequiredService<FakeExpoPushClient>();
+
+    /// <summary>The object store (in memory, not MinIO; see <see cref="FakeObjectStorage"/>).</summary>
+    internal FakeObjectStorage Storage => Services.GetRequiredService<FakeObjectStorage>();
+
+    /// <summary>What was enqueued for Hangfire; the tests run the jobs themselves.</summary>
+    internal RecordingJobClient Jobs => Services.GetRequiredService<RecordingJobClient>();
 
     public async ValueTask InitializeAsync()
     {
@@ -46,6 +56,19 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
             services.RemoveAll<IExpoPushClient>();
             services.AddSingleton<FakeExpoPushClient>();
             services.AddSingleton<IExpoPushClient>(provider => provider.GetRequiredService<FakeExpoPushClient>());
+
+            services.RemoveAll<IObjectStorage>();
+            services.AddSingleton<FakeObjectStorage>();
+            services.AddSingleton<IObjectStorage>(provider => provider.GetRequiredService<FakeObjectStorage>());
+
+            services.RemoveAll<IVisionClient>();
+            services.AddSingleton<IVisionClient, FakeVisionClient>();
+
+            services.RemoveAll<IBackgroundJobClient>();
+            services.AddSingleton<RecordingJobClient>();
+            services.AddSingleton<IBackgroundJobClient>(provider => provider.GetRequiredService<RecordingJobClient>());
+
+            services.AddHttpClient(WardrobeModule.CatalogImageClient).ConfigurePrimaryHttpMessageHandler(() => new FakeCatalogImageHandler());
         });
 
         builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(new Dictionary<string, string?>

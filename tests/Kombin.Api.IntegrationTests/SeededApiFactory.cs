@@ -11,7 +11,7 @@ namespace Kombin.Api.IntegrationTests;
 /// </summary>
 public sealed class SeededApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
-    private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("postgres:18-alpine").Build();
+    private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("pgvector/pgvector:pg18").Build();
 
     public async ValueTask InitializeAsync()
     {

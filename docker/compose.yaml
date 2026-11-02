@@ -2,7 +2,9 @@ name: kombin
 
 services:
   db:
-    image: postgres:18-alpine
+    # PostgreSQL 18 with pgvector (the wardrobe embeddings). Debian-based: a volume created by the former postgres:18-alpine image works,
+    # but its text indexes were built with musl's collation; run `REINDEX DATABASE kombin;` once after switching (see the README).
+    image: pgvector/pgvector:pg18
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-kombin}
@@ -25,14 +27,78 @@ services:
       retries: 10
       start_period: 10s
 
+  # S3-compatible object storage (wardrobe photos). The minio/minio image is no longer published on Docker Hub; Chainguard's MinIO build
+  # is used instead ("latest-dev" because it carries the shell, wget and mc that the health check and the bucket setup need; Chainguard
+  # publishes only "latest" tags for free). The S3 port is published like the API's, so a phone on the LAN can upload to it; the console
+  # stays on loopback.
+  minio:
+    image: cgr.dev/chainguard/minio:latest-dev
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-kombin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-kombin_dev_minio_password}
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
+    networks:
+      - backend
+    volumes:
+      - kombin-minio-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  # One-shot: creates the "kombin" bucket and makes the processed images (cutout.*, thumb.*) anonymously readable. Originals stay private.
+  minio-init:
+    image: cgr.dev/chainguard/minio:latest-dev
+    restart: "no"
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - backend
+    environment:
+      MC_HOST_local: http://${MINIO_ROOT_USER:-kombin}:${MINIO_ROOT_PASSWORD:-kombin_dev_minio_password}@minio:9000
+    volumes:
+      - ./minio/public-read.json:/policy/public-read.json:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - mc --config-dir /tmp/mc mb --ignore-existing local/kombin && mc --config-dir /tmp/mc anonymous set-json /policy/public-read.json local/kombin
+
+  # Garment analysis (background removal, category, colors, embedding). Built from the sibling kombin-vision checkout; the API reaches it
+  # as http://vision:8090. Host port 8092 is for debugging and for an API started with `dotnet run` (stop a standalone kombin-vision
+  # stack first, it uses the same port). ~1.7 GB idle, ~2.9 GB peak (kombin-vision/README.md, "Memory").
+  vision:
+    build:
+      context: ../../kombin-vision
+    image: kombin-vision:local
+    restart: unless-stopped
+    environment:
+      # The service refuses to start without it (at least 16 characters).
+      VISION_INTERNAL_KEY: ${VISION_INTERNAL_KEY:-}
+      VISION_TORCH_THREADS: ${VISION_TORCH_THREADS:-4}
+      VISION_MAX_CONCURRENCY: ${VISION_MAX_CONCURRENCY:-2}
+    ports:
+      - "127.0.0.1:${VISION_PORT:-8092}:8090"
+    networks:
+      - backend
+    mem_limit: 4g
+
   api:
     build:
       context: ..
       dockerfile: src/Kombin.Api/Dockerfile
     restart: unless-stopped
+    # Not on vision: the API starts in seconds while vision loads its models for ~40 s, and wardrobe-analyze retries until it answers.
     depends_on:
       db:
         condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
     networks:
       - backend
     ports:
@@ -55,6 +121,17 @@ services:
       Hangfire__Enabled: ${HANGFIRE_ENABLED:-true}
       # Optional: only needed when "enhanced push security" is enforced for the Expo project.
       Expo__AccessToken: ${EXPO_ACCESS_TOKEN:-}
+      # Object storage. The API talks to MinIO inside the network; presigned upload URLs and public image URLs use the address the app
+      # reaches (STORAGE_PUBLIC_URL; set it to http://<your LAN IP>:9000 for a phone).
+      Storage__Endpoint: http://minio:9000
+      Storage__PresignEndpoint: ${STORAGE_PUBLIC_URL:-http://localhost:9000}
+      Storage__PublicBaseUrl: ${STORAGE_PUBLIC_URL:-http://localhost:9000}/kombin
+      Storage__Bucket: kombin
+      Storage__AccessKey: ${MINIO_ROOT_USER:-kombin}
+      Storage__SecretKey: ${MINIO_ROOT_PASSWORD:-kombin_dev_minio_password}
+      Storage__ForcePathStyle: "true"
+      Vision__BaseUrl: http://vision:8090
+      Vision__InternalKey: ${VISION_INTERNAL_KEY:-}
 
   # For operators only: dashboards over the analytics tables. Not started by a plain `up`, so CI's smoke test and day-to-day development
   # never pull or run it; start it with `docker compose --file docker/compose.yaml --profile metabase up --detach metabase`.
@@ -82,3 +159,4 @@ networks:
 volumes:
   kombin-pgdata:
   kombin-metabase-data:
+  kombin-minio-data:

@@ -19,6 +19,10 @@
     <PackageVersion Include="Hangfire.PostgreSql" Version="1.21.1" />
     <!-- Transitive pin: Hangfire.Core depends on Newtonsoft.Json 11.0.1, which has a known high-severity vulnerability (GHSA-5crp-9r3c-p9vr). -->
     <PackageVersion Include="Newtonsoft.Json" Version="13.0.4" />
+    <!-- Object storage (MinIO locally, S3 or R2 later): one S3 client for all of them. -->
+    <PackageVersion Include="AWSSDK.S3" Version="4.0.104.8" />
+    <!-- The vector type for wardrobe embeddings (pgvector). -->
+    <PackageVersion Include="Pgvector.EntityFrameworkCore" Version="0.3.0" />
   </ItemGroup>
 
   <ItemGroup Label="Tests">

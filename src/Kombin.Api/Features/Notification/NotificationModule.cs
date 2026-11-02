@@ -47,7 +47,9 @@ internal static class NotificationModule
                 options => options.UseNpgsqlConnection(
                     provider.GetRequiredService<IConfiguration>().GetConnectionString(PersistenceExtensions.ConnectionStringName)
                     ?? throw new InvalidOperationException($"Connection string 'ConnectionStrings:{PersistenceExtensions.ConnectionStringName}' is not configured.")),
-                new PostgreSqlStorageOptions { SchemaName = HangfireSchema }));
+                // Long polling (LISTEN/NOTIFY) starts an enqueued job at once instead of on the next 15-second queue poll:
+                // wardrobe-analyze is on the "photo to ready in ~3 seconds" path.
+                new PostgreSqlStorageOptions { SchemaName = HangfireSchema, EnableLongPolling = true }));
 
         AddHangfireServerWhenEnabled(services);
 

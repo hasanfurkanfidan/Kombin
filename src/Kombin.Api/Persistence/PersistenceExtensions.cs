@@ -24,7 +24,7 @@ internal static partial class PersistenceExtensions
                 ?? throw new InvalidOperationException($"Connection string 'ConnectionStrings:{ConnectionStringName}' is not configured.");
 
             options
-                .UseNpgsql(connectionString, npgsql => npgsql.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery))
+                .UseNpgsql(connectionString, npgsql => npgsql.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery).UseVector())
                 .UseSnakeCaseNamingConvention()
                 .AddInterceptors(services.GetRequiredService<AuditInterceptor>());
         });
