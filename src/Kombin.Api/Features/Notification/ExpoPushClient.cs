@@ -13,7 +13,7 @@ internal sealed class ExpoOptions
     public string? AccessToken { get; set; }
 }
 
-/// <summary>One push message. <c>Data</c> is the notification's JSON object, delivered to the app as the notification payload.</summary>
+/// <summary>One push message. <c>Data</c> is the notification's JSON object plus <c>notificationId</c> and <c>kind</c> (<see cref="NotificationData.ForPush"/>), delivered to the app as the notification payload.</summary>
 internal sealed record ExpoPushMessage(string To, string Title, string Body, JsonElement Data, string Sound = "default", string Priority = "high");
 
 /// <summary>Expo's answer for one message: <c>Status</c> is <c>ok</c> (then <c>Id</c> is the ticket) or <c>error</c> (then <c>Error</c> is e.g. <c>DeviceNotRegistered</c>).</summary>

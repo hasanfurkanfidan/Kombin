@@ -59,6 +59,11 @@ public sealed class NotificationFlowTests(ApiFactory factory)
         Assert.Equal(pending.Body, message.Body);
         Assert.Equal(product.ProductId, message.Data.GetProperty("productId").GetGuid());
 
+        // What the app reports as notification_open: exactly this row and its kind.
+        Assert.Equal(sent.Id, message.Data.GetProperty("notificationId").GetInt64());
+        Assert.Equal("PriceDrop", message.Data.GetProperty("kind").GetString());
+        Assert.Equal($"kombin://product/{product.ProductId}", message.Data.GetProperty("deepLink").GetString());
+
         var feed = await user.Client.FeedAsync(Ct);
         var entry = Assert.Single(feed.EnumerateArray());
         Assert.Equal("PriceDrop", entry.GetProperty("kind").GetString());

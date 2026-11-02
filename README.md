@@ -8,19 +8,34 @@ Currently implemented: **Identity** (register, login, refresh with rotation, log
 (products, sellers, offers, price history, plus an internal ingestion endpoint for scrapers) and **Engagement** (saved
 products, price/stock alerts, and the `/go/{offerId}` affiliate redirect that records every buy click) and
 **Notification** (device registration, notification preferences and feed, push delivery through Expo, background jobs on
-Hangfire) and **Analytics** (an event intake for the app, the four beta metrics, an optional Metabase for operators).
+Hangfire) and **Analytics** (an event intake for the app, the four beta metrics, an optional Metabase for operators) and **Wardrobe**
+(a garment from a phone photo in a few seconds: background removal and tagging by `kombin-vision`, images in MinIO, wear log, stats
+and a rule-based gap analysis with catalog suggestions).
 
 ## Requirements
 
 - .NET SDK 10.0.401 (pinned in `global.json`)
 - Docker (local PostgreSQL, integration tests)
+- The `kombin-vision` repository checked out next to this one (`../kombin-vision`): compose builds the vision service from it
 
 ## Run
 
 ```bash
-cp docker/.env.example docker/.env      # then set JWT_SIGNING_KEY and INTERNAL_API_KEY, e.g. `openssl rand -base64 48`
+cp docker/.env.example docker/.env      # then set JWT_SIGNING_KEY and INTERNAL_API_KEY (`openssl rand -base64 48`) and VISION_INTERNAL_KEY
 docker compose --file docker/compose.yaml up --build --detach --wait
 curl -i http://localhost:8080/health
+```
+
+The stack is `db` (PostgreSQL 18 with pgvector), `minio` (object storage, S3 API on 9000, console on `127.0.0.1:9001`), `minio-init`
+(one-shot: creates the `kombin` bucket and its public-read policy for processed images), `vision` (`kombin-vision`, built from
+`../kombin-vision`, `127.0.0.1:8092`, 4 GB memory limit; it takes 40-110 s to load its models) and `api`. A standalone
+`kombin-vision` compose stack uses the same host port 8092; stop it first.
+
+**Upgrading an existing volume:** the database image changed from `postgres:18-alpine` to `pgvector/pgvector:pg18` (Debian). The data
+directory is compatible, but text indexes built under Alpine's musl collation must be rebuilt once:
+
+```bash
+docker compose --file docker/compose.yaml exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "REINDEX DATABASE $POSTGRES_DB;"'
 ```
 
 The compose stack runs the API in `Development` with `Database__MigrateOnStartup=true` and `Database__SeedOnStartup=true`,
@@ -156,6 +171,7 @@ goes through the **Expo Push Service**: the app registers Expo push tokens, the 
 `kind` is `PriceDrop`, `BackInStock`, `AnyChange`, `NewMatches` or `System`; `status` is `Pending`, `Sent` or `Suppressed` in the feed
 (`Suppressed` = the user had no usable device, so nothing was pushed, but it is still in the feed). `data` always has a `deepLink`
 (`kombin://product/{id}`, `kombin://matches/{personaId}`, `kombin://notifications`) plus `productId`/`offerId`/`alertId`, or `personaId`/`productIds`.
+The push payload's `data` additionally carries `notificationId` and `kind`, so the app can report `notification_open` for exactly that row.
 
 **Jobs** (Hangfire, PostgreSQL storage in the `hangfire` schema, all idempotent; the dashboard is at `/hangfire` in Development only):
 
@@ -274,6 +290,54 @@ database `kombin` (your `POSTGRES_DB`), user `metabase_ro`, password `metabase_r
 password is a development placeholder: change it with `ALTER ROLE metabase_ro PASSWORD '...'` before pointing Metabase at real data.
 A good first dashboard is `analytics.weekly_metrics` (a line per `metric`, `week_start` on the x axis).
 
+### Wardrobe
+
+**The rule: a user adds a garment from a photo in about three seconds, with at most one tap to confirm.** The server does the work
+(background removal, category, colors, pattern), the user only corrects. All routes are under `/me/wardrobe` and need a bearer token.
+
+| Method | Route | Success | Errors |
+|---|---|---|---|
+| POST | `/items/upload-url` | 201 `{ itemId, uploadUrl, headers, expiresAt }`; body `{ contentType, sizeBytes }` (jpeg, png, webp, heic/heif, at most 8 MB). Creates a `Processing` item; PUT the photo to `uploadUrl` with exactly `headers` within 15 minutes | 400 validation |
+| POST | `/items/{id}/process` | 202 `{ itemId, status }`; enqueues `wardrobe-analyze`. Idempotent: no second job while processing, a ready item is left alone, a failed one starts over | 400 `Wardrobe.ImageTooLarge`, 404 `Wardrobe.ItemNotFound`, 409 `Wardrobe.UploadMissing` / `Wardrobe.ItemArchived` / `Wardrobe.NothingToProcess` |
+| GET | `/items/{id}` | 200 item: attributes, `thumbUrl`, `cutoutUrl` (public), `originalUrl` (15-minute presigned link, only when there is no cutout), `needsCategory`, `warnings`, `failureReason`, `analysis` (candidates and confidences), `wearCount`, `lastWornAt`, `confirmedAt` | 404 |
+| PATCH | `/items/{id}` | 200 item. Any of `name, categorySlug, primaryColor, secondaryColor, pattern, fit, formality, seasons, brandId, size, purchasePrice, purchasedAt`; `clear: ["name", "secondaryColor", "brandId", "size", "purchasePrice", "purchasedAt"]` empties fields. `{}` is valid: the first PATCH of a ready item is the user's confirmation (`confirmedAt`); it also makes a failed item ready | 400 validation, `Wardrobe.UnknownCategory`, `Wardrobe.UnknownBrand`; 404; 409 `Wardrobe.ItemProcessing` / `Wardrobe.ItemArchived` |
+| POST | `/items/from-product` | 201 item (200 with the existing item when the product is already in the wardrobe); body `{ productId, size? }`. A `Ready`, confirmed item with the product's attributes; its primary image is copied into storage as cutout and thumbnail, without background removal | 400, 404 `Catalog.ProductNotFound` |
+| GET | `/items?category=&color=&archived=&page=&pageSize=` | 200 paged summaries, newest first; `category` includes children; uploads never processed are left out | 400 invalid `color` |
+| DELETE | `/items/{id}` | 204, archives (soft, idempotent); `wardrobe-cleanup` deletes the images 30 days later | 404 |
+| POST | `/items/{id}/wear` | 200 `{ itemId, wornOn, wearCount, lastWornAt }`; body optional `{ wornOn? }` (default today in `Europe/Istanbul`); one row per day | 400 future or before 2000, 404, 409 archived |
+| DELETE | `/items/{id}/wear/{yyyy-MM-dd}` | 200 same shape with `wornOn: null`, idempotent | 404 |
+| GET | `/stats` | 200 `{ itemCount, byCategory: [{ slug, count }], byColor: [{ color, count }], unwornFor180Days, mostWorn: [3], leastWorn: [3], possibleOutfits: null }`; `possibleOutfits` is filled by the outfits task (Task 12) | - |
+| GET | `/gaps` | 200 `{ personaId, gaps: [{ kind, message, categorySlug, color, formality, band, unlocksEstimate }], suggestedProducts: [3] }` | - |
+
+**Photo flow.** `upload-url` → the app PUTs the photo straight to storage → `process` → the `wardrobe-analyze` job (Hangfire, started at
+once through PostgreSQL LISTEN/NOTIFY) sends the original to `kombin-vision` (`POST /v1/garment/analyze`), stores the cutout (PNG) and
+thumbnail (WEBP), and sets category, colors, pattern, a first guess at formality and seasons, the 512-d embedding and the analysis JSON →
+`Ready`. The app polls `GET /items/{id}`. The category is taken only when the top candidate reaches 0.35; below that the item is ready
+with `needsCategory: true` and the app shows the three candidates. A photo that is not a garment is still ready, with the `not_garment`
+warning. A refused image (`unsupported_image`) fails at once; an unreachable vision service is retried three times (5, 15, 30 s), then
+the item is `Failed`. Measured on the compose stack on a development laptop: ~4.4 s from `process` to `Ready` with a warm vision service
+(of which the analysis is ~3.1 s), ~11 s for the first photo after the vision service started.
+
+**Gaps** (`Features/Wardrobe/GapAnalysis.cs`, rules documented at the top of the file): for the active persona (the first one when none is
+active), tops, bottoms and shoes are counted by formality band (1-2 casual, 3 smart casual, 4-5 formal) and color family; a group missing
+in a band, or with no neutral color there, is a gap, and so is having no outerwear when the persona dresses for autumn or winter. The
+suggested color is a neutral the persona prefers or learned from swipes. `unlocksEstimate` is the number of outfits the missing piece would
+complete (e.g. bottoms × shoes for a top). At most 5 gaps, biggest unlock first. `suggestedProducts` fill the first gap: active, in-stock
+catalog products of that category, color and band, not already in the wardrobe, with a persona `matchScore` of at least 60.
+
+**Storage** is any S3-compatible store (MinIO in compose). Keys are `wardrobe/{userId}/{itemId}/{original|cutout|thumb}.{ext}`; the bucket
+policy (`docker/minio/public-read.json`) makes `cutout.*` and `thumb.*` publicly readable, originals are private. Settings:
+`Storage:Endpoint` (what the API talks to), `Storage:PresignEndpoint` (what the app uploads to; defaults to `Endpoint`),
+`Storage:PublicBaseUrl` (bucket included), `Storage:Bucket`, `Storage:AccessKey`, `Storage:SecretKey`, `Storage:ForcePathStyle`. In compose,
+`STORAGE_PUBLIC_URL` (default `http://localhost:9000`) sets both public addresses; use `http://<your LAN IP>:9000` for a phone.
+Vision: `Vision:BaseUrl` (compose: `http://vision:8090`; `http://localhost:8092` for `dotnet run`) and `Vision:InternalKey`
+(`VISION_INTERNAL_KEY`, the same value as `kombin-vision/.env`).
+
+| Job | Schedule | Does |
+|---|---|---|
+| `wardrobe-analyze` | per item, enqueued by `process` | the photo analysis above; 3 retries |
+| `wardrobe-cleanup` | daily 05:00 `Europe/Istanbul` | deletes the images of items archived more than 30 days ago (the row and its wear history stay), and uploads started but never processed for a day (row and object) |
+
 ## Decisions worth knowing
 
 - **Password hashing:** `PasswordHasher<T>` from the framework (`Microsoft.AspNetCore.Identity`, PBKDF2-HMAC-SHA512,
@@ -336,7 +400,8 @@ A good first dashboard is `analytics.weekly_metrics` (a line per `metric`, `week
 - Catalog: deactivating offers that stop being seen (`Offer.IsActive`, and `Product.IsActive` when none remain) needs a
   sweep job or an internal endpoint; nothing sets them to false yet except re-linking.
 - Catalog: full-text search (today `ILIKE`), entity resolution/image similarity for products without a `modelCode`,
-  copying images to our own storage, pgvector embeddings, TimescaleDB for `price_snapshots`.
+  copying images to our own storage, product embeddings (pgvector is installed; only wardrobe items have embeddings so far),
+  TimescaleDB for `price_snapshots`.
 - Engagement: rate limiting and bot filtering on `/go`, affiliate conversion/postback import, real affiliate templates per
   seller, forwarded-headers setup.
 - Notification: the first run of `alert-dispatcher` on a database that already has unconsumed triggers turns every one of them

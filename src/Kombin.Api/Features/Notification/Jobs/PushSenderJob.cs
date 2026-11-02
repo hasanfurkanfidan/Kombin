@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Hangfire;
 using Kombin.Api.Common.Time;
 using Kombin.Api.Persistence;
@@ -101,7 +100,7 @@ internal sealed partial class PushSenderJob(KombinDbContext db, IExpoPushClient 
                 batchSize = 0;
             }
 
-            var data = JsonDocument.Parse(notification.Data).RootElement.Clone();
+            var data = NotificationData.ForPush(notification.Data, notification.Id, notification.Kind);
             batch.Add((notification, [.. targets.Select(device => new Outgoing(device, new ExpoPushMessage(device.ExpoPushToken, notification.Title, notification.Body, data)))]));
             batchSize += targets.Count;
         }

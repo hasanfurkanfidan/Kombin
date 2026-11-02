@@ -2,6 +2,7 @@ using System.Text.Json.Serialization;
 using Kombin.Api.Common.Auth;
 using Kombin.Api.Common.Health;
 using Kombin.Api.Common.Http;
+using Kombin.Api.Common.Storage;
 using Kombin.Api.Common.Time;
 using Kombin.Api.Common.Validation;
 using Kombin.Api.Features.Analytics;
@@ -10,6 +11,7 @@ using Kombin.Api.Features.Engagement;
 using Kombin.Api.Features.Identity;
 using Kombin.Api.Features.Notification;
 using Kombin.Api.Features.Profile;
+using Kombin.Api.Features.Wardrobe;
 using Kombin.Api.Persistence;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Serilog;
@@ -37,6 +39,8 @@ builder.Services.AddCatalogFeature();
 builder.Services.AddEngagementFeature();
 builder.Services.AddNotificationFeature();
 builder.Services.AddAnalyticsFeature();
+builder.Services.AddObjectStorage();
+builder.Services.AddWardrobeFeature();
 
 var app = builder.Build();
 
@@ -62,6 +66,7 @@ app.MapEngagementEndpoints();
 app.MapProfileEndpoints();
 app.MapNotificationEndpoints();
 app.MapAnalyticsEndpoints();
+app.MapWardrobeEndpoints();
 
 await app.MigrateDatabaseOnStartupAsync();
 await app.SeedStyleCardsOnStartupAsync();
@@ -71,6 +76,7 @@ await app.SeedDatabaseOnStartupAsync();
 app.UseNotificationJobs();
 app.UseCatalogJobs();
 app.UseAnalyticsJobs();
+app.UseWardrobeJobs();
 await app.RunAsync();
 
 static LogEventLevel RequestLogLevel(HttpContext context, double elapsedMilliseconds, Exception? exception)

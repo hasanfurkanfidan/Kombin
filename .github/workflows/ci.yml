@@ -42,9 +42,12 @@ jobs:
           cp docker/.env.example docker/.env
           sed -i "s|^JWT_SIGNING_KEY=.*|JWT_SIGNING_KEY=$(openssl rand -base64 48)|" docker/.env
           sed -i "s|^INTERNAL_API_KEY=.*|INTERNAL_API_KEY=$(openssl rand -base64 48)|" docker/.env
+          sed -i "s|^VISION_INTERNAL_KEY=.*|VISION_INTERNAL_KEY=$(openssl rand -hex 24)|" docker/.env
 
+      # The API and what it depends on (db, minio, minio-init). Not vision: it is built from the sibling kombin-vision repository,
+      # which this workflow does not check out, and the API does not need it to start.
       - name: Start the stack
-        run: docker compose --file docker/compose.yaml up --build --detach --wait
+        run: docker compose --file docker/compose.yaml up --build --detach --wait api
 
       - name: Smoke test
         run: |

@@ -15,7 +15,7 @@ public class AuditInterceptorTests
     // Change tracking never opens a connection, so the provider is only needed to build the model.
     private static KombinDbContext CreateContext() => new(
         new DbContextOptionsBuilder<KombinDbContext>()
-            .UseNpgsql("Host=localhost;Database=never-connected")
+            .UseNpgsql("Host=localhost;Database=never-connected", npgsql => npgsql.UseVector())
             .UseSnakeCaseNamingConvention()
             .Options);
 

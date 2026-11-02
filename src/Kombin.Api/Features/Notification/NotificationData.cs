@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Kombin.Api.Persistence.Entities.Engagement;
 using Kombin.Api.Persistence.Entities.Notification;
@@ -28,6 +29,19 @@ internal static class NotificationData
 
     public static string ForSystem() =>
         JsonSerializer.Serialize(new Payload(null, null, null, null, null, SystemDeepLink), Json);
+
+    /// <summary>
+    /// The push payload: the stored object plus <c>notificationId</c> and <c>kind</c>, so the app can report <c>notification_open</c>
+    /// for exactly this row. Stored keys of the same names are overwritten; a stored value that is not an object is replaced.
+    /// </summary>
+    public static JsonElement ForPush(string data, long notificationId, NotificationKind kind)
+    {
+        var payload = JsonNode.Parse(data) as JsonObject ?? [];
+        payload["notificationId"] = notificationId;
+        payload["kind"] = kind.ToString();
+
+        return JsonSerializer.SerializeToElement(payload, Json);
+    }
 }
 
 internal static class NotificationKinds
