@@ -5,6 +5,7 @@ using Kombin.Api.Features.Catalog.ListProducts;
 using Kombin.Api.Persistence.Entities.Engagement;
 using Kombin.Api.Persistence.Entities.Notification;
 using Kombin.Api.Persistence.Entities.Profile;
+using Kombin.Api.Persistence.Entities.Recommendation;
 
 namespace Kombin.Api.Features.Analytics;
 
@@ -38,6 +39,16 @@ internal static partial class AnalyticsEventCatalog
         // The length of what was typed, never the text itself.
         ["search"] = [Required("queryLength", Integer(0, 200))],
         ["notification_open"] = [Required("notificationId", Integer(1, long.MaxValue)), Required("kind", OneOf<NotificationKind>())],
+
+        // Wardrobe: `status` is how an add ended (the analysis did not finish in time is `Timeout`); the duration is capped at an hour.
+        ["wardrobe_add_start"] = [Required("source", OneOf("camera", "library", "catalog"))],
+        ["wardrobe_add_done"] = [Required("status", OneOf("Ready", "Failed", "Timeout")), Required("durationMs", Integer(0, 3_600_000))],
+
+        // Outfits: `status` is the outfit's completeness (Complete, NeedsOne, CatalogOnly), `occasion` the request's occasion name.
+        ["outfit_view"] = [Required("kind", OneOf<OutfitKind>()), Required("status", OneOf<OutfitCompleteness>()), Optional("occasion", OneOf<Occasion>())],
+        ["outfit_shuffle"] = [],
+        ["outfit_feedback"] = [Required("action", OneOf<OutfitFeedbackAction>()), Optional("reason", OneOf<DismissReason>())],
+        ["outfit_gap_click"] = [],
     };
 
     public static IEnumerable<string> Names => Events.Keys;

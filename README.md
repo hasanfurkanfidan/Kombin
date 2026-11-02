@@ -243,6 +243,11 @@ or a bad `sessionId`, `platform`, `appVersion`, `occurredAt` or `anonymousId`.
   | `buy_click` | `offerId`, `source` |
   | `search` | `queryLength` (0-200; never the text) |
   | `notification_open` | `notificationId`, `kind` |
+  | `wardrobe_add_start` | `source` (`camera`, `library` or `catalog`) |
+  | `wardrobe_add_done` | `status` (`Ready`, `Failed` or `Timeout`), `durationMs` (0-3600000) |
+  | `outfit_view` | `kind`, `status` (the outfit's completeness: `Complete`, `NeedsOne` or `CatalogOnly`), `occasion?` |
+  | `outfit_shuffle`, `outfit_gap_click` | - |
+  | `outfit_feedback` | `action` (`Save`, `Dismiss`, `Worn` or `Shuffle`), `reason?` (a dismiss reason) |
 
   Values are GUIDs, integers, enum names or short identifiers (letters, digits and `_ . : / -`), never free text.
 - **A wrong clock does not cost the event.** `occurredAt` more than 7 days old or more than 5 minutes ahead is replaced by the server's
