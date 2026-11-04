@@ -26,9 +26,6 @@ public sealed class RecommendationTests(ApiFactory factory)
         return (user, FortyPieces.ToDictionary(seed => ids[seed.Name]));
     }
 
-    // Catalog products seeded here are black: the weekly-matches tests count every new product their personas like (white, grey, navy,
-    // brown, ...) across the shared database, and no persona there likes black.
-
     // ---- daily ----
 
     [Fact]

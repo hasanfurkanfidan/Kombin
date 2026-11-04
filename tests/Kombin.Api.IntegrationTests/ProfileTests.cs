@@ -85,14 +85,66 @@ public sealed class ProfileTests(ApiFactory factory)
         Assert.Equal(62.5m, profile.GetProperty("weightKg").GetDecimal());
         Assert.Equal(38.5m, profile.GetProperty("shoeSizeEu").GetDecimal());
 
-        // A second PUT replaces the measurements (a missing one is cleared) but keeps the audience when none is given.
+        // A second PUT changes what it names and leaves the rest alone.
         using var second = await user.Client.PutAsJsonAsync("/api/v1/me/profile", new { heightCm = 175 }, Ct);
         Assert.Equal(HttpStatusCode.OK, second.StatusCode);
 
         profile = await user.Client.GetJsonAsync("/api/v1/me/profile", Ct);
         Assert.Equal("Women", profile.GetProperty("audience").GetString());
         Assert.Equal(175, profile.GetProperty("heightCm").GetInt32());
-        Assert.Equal(JsonValueKind.Null, profile.GetProperty("birthYear").ValueKind);
+        Assert.Equal(1995, profile.GetProperty("birthYear").GetInt32());
+        Assert.Equal(62.5m, profile.GetProperty("weightKg").GetDecimal());
+    }
+
+    [Fact]
+    public async Task ALeftOutFieldIsUnchangedAndAnExplicitNullClearsIt()
+    {
+        using var user = await factory.CreateUserAsync(Ct);
+
+        async Task<JsonElement> PutAsync(object body)
+        {
+            using var response = await user.Client.PutAsJsonAsync("/api/v1/me/profile", body, Ct);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+            return await user.Client.GetJsonAsync("/api/v1/me/profile", Ct);
+        }
+
+        await PutAsync(new { audience = "Men", birthYear = 1990, heightCm = 180, weightKg = 75.5, chestCm = 100, waistCm = 85, hipCm = 98, shoeSizeEu = 43, city = "Ankara" });
+
+        // An empty body changes nothing.
+        var profile = await PutAsync(new { });
+        Assert.Equal(1990, profile.GetProperty("birthYear").GetInt32());
+        Assert.Equal(180, profile.GetProperty("heightCm").GetInt32());
+        Assert.Equal(75.5m, profile.GetProperty("weightKg").GetDecimal());
+        Assert.Equal(100, profile.GetProperty("chestCm").GetInt32());
+        Assert.Equal(85, profile.GetProperty("waistCm").GetInt32());
+        Assert.Equal(98, profile.GetProperty("hipCm").GetInt32());
+        Assert.Equal(43m, profile.GetProperty("shoeSizeEu").GetDecimal());
+        Assert.Equal("Ankara", profile.GetProperty("city").GetString());
+
+        // Every field can be cleared on its own.
+        profile = await PutAsync(new { heightCm = (int?)null, weightKg = (decimal?)null });
+        Assert.Equal(JsonValueKind.Null, profile.GetProperty("heightCm").ValueKind);
+        Assert.Equal(JsonValueKind.Null, profile.GetProperty("weightKg").ValueKind);
+        Assert.Equal(1990, profile.GetProperty("birthYear").GetInt32());
+        Assert.Equal("Ankara", profile.GetProperty("city").GetString());
+
+        profile = await PutAsync(new { birthYear = (int?)null, chestCm = (int?)null, waistCm = (int?)null, hipCm = (int?)null, shoeSizeEu = (decimal?)null });
+        foreach (var field in new[] { "birthYear", "chestCm", "waistCm", "hipCm", "shoeSizeEu" })
+        {
+            Assert.Equal(JsonValueKind.Null, profile.GetProperty(field).ValueKind);
+        }
+
+        Assert.Equal("Ankara", profile.GetProperty("city").GetString());
+
+        // The city too, also with a blank; the audience stays, a profile always has one.
+        profile = await PutAsync(new { city = (string?)null, audience = (string?)null });
+        Assert.Equal(JsonValueKind.Null, profile.GetProperty("city").ValueKind);
+        Assert.Equal("Men", profile.GetProperty("audience").GetString());
+
+        await PutAsync(new { city = "Izmir" });
+        profile = await PutAsync(new { city = "  " });
+        Assert.Equal(JsonValueKind.Null, profile.GetProperty("city").ValueKind);
     }
 
     [Fact]

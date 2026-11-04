@@ -29,6 +29,9 @@ namespace Kombin.Api.Features.Recommendation;
 //   persona     the average MatchScorer score of the pieces / 100: what the persona's swipes say about each piece.
 //
 //   AcceptanceThreshold (60) is the line between "wearable" and "not worth showing"; possibleOutfits counts outfits above it.
+//
+//   RuleScore is the first four components alone, renormalised to 0-100: what describes the clothes, whoever wears them and whatever the
+//   weather. OutfitCounter counts with it; OutfitPairs scores two pieces with it, and WithPersona adds the persona back at its own share.
 
 /// <summary>What a persona contributes to an outfit's context; <see cref="None"/> for a user without personas.</summary>
 internal sealed record PersonaTaste(
@@ -130,6 +133,8 @@ internal static class OutfitScoring
     public const double OccasionShare = 0.10;
 
     public const double PersonaShare = 0.20;
+
+    public const double RuleShares = ColorShare + FormalityShare + SilhouetteShare + PatternShare;
 
     public const int RecentlyWornPenalty = 5;
 
@@ -242,6 +247,18 @@ internal static class OutfitScoring
             occasion,
             persona);
     }
+
+    /// <summary>The rule components (0..1 each) alone, as a score of 0-100.</summary>
+    public static int RuleScore(double colour, double formality, double silhouette, double pattern)
+    {
+        var raw = (ColorShare * colour) + (FormalityShare * formality) + (SilhouetteShare * silhouette) + (PatternShare * pattern);
+
+        return (int)Math.Round(raw / RuleShares * 100, MidpointRounding.AwayFromZero);
+    }
+
+    /// <summary>A <see cref="RuleScore"/> with a <see cref="MatchScorer"/> score mixed in at their shares of the outfit score.</summary>
+    public static int WithPersona(int ruleScore, int personaScore) =>
+        (int)Math.Round(((RuleShares * ruleScore) + (PersonaShare * personaScore)) / (RuleShares + PersonaShare), MidpointRounding.AwayFromZero);
 
     /// <summary>The most telling reason the outfit works, in the priority of <see cref="OutfitRule"/>: weather first, then the gap, colour, cut and occasion.</summary>
     private static OutfitRule Explain(

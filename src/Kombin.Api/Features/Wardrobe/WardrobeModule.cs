@@ -5,6 +5,7 @@ using Kombin.Api.Features.Wardrobe.ArchiveItem;
 using Kombin.Api.Features.Wardrobe.CreateUploadUrl;
 using Kombin.Api.Features.Wardrobe.GetGaps;
 using Kombin.Api.Features.Wardrobe.GetItem;
+using Kombin.Api.Features.Wardrobe.GetPairings;
 using Kombin.Api.Features.Wardrobe.GetStats;
 using Kombin.Api.Features.Wardrobe.Jobs;
 using Kombin.Api.Features.Wardrobe.ListItems;
@@ -42,6 +43,7 @@ internal static class WardrobeModule
         AddFromProductEndpoint.Map(wardrobe);
         ListItemsEndpoint.Map(wardrobe);
         GetItemEndpoint.Map(wardrobe);
+        GetPairingsEndpoint.Map(wardrobe);
         UpdateItemEndpoint.Map(wardrobe);
         ArchiveItemEndpoint.Map(wardrobe);
         RecordWearEndpoint.Map(wardrobe);

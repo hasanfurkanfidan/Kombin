@@ -3,8 +3,10 @@ using Kombin.Api.Common.Pagination;
 using Kombin.Api.Common.Storage;
 using Kombin.Api.Common.Validation;
 using Kombin.Api.Features.Catalog;
+using Kombin.Api.Features.Recommendation;
 using Kombin.Api.Persistence;
 using Kombin.Api.Persistence.Entities.Catalog;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace Kombin.Api.Features.Wardrobe.ListItems;
 
@@ -26,7 +28,7 @@ internal static class ListItemsEndpoint
 
     /// <summary>Newest first. Processing and failed items are included (the grid shows them as such); unfinished uploads are not.</summary>
     private static async Task<IResult> Handle(
-        [AsParameters] ListItemsQuery query, ICurrentUser currentUser, KombinDbContext db, IObjectStorage storage, CancellationToken cancellationToken)
+        [AsParameters] ListItemsQuery query, ICurrentUser currentUser, KombinDbContext db, IObjectStorage storage, IMemoryCache cache, CancellationToken cancellationToken)
     {
         var paging = new PagedRequest(query.Page, query.PageSize);
         var archived = query.Archived ?? false;
@@ -57,7 +59,11 @@ internal static class ListItemsEndpoint
             .ToListAsync(cancellationToken);
 
         var summaries = await WardrobeItemResponses.SummarizeAsync(db, storage, page, cancellationToken);
+        var companionCounts = await OutfitCounts.CompanionCountsAsync(db, cache, currentUser.UserId, cancellationToken);
 
-        return TypedResults.Ok(PagedResponse<WardrobeItemSummary>.Create(summaries, paging, totalCount));
+        return TypedResults.Ok(PagedResponse<WardrobeItemSummary>.Create(
+            [.. summaries.Select(summary => summary with { CompanionCount = companionCounts.GetValueOrDefault(summary.Id) })],
+            paging,
+            totalCount));
     }
 }

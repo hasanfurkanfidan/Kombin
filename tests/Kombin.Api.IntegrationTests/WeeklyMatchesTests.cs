@@ -8,8 +8,8 @@ using NotificationEntity = Kombin.Api.Persistence.Entities.Notification.Notifica
 namespace Kombin.Api.IntegrationTests;
 
 /// <summary>
-/// The weekly matches job against a real database. The candidates are the newest products of the shared database, so every test
-/// scores with its own product color (a persona that likes only that color), which no other test's products carry.
+/// The weekly matches job against a real database. Its candidates are the newest products of the shared database, which any test running
+/// alongside may add to, so every test runs the job over the products it created itself.
 /// </summary>
 public sealed class WeeklyMatchesTests(ApiFactory factory)
 {
@@ -72,7 +72,7 @@ public sealed class WeeklyMatchesTests(ApiFactory factory)
         var personaId = await CreatePersonaAsync(user.Id, "Hafta sonu", "Orange");
         var productId = await SeedColoredProductAsync(user.Client, "Orange");
 
-        var created = await factory.SendWeeklyMatchesAsync(user.Id, Ct);
+        var created = await factory.SendWeeklyMatchesAsync(user.Id, [productId], Ct);
 
         Assert.Equal(1, created);
         var notification = Assert.Single(await factory.NotificationsOfAsync(user.Id, Ct));
@@ -89,7 +89,7 @@ public sealed class WeeklyMatchesTests(ApiFactory factory)
         }
 
         // Same ISO week, same persona: a second run adds nothing.
-        Assert.Equal(0, await factory.SendWeeklyMatchesAsync(user.Id, Ct));
+        Assert.Equal(0, await factory.SendWeeklyMatchesAsync(user.Id, [productId], Ct));
         Assert.Single(await factory.NotificationsOfAsync(user.Id, Ct));
 
         // And it goes out through the normal sender.
@@ -109,7 +109,7 @@ public sealed class WeeklyMatchesTests(ApiFactory factory)
             products.Add(await SeedColoredProductAsync(user.Client, "Purple"));
         }
 
-        await factory.SendWeeklyMatchesAsync(user.Id, Ct);
+        await factory.SendWeeklyMatchesAsync(user.Id, products, Ct);
 
         var notification = Assert.Single(await factory.NotificationsOfAsync(user.Id, Ct));
         Assert.Contains("uyumlu 3 yeni parça", notification.Title, StringComparison.Ordinal);
@@ -125,9 +125,9 @@ public sealed class WeeklyMatchesTests(ApiFactory factory)
 
         // The color is only weakly liked, so the best possible score stays under 70.
         await CreatePersonaAsync(user.Id, "Ofis", "Pink", colorWeight: 0.1);
-        await SeedColoredProductAsync(user.Client, "Pink");
+        var pink = await SeedColoredProductAsync(user.Client, "Pink");
 
-        Assert.Equal(0, await factory.SendWeeklyMatchesAsync(user.Id, Ct));
+        Assert.Equal(0, await factory.SendWeeklyMatchesAsync(user.Id, [pink], Ct));
         Assert.Empty(await factory.NotificationsOfAsync(user.Id, Ct));
     }
 
@@ -144,9 +144,9 @@ public sealed class WeeklyMatchesTests(ApiFactory factory)
             return db.SaveChangesAsync(Ct);
         });
         var white = await SeedColoredProductAsync(user.Client, "White");
-        await SeedColoredProductAsync(user.Client, "Grey");
+        var grey = await SeedColoredProductAsync(user.Client, "Grey");
 
-        await factory.SendWeeklyMatchesAsync(user.Id, Ct);
+        await factory.SendWeeklyMatchesAsync(user.Id, [white, grey], Ct);
 
         var notification = Assert.Single(await factory.NotificationsOfAsync(user.Id, Ct));
         Assert.Equal([white], ProductIds(notification));
@@ -159,10 +159,10 @@ public sealed class WeeklyMatchesTests(ApiFactory factory)
         using var user = await CreateUserWithDeviceAsync();
         var first = await CreatePersonaAsync(user.Id, "Ofis", "Yellow", sortOrder: 0);
         await CreatePersonaAsync(user.Id, "Gece", "Brown", sortOrder: 1);
-        await SeedColoredProductAsync(user.Client, "Yellow");
-        await SeedColoredProductAsync(user.Client, "Brown");
+        var yellow = await SeedColoredProductAsync(user.Client, "Yellow");
+        var brown = await SeedColoredProductAsync(user.Client, "Brown");
 
-        await factory.SendWeeklyMatchesAsync(user.Id, Ct);
+        await factory.SendWeeklyMatchesAsync(user.Id, [yellow, brown], Ct);
 
         var notification = Assert.Single(await factory.NotificationsOfAsync(user.Id, Ct));
         Assert.StartsWith($"newmatches:{first}:", notification.DedupeKey, StringComparison.Ordinal);
@@ -175,12 +175,12 @@ public sealed class WeeklyMatchesTests(ApiFactory factory)
         using var capped = await CreateUserWithDeviceAsync();
         await CreatePersonaAsync(off.Id, "Ofis", "Beige");
         await CreatePersonaAsync(capped.Id, "Ofis", "Beige");
-        await SeedColoredProductAsync(off.Client, "Beige");
+        var beige = await SeedColoredProductAsync(off.Client, "Beige");
         (await off.Client.PutPreferencesAsync(new { recommendations = false }, Ct)).Dispose();
         (await capped.Client.PutPreferencesAsync(new { maxRecommendationsPerWeek = 0 }, Ct)).Dispose();
 
-        Assert.Equal(0, await factory.SendWeeklyMatchesAsync(off.Id, Ct));
-        Assert.Equal(0, await factory.SendWeeklyMatchesAsync(capped.Id, Ct));
+        Assert.Equal(0, await factory.SendWeeklyMatchesAsync(off.Id, [beige], Ct));
+        Assert.Equal(0, await factory.SendWeeklyMatchesAsync(capped.Id, [beige], Ct));
         Assert.Empty(await factory.NotificationsOfAsync(off.Id, Ct));
         Assert.Empty(await factory.NotificationsOfAsync(capped.Id, Ct));
     }
@@ -209,9 +209,9 @@ public sealed class WeeklyMatchesTests(ApiFactory factory)
             return 0;
         });
         (await user.Client.PutPreferencesAsync(new { maxRecommendationsPerWeek = 1 }, Ct)).Dispose();
-        await SeedColoredProductAsync(user.Client, "Other");
+        var other = await SeedColoredProductAsync(user.Client, "Other");
 
-        Assert.Equal(0, await factory.SendWeeklyMatchesAsync(user.Id, Ct));
+        Assert.Equal(0, await factory.SendWeeklyMatchesAsync(user.Id, [other], Ct));
         Assert.Single(await factory.NotificationsOfAsync(user.Id, Ct));
     }
 
@@ -220,9 +220,33 @@ public sealed class WeeklyMatchesTests(ApiFactory factory)
     {
         using var user = await factory.CreateUserAsync(Ct);
         await CreatePersonaAsync(user.Id, "Ofis", "Navy");
-        await SeedColoredProductAsync(user.Client, "Navy");
+        var navy = await SeedColoredProductAsync(user.Client, "Navy");
 
-        Assert.Equal(0, await factory.SendWeeklyMatchesAsync(user.Id, Ct));
+        Assert.Equal(0, await factory.SendWeeklyMatchesAsync(user.Id, [navy], Ct));
         Assert.Empty(await factory.NotificationsOfAsync(user.Id, Ct));
+    }
+
+    [Fact]
+    public async Task AProductOutsideTheFilterIsNoCandidate()
+    {
+        using var user = await CreateUserWithDeviceAsync();
+        await CreatePersonaAsync(user.Id, "Ofis", "Red");
+        var mine = await SeedColoredProductAsync(user.Client, "Red");
+        await SeedColoredProductAsync(user.Client, "Red");
+
+        await factory.SendWeeklyMatchesAsync(user.Id, [mine], Ct);
+
+        Assert.Equal([mine], ProductIds(Assert.Single(await factory.NotificationsOfAsync(user.Id, Ct))));
+    }
+
+    [Fact]
+    public async Task WithoutAFilterEveryNewProductIsACandidate()
+    {
+        using var user = await CreateUserWithDeviceAsync();
+        await CreatePersonaAsync(user.Id, "Ofis", "Green");
+        await SeedColoredProductAsync(user.Client, "Green");
+
+        // Which products it names depends on the rest of the shared database; that it finds one does not.
+        Assert.Equal(1, await factory.SendWeeklyMatchesAsync(user.Id, null, Ct));
     }
 }

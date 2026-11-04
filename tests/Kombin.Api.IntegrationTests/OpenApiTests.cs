@@ -32,6 +32,29 @@ public sealed class OpenApiTests(ApiFactory factory)
     }
 
     [Fact]
+    public async Task ThePairingsAreDocumentedWithTheirReasons()
+    {
+        var document = await DocumentAsync();
+        var operation = document.GetProperty("paths").GetProperty("/api/v1/me/wardrobe/items/{id}/pairings").GetProperty("get");
+        Assert.Contains("PairingsResponse", operation.GetProperty("responses").GetProperty("200").GetRawText(), StringComparison.Ordinal);
+
+        var schemas = document.GetProperty("components").GetProperty("schemas");
+        Assert.Equal(
+            ["neutral", "tonal", "complementary", "analogous", "statement"],
+            schemas.GetProperty("PairReason").GetProperty("enum").EnumerateArray().Select(reason => reason.GetString()));
+        Assert.True(schemas.GetProperty("WardrobeItemSummary").GetProperty("properties").TryGetProperty("companionCount", out _));
+    }
+
+    [Fact]
+    public async Task TheProfileUpdateDocumentsTheCityAndNotItsFlags()
+    {
+        var properties = (await DocumentAsync()).GetProperty("components").GetProperty("schemas").GetProperty("UpdateProfileRequest").GetProperty("properties");
+
+        Assert.True(properties.TryGetProperty("city", out _));
+        Assert.False(properties.TryGetProperty("citySet", out _));
+    }
+
+    [Fact]
     public async Task TheAnalyticsEndpointsAreDocumented()
     {
         var paths = (await DocumentAsync()).GetProperty("paths");

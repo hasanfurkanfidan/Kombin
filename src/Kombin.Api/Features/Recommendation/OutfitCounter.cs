@@ -14,8 +14,6 @@ internal static class OutfitCounter
 {
     public const int DisplayCap = 999;
 
-    private const double RuleShares = OutfitScoring.ColorShare + OutfitScoring.FormalityShare + OutfitScoring.SilhouetteShare + OutfitScoring.PatternShare;
-
     public static int Count(IReadOnlyList<OutfitPiece> pieces)
     {
         ArgumentNullException.ThrowIfNull(pieces);
@@ -26,7 +24,7 @@ internal static class OutfitCounter
             [.. pieces.Where(piece => piece.Slot == OutfitSlot.Top)],
             [.. pieces.Where(piece => piece.Slot == OutfitSlot.Bottom)],
             [.. pieces.Where(piece => piece.Slot == OutfitSlot.Shoes)],
-            layer: null);
+            extras: []);
     }
 
     /// <summary>
@@ -35,22 +33,32 @@ internal static class OutfitCounter
     /// </summary>
     public static int CountWith(IReadOnlyList<OutfitPiece> pieces, OutfitPiece added)
     {
-        ArgumentNullException.ThrowIfNull(pieces);
         ArgumentNullException.ThrowIfNull(added);
 
-        List<OutfitPiece> Of(OutfitSlot slot) => added.Slot == slot ? [added] : [.. pieces.Where(piece => piece.Slot == slot)];
+        return added.Slot == OutfitSlot.Accessory ? 0 : CountIncluding(pieces, [added]);
+    }
 
-        return added.Slot switch
-        {
-            OutfitSlot.Accessory => 0,
-            OutfitSlot.Outerwear => new Memo().CountTriples(Of(OutfitSlot.Top), Of(OutfitSlot.Bottom), Of(OutfitSlot.Shoes), added),
-            _ => new Memo().CountTriples(Of(OutfitSlot.Top), Of(OutfitSlot.Bottom), Of(OutfitSlot.Shoes), layer: null),
-        };
+    /// <summary>
+    /// The core outfits of <paramref name="pieces"/> that wear all of <paramref name="required"/> (at most one per slot, which replaces what
+    /// <paramref name="pieces"/> has in that slot). A layer or an accessory counts the core outfits it can be worn with.
+    /// </summary>
+    public static int CountIncluding(IReadOnlyList<OutfitPiece> pieces, IReadOnlyList<OutfitPiece> required)
+    {
+        ArgumentNullException.ThrowIfNull(pieces);
+        ArgumentNullException.ThrowIfNull(required);
+
+        List<OutfitPiece> Of(OutfitSlot slot) => required.FirstOrDefault(piece => piece.Slot == slot) is { } fixedPiece ? [fixedPiece] : [.. pieces.Where(piece => piece.Slot == slot)];
+
+        return new Memo().CountTriples(
+            Of(OutfitSlot.Top),
+            Of(OutfitSlot.Bottom),
+            Of(OutfitSlot.Shoes),
+            [.. required.Where(piece => piece.Slot is OutfitSlot.Outerwear or OutfitSlot.Accessory)]);
     }
 
     /// <summary>The rule-only score (0-100) of a core outfit, or null when a rule rejects it. Exposed for the tests.</summary>
     public static int? RuleScore(OutfitPiece top, OutfitPiece bottom, OutfitPiece shoes, OutfitPiece? layer = null) =>
-        new Memo().Score(top, bottom, shoes, layer);
+        new Memo().Score(top, bottom, shoes, layer is null ? [] : [layer]);
 
     private sealed class Memo
     {
@@ -58,7 +66,7 @@ internal static class OutfitCounter
 
         private readonly Dictionary<string, (bool Allowed, double Score)> _patterns = new(StringComparer.Ordinal);
 
-        public int CountTriples(List<OutfitPiece> tops, List<OutfitPiece> bottoms, List<OutfitPiece> shoes, OutfitPiece? layer)
+        public int CountTriples(List<OutfitPiece> tops, List<OutfitPiece> bottoms, List<OutfitPiece> shoes, OutfitPiece[] extras)
         {
             var count = 0;
 
@@ -76,7 +84,7 @@ internal static class OutfitCounter
 
                     foreach (var shoe in shoes)
                     {
-                        if (Score(top, bottom, shoe, layer) >= OutfitScoring.AcceptanceThreshold && ++count >= DisplayCap)
+                        if (Score(top, bottom, shoe, extras) >= OutfitScoring.AcceptanceThreshold && ++count >= DisplayCap)
                         {
                             return DisplayCap;
                         }
@@ -87,11 +95,13 @@ internal static class OutfitCounter
             return count;
         }
 
-        public int? Score(OutfitPiece top, OutfitPiece bottom, OutfitPiece shoes, OutfitPiece? layer)
+        /// <summary><paramref name="extras"/> are the layer and the accessory, if any. The accessory is part of the core, as in <see cref="OutfitScoring"/>.</summary>
+        public int? Score(OutfitPiece top, OutfitPiece bottom, OutfitPiece shoes, OutfitPiece[] extras)
         {
-            OutfitPiece[] pieces = layer is null ? [top, bottom, shoes] : [top, bottom, shoes, layer];
+            OutfitPiece[] pieces = [top, bottom, shoes, .. extras];
 
-            var formality = FormalityRules.Judge([top.Formality, bottom.Formality, shoes.Formality], layer?.Formality);
+            var layer = extras.FirstOrDefault(piece => piece.Slot == OutfitSlot.Outerwear);
+            var formality = FormalityRules.Judge([.. pieces.Where(piece => piece.Slot != OutfitSlot.Outerwear).Select(piece => piece.Formality)], layer?.Formality);
             var silhouette = SilhouetteRules.Judge(top.Fit, bottom.Fit);
             var colour = Colour(pieces);
             var pattern = Pattern(pieces);
@@ -101,12 +111,7 @@ internal static class OutfitCounter
                 return null;
             }
 
-            var raw = (OutfitScoring.ColorShare * colour.Score)
-                + (OutfitScoring.FormalityShare * formality.Score)
-                + (OutfitScoring.SilhouetteShare * silhouette.Score)
-                + (OutfitScoring.PatternShare * pattern.Score);
-
-            return (int)Math.Round(raw / RuleShares * 100, MidpointRounding.AwayFromZero);
+            return OutfitScoring.RuleScore(colour.Score, formality.Score, silhouette.Score, pattern.Score);
         }
 
         // A colour verdict depends only on each piece's colour and whether it counts as neutral; a pattern verdict only on each piece's

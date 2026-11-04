@@ -57,6 +57,12 @@ at 999, cached in memory per user under a wardrobe fingerprint (count + latest `
 `unlocksEstimate` is the same counter run with the gap's hypothetical piece added (solid, regular fit, the gap's colour and
 formality); for outerwear it counts the core outfits it can be layered over.
 
+**Pairs** (`OutfitPairs`) ask the same rules about two pieces instead of an outfit, for `GET /me/wardrobe/items/{id}/pairings` and the grid's
+`companionCount`: different slots, allowed by colour, formality, pattern and (top with bottom) silhouette, scored with the same four components
+renormalised. No weather, occasion or avoided colours; a persona only mixes in its match, at its 0.20 share against the rules' 0.60. `outfitCount`
+is the counter with the item fixed, so it stays consistent with `possibleOutfits`. There a layer or an accessory counts the core outfits it can be
+worn with, the accessory judged as part of the core.
+
 ## Data (schema `recommendation`)
 
 `outfits` (user, persona, kind `Daily|HowToWear|Shopping`, completeness `Complete|NeedsOne|CatalogOnly`, occasion, for-date, weather

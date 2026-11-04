@@ -32,7 +32,17 @@ public class ProfileValidatorTests
         int? waist = null,
         int? hip = null,
         decimal? shoe = null) =>
-        new(audience, birthYear, height, weight, chest, waist, hip, shoe);
+        new()
+        {
+            Audience = audience,
+            BirthYear = birthYear,
+            HeightCm = height,
+            WeightKg = weight,
+            ChestCm = chest,
+            WaistCm = waist,
+            HipCm = hip,
+            ShoeSizeEu = shoe,
+        };
 
     private static CreatePersonaRequest Persona(
         string name = "Ofis",

@@ -143,6 +143,8 @@ External Python workers (a separate repo) push the catalog through the internal 
 - `PersonaStyleProfile` is derived data (`StyleProfileBuilder`, pure): recomputed after every swipe batch and whenever a
   persona's preferred/avoided colors or preferred fits change; never written by an endpoint directly. A persona always has
   a row (created with it); readers fall back to deriving one rather than failing.
+- **`PUT /me/profile` follows the seller PUT:** left out = unchanged, explicit null = cleared (the `*Set` flags on `UpdateProfileRequest`).
+  `Audience` is the exception, a null keeps it too. `City` is part of the mobile contract: the outfit engine reads the weather from it.
 - **Style cards are content, seeded in every environment; user data never is.** `Persistence/Seed/style-cards.json`
   (embedded) is applied at every startup by `StyleCardSeeder` (idempotent, matched by the fixed card `Id`, removed cards are
   switched off, not deleted, so swipes stay valid). Never change a card's `id`. If migrations are pending the seeder skips
@@ -164,7 +166,7 @@ External Python workers (a separate repo) push the catalog through the internal 
 - **Jobs live in `Features/Notification/Jobs/`, are plain classes with constructor injection, are idempotent, and run from Hangfire**
   (PostgreSQL storage, schema `hangfire`, same database). **Tests call them directly**; the Hangfire server is never started in tests
   (`Hangfire:Enabled=false`). The core of every job takes an optional user filter so integration tests that share one database only
-  touch their own rows. Every job has `[DisableConcurrentExecution(60)]` and `[AutomaticRetry(Attempts = 0)]` (the next run is the retry).
+  touch their own rows; `weekly-matches` also takes the products to consider, because its candidates are global: its tests pass the ones they created. Every job has `[DisableConcurrentExecution(60)]` and `[AutomaticRetry(Attempts = 0)]` (the next run is the retry).
 
   | Job id | Schedule | Does |
   |---|---|---|
@@ -267,6 +269,8 @@ External Python workers (a separate repo) push the catalog through the internal 
   `LastWornAt` are recomputed from the rows after every change (`WearRules.Summarize`), never incremented. `OutfitId` (no foreign key) is
   set when an outfit is marked worn. Recording a day goes through `WearSummaries.RecordAsync`, shared with the outfit engine's `worn`.
   `GET /stats.possibleOutfits` and `GET /gaps.unlocksEstimate` come from the outfit engine (see Recommendation rules).
+- **Pairings:** `GET /items/{id}/pairings` and `companionCount` on `GET /items` (only there: the record is shared, the field is absent elsewhere)
+  come from the engine too (see Recommendation rules). The app leads with them; wear tracking stays in the data but out of the foreground.
 - **Gap analysis** is the pure `GapAnalysis.Analyze` (rules at the top of the file, unit-tested with synthetic wardrobes). Change a rule there
   and in that comment block together. Suggested products for the first gap follow the catalog persona convention (match score ≥ 60 with a
   persona; `GetGapsEndpoint.MinMatchScore`).
@@ -318,11 +322,20 @@ External Python workers (a separate repo) push the catalog through the internal 
   any failure, cache 7 days in `recommendation.narrations`) and updates the rows; the app sees it on `GET /{id}`.
 - **Repeat requests reuse rows**: same user, kind, day, occasion, persona and piece hash (not dismissed) → the stored outfit. A dismissed hash is
   never suggested again for 30 days. Feedback rows are append-only; `worn` marks wardrobe pieces through `WearSummaries.RecordAsync`.
-- **Counts:** `OutfitCounter` (core triples, rule components only, capped at 999) behind `OutfitCounts.PossibleOutfitsAsync`, cached in memory
-  under a wardrobe fingerprint (count + latest `UpdatedAt`) so any wardrobe change invalidates it; `GapAnalysis.Analyze` takes the engine's
-  `unlocks` estimator (`OutfitCounts.Unlocks`).
-- **Performance budget:** daily and how-to-wear ≤ 300 ms p95 at 200 pieces / 50k products, measured by `OutfitPerformanceTests` on its own
-  PostgreSQL container (50k rows would disturb the shared test database). Keep it passing.
+- **Counts:** `OutfitCounter` (core triples, rule components only, capped at 999) behind `OutfitCounts`, whose `PossibleOutfitsAsync`,
+  `ItemOutfitsAsync` and `CompanionCountsAsync` are cached in memory under a wardrobe fingerprint (count + latest `UpdatedAt`) so any wardrobe
+  change invalidates them; `GapAnalysis.Analyze` takes the engine's `unlocks` estimator (`OutfitCounts.Unlocks`).
+- **Pairs** (`OutfitPairs`, pure, formula at the top of the file) have no rules of their own: `Judge` asks `ColorRules`, `FormalityRules`,
+  `PatternRules` and `SilhouetteRules` about two pieces, and the score is `OutfitScoring.RuleScore`, shared with `OutfitCounter`. Two pieces of one
+  slot never pair. No weather, occasion or avoided colours: `companionCount` describes the clothes. A persona only mixes in its match
+  (`OutfitScoring.WithPersona`), which reorders. `outfitCount` is `OutfitCounter.CountIncluding` of the item, so the outfits of all tops add up to
+  `possibleOutfits`. The `unlock` tries top, bottom, shoes and outerwear with fewer than `EnoughCompanions` (3), emptiest first, through the same
+  narrow prefetch as gaps (`OutfitSources.LoadCatalogAsync`); accessories are left out because they unlock nothing. Its price, seller and `goPath`
+  are one offer, the cheapest by effective price, not the `lowestPrice` of the catalog list.
+- **Performance budget:** daily, how-to-wear, pairings and the wardrobe grid ≤ 300 ms p95 at 200 pieces / 50k products, measured by `OutfitPerformanceTests` on its own
+  PostgreSQL container (50k rows would disturb the shared test database). Keep it passing. The tests run only with `KOMBIN_PERF=1` (skipped
+  otherwise; the fixture starts nothing), which CI sets in a step of its own: a budget measured next to other tests or a local stack is noise.
+  Never loosen the budget to make them pass.
 
 ## Commands
 
@@ -332,6 +345,7 @@ dotnet format Kombin.slnx --verify-no-changes --no-restore     # drop --verify-n
 dotnet build Kombin.slnx --configuration Release --no-restore
 dotnet test --solution Kombin.slnx --configuration Release --no-build    # integration tests need Docker
 dotnet test --project tests/Kombin.Api.Tests                            # unit tests only, no Docker
+KOMBIN_PERF=1 dotnet test --project tests/Kombin.Api.IntegrationTests --configuration Release -- --filter-class "Kombin.Api.IntegrationTests.OutfitPerformanceTests"    # latency budgets, on a quiet machine
 
 # Run the API against a local PostgreSQL (docker/.env must define JWT_SIGNING_KEY)
 docker compose --file docker/compose.yaml up --build --detach --wait db
@@ -376,5 +390,5 @@ history) and Profile (user profile and measurements, personas, swipe onboarding 
 rule-based match score, size map with hints) and Notification (devices, notification preferences, the notification feed, push
 delivery through Expo, and the Hangfire jobs above) and Analytics (the allow-listed event intake, identity linking, the weekly beta
 metrics and the operators' Metabase) and Wardrobe (photo items analysed by kombin-vision, catalog items, object storage, wears, stats, gap
-analysis) and Recommendation (the rule-based outfit engine: daily, how-to-wear, saved outfits, feedback, weather, narration). Learning from
+analysis, pairings) and Recommendation (the rule-based outfit engine: daily, how-to-wear, saved outfits, feedback, weather, narration). Learning from
 clicks, saves and outfit feedback is still to come, and not Profile's job. Add other features only when a task asks for them.

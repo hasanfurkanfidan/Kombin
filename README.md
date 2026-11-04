@@ -73,6 +73,13 @@ dotnet test --solution Kombin.slnx --configuration Release
 
 Integration tests start their own PostgreSQL container with Testcontainers, so Docker must be running.
 
+The latency budgets (`OutfitPerformanceTests`, 300 ms p95) are skipped unless `KOMBIN_PERF=1` is set: a laptop that also runs vision and MinIO
+measures itself. CI runs them in a step of their own. To run them by hand, on a quiet machine and on their own:
+
+```bash
+KOMBIN_PERF=1 dotnet test --project tests/Kombin.Api.IntegrationTests --configuration Release -- --filter-class "Kombin.Api.IntegrationTests.OutfitPerformanceTests"
+```
+
 ## API (all under `/api/v1`)
 
 | Method | Route | Auth | Success | Errors |
@@ -82,6 +89,17 @@ Integration tests start their own PostgreSQL container with Testcontainers, so D
 | POST | `/auth/refresh` | - | 200 same shape; old token revoked | 401 `Identity.InvalidRefreshToken` |
 | POST | `/auth/logout` | Bearer | 204 | 401 |
 | GET | `/me` | Bearer | 200 `{ id, email, displayName, createdAt }` | 401 |
+
+### Profile
+
+| Method | Route | Auth | Success | Errors |
+|---|---|---|---|---|
+| GET | `/me/profile` | Bearer | 200 `{ audience, birthYear, heightCm, weightKg, chestCm, waistCm, hipCm, shoeSizeEu, city, activePersona, personaCount, onboardingCompleted, onboardingCompletedAt }`; created on first use | 401 |
+| PUT | `/me/profile` | Bearer | 200 same shape; body any of `{ audience, birthYear, heightCm, weightKg, chestCm, waistCm, hipCm, shoeSizeEu, city }` | 400 validation, 401 |
+
+`PUT /me/profile` follows the seller PUT: **a field left out is unchanged, an explicit null clears it**, so a client can send only what it
+changes. `audience` is the exception: a null keeps it too, a profile always has one. `city` (at most 80 characters of letters, spaces, dots,
+apostrophes and hyphens; a blank clears it like a null) is where the outfit engine reads the weather; without one, outfits go by the season.
 
 ### Catalog
 
@@ -307,11 +325,12 @@ A good first dashboard is `analytics.weekly_metrics` (a line per `metric`, `week
 | GET | `/items/{id}` | 200 item: attributes, `thumbUrl`, `cutoutUrl` (public), `originalUrl` (15-minute presigned link, only when there is no cutout), `needsCategory`, `warnings`, `failureReason`, `analysis` (candidates and confidences), `wearCount`, `lastWornAt`, `confirmedAt` | 404 |
 | PATCH | `/items/{id}` | 200 item. Any of `name, categorySlug, primaryColor, secondaryColor, pattern, fit, formality, seasons, brandId, size, purchasePrice, purchasedAt`; `clear: ["name", "secondaryColor", "brandId", "size", "purchasePrice", "purchasedAt"]` empties fields. `{}` is valid: the first PATCH of a ready item is the user's confirmation (`confirmedAt`); it also makes a failed item ready | 400 validation, `Wardrobe.UnknownCategory`, `Wardrobe.UnknownBrand`; 404; 409 `Wardrobe.ItemProcessing` / `Wardrobe.ItemArchived` |
 | POST | `/items/from-product` | 201 item (200 with the existing item when the product is already in the wardrobe); body `{ productId, size? }`. A `Ready`, confirmed item with the product's attributes; its primary image is copied into storage as cutout and thumbnail, without background removal | 400, 404 `Catalog.ProductNotFound` |
-| GET | `/items?category=&color=&archived=&page=&pageSize=` | 200 paged summaries, newest first; `category` includes children; uploads never processed are left out | 400 invalid `color` |
+| GET | `/items?category=&color=&archived=&page=&pageSize=` | 200 paged summaries, newest first; `category` includes children; uploads never processed are left out. Each carries `companionCount`, the wardrobe pieces it pairs with ("5 parçayla gider"); 0 for an item that cannot be worn (yet) | 400 invalid `color` |
+| GET | `/items/{id}/pairings?personaId=&limit=` | 200 `{ itemId, personaId, companions: [{ slot, total, items: [{ item, score, reason }] }], outfitCount, unlock }`, see Pairings below | 400 `limit` outside 1-20; 404 `Recommendation.WardrobeItemNotFound` (also archived, unfinished or uncategorised), `Profile.PersonaNotFound` |
 | DELETE | `/items/{id}` | 204, archives (soft, idempotent); `wardrobe-cleanup` deletes the images 30 days later | 404 |
 | POST | `/items/{id}/wear` | 200 `{ itemId, wornOn, wearCount, lastWornAt }`; body optional `{ wornOn? }` (default today in `Europe/Istanbul`); one row per day | 400 future or before 2000, 404, 409 archived |
 | DELETE | `/items/{id}/wear/{yyyy-MM-dd}` | 200 same shape with `wornOn: null`, idempotent | 404 |
-| GET | `/stats` | 200 `{ itemCount, byCategory: [{ slug, count }], byColor: [{ color, count }], unwornFor180Days, mostWorn: [3], leastWorn: [3], possibleOutfits: null }`; `possibleOutfits` is filled by the outfits task (Task 12) | - |
+| GET | `/stats` | 200 `{ itemCount, byCategory: [{ slug, count }], byColor: [{ color, count }], unwornFor180Days, mostWorn: [3], leastWorn: [3], possibleOutfits }`; `possibleOutfits` is the outfit engine's count of complete core outfits, capped at 999 | - |
 | GET | `/gaps` | 200 `{ personaId, gaps: [{ kind, message, categorySlug, color, formality, band, unlocksEstimate }], suggestedProducts: [3] }` | - |
 
 **Photo flow.** `upload-url` → the app PUTs the photo straight to storage → `process` → the `wardrobe-analyze` job (Hangfire, started at
@@ -329,6 +348,22 @@ in a band, or with no neutral color there, is a gap, and so is having no outerwe
 suggested color is a neutral the persona prefers or learned from swipes. `unlocksEstimate` is the number of outfits the missing piece would
 complete (e.g. bottoms × shoes for a top). At most 5 gaps, biggest unlock first. `suggestedProducts` fill the first gap: active, in-stock
 catalog products of that category, color and band, not already in the wardrobe, with a persona `matchScore` of at least 60.
+
+**Pairings** ("what goes with this", `Features/Recommendation/OutfitPairs.cs`, rules documented at the top of the file) answer what a user
+wants when tapping a garment; wear tracking stays in the data for the engine.
+
+- `companions` has one group per slot other than the item's own (`Top`, `Bottom`, `Outerwear`, `Shoes`, `Accessory`, in that order, empty ones
+  included). `items` holds the best `limit` (default 6) as a wardrobe summary with a 0-100 `score` and a `reason` (`neutral`, `tonal`,
+  `complementary`, `analogous`, `statement`); `total` counts them all, and the totals add up to the grid's `companionCount`. Pieces the outfit rules
+  reject are left out, and two pieces of one slot never pair. The score is the rules' colour, formality, silhouette and pattern components;
+  with a persona (`personaId`, else active, else first) the piece's match is mixed in, which reorders but never excludes.
+- `outfitCount` is how many of the outfits behind `possibleOutfits` wear the item: the outfits of all tops add up to `possibleOutfits`. A layer
+  or an accessory counts the core outfits it can be worn with.
+- `unlock` is `{ slot, productId, name, categorySlug, color, imageUrl, lowestPrice, cheapestSeller, goPath, unlocksEstimate, matchScore? }`: one
+  product for the emptiest of top, bottom, shoes and outerwear, for the slots with fewer than 3 companions. It pairs with the item, is in stock
+  and in the persona's budget, not already owned, with a persona a `matchScore` of at least 60, and neutral when possible. `lowestPrice`,
+  `cheapestSeller` and `goPath` are one offer, the cheapest by effective price (price plus shipping). `unlocksEstimate` is the outfits the item
+  would gain. It is null when those slots all have 3 companions, or when nothing in the catalog fits.
 
 **Storage** is any S3-compatible store (MinIO in compose). Keys are `wardrobe/{userId}/{itemId}/{original|cutout|thumb}.{ext}`; the bucket
 policy (`docker/minio/public-read.json`) makes `cutout.*` and `thumb.*` publicly readable, originals are private. Settings:
