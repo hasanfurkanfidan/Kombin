@@ -266,8 +266,10 @@ or a bad `sessionId`, `platform`, `appVersion`, `occurredAt` or `anonymousId`.
   | `outfit_view` | `kind`, `status` (the outfit's completeness: `Complete`, `NeedsOne` or `CatalogOnly`), `occasion?` |
   | `outfit_shuffle`, `outfit_gap_click` | - |
   | `outfit_feedback` | `action` (`Save`, `Dismiss`, `Worn` or `Shuffle`), `reason?` (a dismiss reason) |
+  | `wardrobe_pairings_view` | `companionTotal` (0-500), `hasUnlock` (`true` or `false`) |
+  | `wardrobe_unlock_click` | - |
 
-  Values are GUIDs, integers, enum names or short identifiers (letters, digits and `_ . : / -`), never free text.
+  Values are GUIDs, integers, booleans, enum names or short identifiers (letters, digits and `_ . : / -`), never free text.
 - **A wrong clock does not cost the event.** `occurredAt` more than 7 days old or more than 5 minutes ahead is replaced by the server's
   receive time.
 - **Repeats** are only detected within a batch; a client that resends a whole batch after a lost response will store it twice.

@@ -208,7 +208,7 @@ External Python workers (a separate repo) push the catalog through the internal 
   `analytics.weekly_metrics` and `GET /internal/analytics/weekly`, `docs/metrics.sql`, and an optional Metabase in compose.
 - **The allow-list is the privacy guarantee.** `AnalyticsEventCatalog` (pure) lists every event name and, per event, its properties with
   their types; the validator rejects anything else. A new event or property is a catalog entry plus a README row, nothing more. Property
-  values are GUIDs, integers, enum names or short identifiers, never free text (`search` sends `queryLength`, never the query). Keys named
+  values are GUIDs, integers, booleans, enum names or short identifiers, never free text (`search` sends `queryLength`, never the query). Keys named
   like personal data (`email`, `name`, `phone`, `address`, `token`) are refused on every event, and so is any key not listed for the event.
 - **A bad event costs only itself.** `AnalyticsEventCatalog.Reject` judges each event; the handler stores the rest and lists the others in
   `rejected` of the 202 as `{ index, reason }` (`RejectionReasons`): `unknown_event` (name outside the allow-list), `invalid_properties`

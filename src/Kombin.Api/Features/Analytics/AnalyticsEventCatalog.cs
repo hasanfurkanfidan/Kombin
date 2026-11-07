@@ -49,6 +49,10 @@ internal static partial class AnalyticsEventCatalog
         ["outfit_shuffle"] = [],
         ["outfit_feedback"] = [Required("action", OneOf<OutfitFeedbackAction>()), Optional("reason", OneOf<DismissReason>())],
         ["outfit_gap_click"] = [],
+
+        // Pairings: how many pieces the wardrobe item goes with (capped like the engine's counts) and whether a catalog suggestion is shown.
+        ["wardrobe_pairings_view"] = [Required("companionTotal", Integer(0, 500)), Required("hasUnlock", Boolean)],
+        ["wardrobe_unlock_click"] = [],
     };
 
     public static IEnumerable<string> Names => Events.Keys;
@@ -135,6 +139,9 @@ internal static partial class AnalyticsEventCatalog
     // Properties, not fields: the Events table above is built by a static initializer that runs before any field declared below it.
     private static (Func<JsonElement, bool>, string) Id =>
         (value => value.ValueKind == JsonValueKind.String && Guid.TryParse(value.GetString(), out var id) && id != Guid.Empty, "a GUID");
+
+    private static (Func<JsonElement, bool>, string) Boolean =>
+        (value => value.ValueKind is JsonValueKind.True or JsonValueKind.False, "true or false");
 
     private static (Func<JsonElement, bool>, string) FilterList =>
         (value => value.ValueKind == JsonValueKind.String && FilterListPattern().IsMatch(value.GetString()!), "a comma-separated list of filter names, at most 200 characters");
