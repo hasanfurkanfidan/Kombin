@@ -40,8 +40,9 @@ seed data lives in `src/Kombin.Api/Persistence/Seed/`.
 
 Internal endpoints (called by workers, not the app) live under `/api/v1/internal/...` and use `.RequireInternalKey()`. The ones that
 exist: `POST /internal/catalog/offers/upsert`, `POST /internal/catalog/offers/sweep`, `GET /internal/catalog/sellers/{sellerSlug}/offers`,
-`PUT /internal/catalog/sellers/{slug}` (see Catalog ingestion rules), `POST /internal/notifications/test` and
-`GET /internal/analytics/weekly` (see Analytics rules).
+`PUT /internal/catalog/sellers/{slug}` (see Catalog ingestion rules), `POST /internal/notifications/test`,
+`GET /internal/analytics/weekly` (see Analytics rules), and `PUT /internal/social/creators/{userId}`, `GET /internal/social/review-queue`
+and `POST /internal/social/posts/{id}/review` (see Social rules).
 
 ## How to add a new use case
 
@@ -114,7 +115,8 @@ External Python workers (a separate repo) push the catalog through the internal 
 - **Buy links are always `/api/v1/go/{offerId}`, never a raw seller URL.** Every outbound click must go through that
   redirect: it records a `Click` and applies the seller's affiliate template. No response may contain `Offer.Url`:
   `GET /catalog/products/{id}` offers carry `goPath` (`"/api/v1/go/{offerId}"`) and no `url`, and clients open the
-  `goPath`. `Offer.Url` stays in the database for the redirect and the ingestion workers only. `/go` is the one anonymous route that still reads the user: use `ICurrentUser.UserIdOrNull`
+  `goPath`. `Offer.Url` stays in the database for the redirect and the ingestion workers only. Social post tags follow the same rule
+  (`goPath = /api/v1/go/{offerId}?src=feed&post={postId}`); `post=` is how `/go` attributes a click to a post and its creator. `/go` is the one anonymous route that still reads the user: use `ICurrentUser.UserIdOrNull`
   on endpoints that work signed in or out (`UserId` throws).
 - **Alert evaluation lives in the catalog upsert path.** `OfferUpserter` calls `Features/Engagement/AlertEvaluator`
   after each group commits, for every existing offer whose effective price or stock status changed. Alerts are never
@@ -192,8 +194,9 @@ External Python workers (a separate repo) push the catalog through the internal 
   (`QuietHours.Zone`). The Docker runtime image installs `tzdata` for it. Stored instants are always UTC (`timestamptz`).
 - **Hangfire wiring:** `AddNotificationFeature` registers storage lazily; `UseNotificationJobs` (called in `Program.cs` after the EF
   migrations and the seeds) is what first creates the `hangfire` schema, registers the recurring jobs (`UseCatalogJobs` adds the
-  Catalog's `offer-sweep`, `UseAnalyticsJobs` the Analytics' `weekly-metrics` and `UseWardrobeJobs` the Wardrobe's `wardrobe-cleanup`
-  right after it, behind the same flag; `outfit-narrate` is fire-and-forget, not recurring) and, **in Development only**,
+  Catalog's `offer-sweep`, `UseAnalyticsJobs` the Analytics' `weekly-metrics`, `UseWardrobeJobs` the Wardrobe's `wardrobe-cleanup` and
+  `UseSocialJobs` the Social's `social-purge` right after it, behind the same flag; `outfit-narrate` and `post-process` are fire-and-forget,
+  not recurring) and, **in Development only**,
   maps the dashboard at `/hangfire` (open, no auth, unmapped in every other environment). Nothing happens unless `Hangfire:Enabled` is
   true (compose sets it; tests set it to false; `Development` defaults to true). The storage uses `EnableLongPolling`
   (LISTEN/NOTIFY), so an enqueued fire-and-forget job (`wardrobe-analyze`) starts at once instead of on the next 15-second queue poll.
@@ -252,7 +255,8 @@ External Python workers (a separate repo) push the catalog through the internal 
   leaf categories), `primaryColor`/`secondaryColor` (`ProductColor` names + hex), `pattern` (`ProductPattern` name), a 512-float unit
   `embedding`, `quality { isGarment, confidence, warnings }`. Errors are `{ "detail": "<code>" }`. The typed client is `IVisionClient`
   (`Features/Wardrobe/VisionClient.cs`, 30 s timeout); like the Expo client it never throws for a failed call: 4xx (except 401/408/429)
-  is permanent, the rest transient. It also reads `/health`'s `clipModel` once per process for `EmbeddingModel`.
+  is permanent, the rest transient. It also reads `/health`'s `clipModel` once per process for `EmbeddingModel`. Social posts use two more
+  endpoints of the same service through the same client: `POST /v1/moderate?renditions=true` and `POST /v1/detect` (see Social rules).
 - **`wardrobe-analyze`** (`Jobs/WardrobeAnalyzeJob.cs`): fire-and-forget per item, `[AutomaticRetry(Attempts = 3)]` with 5/15/30 s delays.
   It only works on a `Processing` item and writes the same keys and fields on every run (idempotent). Category = top candidate when its
   confidence is ≥ 0.35 (`WardrobeAnalysis.CategoryThreshold`), else null and `needsCategory`. `isGarment=false` is still `Ready`, with the
@@ -268,7 +272,8 @@ External Python workers (a separate repo) push the catalog through the internal 
 - **Wears** are a set of days per item (unique `(item_id, worn_on)`, `wornOn` defaults to today in `Europe/Istanbul`); `WearCount` and
   `LastWornAt` are recomputed from the rows after every change (`WearRules.Summarize`), never incremented. `OutfitId` (no foreign key) is
   set when an outfit is marked worn. Recording a day goes through `WearSummaries.RecordAsync`, shared with the outfit engine's `worn`.
-  `GET /stats.possibleOutfits` and `GET /gaps.unlocksEstimate` come from the outfit engine (see Recommendation rules).
+  `GET /stats.possibleOutfits`, `GET /stats.unmatchedCount` (pieces whose `companionCount` is 0) and `GET /gaps.unlocksEstimate` come
+  from the outfit engine (see Recommendation rules).
 - **Pairings:** `GET /items/{id}/pairings` and `companionCount` on `GET /items` (only there: the record is shared, the field is absent elsewhere)
   come from the engine too (see Recommendation rules). The app leads with them; wear tracking stays in the data but out of the foreground.
 - **Gap analysis** is the pure `GapAnalysis.Analyze` (rules at the top of the file, unit-tested with synthetic wardrobes). Change a rule there
@@ -278,7 +283,8 @@ External Python workers (a separate repo) push the catalog through the internal 
   `GetPresignedDownloadUrl`, `GetPublicUrl`, `DeleteAsync`) over AWSSDK.S3, so MinIO, S3 and R2 all work. Keys are
   `{area}/{userId}/{ownerId}/{original|cutout|thumb}.{ext}` (`StorageKeys.Build`). **Visibility is decided by the file name**: the bucket
   policy (`docker/minio/public-read.json`, applied by the `minio-init` container) makes `*/cutout.*` and `*/thumb.*` anonymously readable;
-  everything else, originals included, is private and served through a presigned GET. Never store anything private under those names.
+  everything else, originals included, is private and served through a presigned GET (social posts' `feed.*` and `preview.*` too: a
+  followers-only photo must not be readable by URL). Never store anything private under those names.
   Settings `Storage:Endpoint/PresignEndpoint/Bucket/AccessKey/SecretKey/PublicBaseUrl/ForcePathStyle`, validated when the store is first
   used (not at start-up). `PresignEndpoint` exists because a presigned URL is signed for its host: compose's API talks to `minio:9000`
   while the app uploads to `STORAGE_PUBLIC_URL`.
@@ -320,6 +326,8 @@ External Python workers (a separate repo) push the catalog through the internal 
   model `claude-haiku-5-5`) the store enqueues `outfit-narrate` (`OutfitNarrationJob`, fire-and-forget, `[AutomaticRetry(Attempts = 0)]`),
   which calls `AnthropicNarrator` (plain `HttpClient`, one call per set, 60 output tokens per outfit, strict JSON schema, 3 s, template fallback on
   any failure, cache 7 days in `recommendation.narrations`) and updates the rows; the app sees it on `GET /{id}`.
+- **How-to-wear is one engine with two callers.** `HowToWear.LoadAsync` (persona, wardrobe, owned products, dismissed hashes; once per
+  request) and `HowToWear.SuggestAsync` (one anchor) serve `GET /how-to-wear` and the social `POST /posts/{id}/try`; never copy it.
 - **Repeat requests reuse rows**: same user, kind, day, occasion, persona and piece hash (not dismissed) → the stored outfit. A dismissed hash is
   never suggested again for 30 days. Feedback rows are append-only; `worn` marks wardrobe pieces through `WearSummaries.RecordAsync`.
 - **Counts:** `OutfitCounter` (core triples, rule components only, capped at 999) behind `OutfitCounts`, whose `PossibleOutfitsAsync`,
@@ -337,6 +345,47 @@ External Python workers (a separate repo) push the catalog through the internal 
   otherwise; the fixture starts nothing), which CI sets in a step of its own: a budget measured next to other tests or a local stack is noise.
   Never loosen the budget to make them pass.
 
+## Social rules
+
+- **What exists:** OOTD photo posts and outfit (collage) posts, confirmed shoppable tags, likes, follows, blocks, reports with a review queue,
+  creators with attribution, the feed, "Dolabımla dene" (`/api/v1/posts`, `/feed`, `/users`, `/creators`, `/me/posts`, `/me/blocks`,
+  `/me/creator/stats`, `/social/consent`), schema `social`, jobs `post-process` and `social-purge`. Design: `docs/design/social.md`.
+- **The founder's rule: a shoppable, price-aware feed, never an Instagram clone.** Every post answers what it is, where it is cheapest and
+  whether it goes with what the viewer owns. No comments, DMs, stories, video, hashtags or search over posts, no payouts, no public web pages.
+- **No raw URL, ever.** Tags carry the product's current cheapest sellable offer (`OutfitSources.CheapestOffersAsync`) and a `goPath` with
+  `src=feed&post=`; `PostResponses` is the only builder of post JSON. `/go` attributes only when the post is live, not private and tags the
+  clicked product (`CreatorAttribution`); a creator's own click earns nothing.
+- **No tag without confirmation.** Detected regions and outfit pieces are proposals (`confirmed_at` null), shown to the author only.
+  `PUT /posts/{id}/publish` replaces every tag and proposal with what the author sent, confirmed. Never return an unconfirmed tag to anyone
+  else, and never auto-confirm.
+- **Privacy rules (photos of people are personal data; `docs/privacy-notes.md` lists every touchpoint, keep it current):**
+  - posting needs the current `PostingConsent` version; versions are append-only and their text hashes are pinned in `PostingConsentTests`
+    (a new text is a new version; never edit a published one). The acceptance row stores the exact text shown.
+  - posts are `Private` until the author chooses `Followers` or `Public`; others see only `Live` posts (`PostRules.CanView`, the one place
+    for visibility, plus `PostAccess`); a block in either direction hides everything both ways and removes follows.
+  - metadata is stripped before anything reads the photo (`ImageMetadata.Strip`, JPEG/PNG/WEBP only; unparseable → refused) and the stored
+    original is replaced; renditions are re-encoded by the vision service from pixels; all post objects are private (presigned, 1 h).
+  - delete = tombstone at once + `social-purge` (hourly) deletes objects and rows, so "within 24 h" holds. Clicks and referral events keep the
+    post ID only.
+  - analytics events carry post/creator IDs and enums, never captions, labels or handles.
+- **Safety before visibility.** `post-process` (fire-and-forget, `[AutomaticRetry(Attempts = 3)]`, 5/15/30 s, the count is the post's own
+  `ProcessingAttempts`, 4th failure → `Failed`) maps `/v1/moderate`'s verdict with `PostRules.StatusAfterModeration`: allow → `Draft`,
+  review → `NeedsReview`, block → `Blocked` + `SocialCopy.Blocked`. It never publishes; an unknown verdict counts as review. Detection
+  failures only mean no proposals. Outfit posts moderate each wardrobe cutout; the strictest verdict wins. Thresholds live in `kombin-vision`.
+- **Reports:** one per user and post; the 3rd distinct reporter since the last review hides a live post (`PostRules.HideAtReports`). Reviews go
+  through the internal endpoints (no admin UI); approval restarts the count.
+- **Feed:** `FeedRanking` is pure and documented at the top of the file; its SQL twin is `FeedRanking.BaseSql`. Change a constant in both
+  and in `docs/design/social.md`. SQL picks ≤ 200 candidates (14-day window, partial index `ix_posts_feed_window`), the rest is in memory;
+  the persona "≥ 60" filter applies once the persona has learned (confidence > 0, `ViewerPersona.Learned`). `SeparateAuthors` keeps one author
+  from being adjacent. Budget: p95 ≤ 250 ms at 50k posts, `FeedPerformanceTests` (`KOMBIN_PERF=1`, own container, CI's perf step).
+- **Creators** are set by the founder only (`PUT /internal/social/creators/{userId}`). `Creators:SharePercent` (40) is snapshotted on every
+  `ReferralEvent`; the stats' estimate uses `AverageOrderValue`, `CommissionPercent` and `ConversionRatePercent` (3; the brief's formula had no
+  conversion rate, 100 reproduces it) and is labelled `isEstimate`. Conversions will be imported as `ReferralKind.Conversion` rows matched by
+  our click ID; nothing writes them yet.
+- **Tests:** `FakeVisionClient.PostPhoto(flavor)` is a structurally valid JPEG with a GPS EXIF block; flavours `nsfw` (block), `borderline`
+  (review), `no-detect`, plus the wardrobe ones. Tests run `PostProcessJob.ProcessAsync` and `SocialPurgeJob.PurgeAsync(authorId)` directly.
+  The feed is global: assert on your own posts, never on absolute positions beyond the followed section.
+
 ## Commands
 
 ```bash
@@ -345,7 +394,7 @@ dotnet format Kombin.slnx --verify-no-changes --no-restore     # drop --verify-n
 dotnet build Kombin.slnx --configuration Release --no-restore
 dotnet test --solution Kombin.slnx --configuration Release --no-build    # integration tests need Docker
 dotnet test --project tests/Kombin.Api.Tests                            # unit tests only, no Docker
-KOMBIN_PERF=1 dotnet test --project tests/Kombin.Api.IntegrationTests --configuration Release -- --filter-class "Kombin.Api.IntegrationTests.OutfitPerformanceTests"    # latency budgets, on a quiet machine
+KOMBIN_PERF=1 dotnet test --project tests/Kombin.Api.IntegrationTests --configuration Release -- --filter-class "Kombin.Api.IntegrationTests.OutfitPerformanceTests" --filter-class "Kombin.Api.IntegrationTests.FeedPerformanceTests"    # latency budgets, on a quiet machine
 
 # Run the API against a local PostgreSQL (docker/.env must define JWT_SIGNING_KEY)
 docker compose --file docker/compose.yaml up --build --detach --wait db
@@ -384,11 +433,14 @@ the shared test database stays independent of the seed. `ApiFactory` switches se
 
 Rate limiting (including on `/go` and `/events`), email verification, password reset, social login, admin UI, MediatR/CQRS, generic
 repositories, AutoMapper, email/SMS/marketing notifications, A/B testing, scraping workers, affiliate conversion import, a free-form
-analytics event stream (Analytics accepts only its allow-list). Features that exist: Identity (auth, me), Catalog (brands, sellers, categories, products, offers, price
+analytics event stream (Analytics accepts only its allow-list), and in Social: comments, DMs, stories or video, hashtags or search over
+posts, follow requests, creator payouts and public web pages for posts. Features that exist: Identity (auth, me), Catalog (brands, sellers, categories, products, offers, price
 snapshots, internal upsert, seller bootstrap and listing, offer sweep), Engagement (saved products, price alerts and their trigger feed, `/go` redirect, click
 history) and Profile (user profile and measurements, personas, swipe onboarding with style cards, derived style profile,
 rule-based match score, size map with hints) and Notification (devices, notification preferences, the notification feed, push
 delivery through Expo, and the Hangfire jobs above) and Analytics (the allow-listed event intake, identity linking, the weekly beta
 metrics and the operators' Metabase) and Wardrobe (photo items analysed by kombin-vision, catalog items, object storage, wears, stats, gap
-analysis, pairings) and Recommendation (the rule-based outfit engine: daily, how-to-wear, saved outfits, feedback, weather, narration). Learning from
+analysis, pairings) and Recommendation (the rule-based outfit engine: daily, how-to-wear, saved outfits, feedback, weather, narration) and
+Social (versioned posting consent, photo and outfit posts with moderation, metadata stripping and confirmed shoppable tags, likes, follows,
+blocks, reports and review, the feed, try-with-wardrobe, creators with click attribution and earnings estimates). Learning from
 clicks, saves and outfit feedback is still to come, and not Profile's job. Add other features only when a task asks for them.

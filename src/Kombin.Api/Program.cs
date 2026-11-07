@@ -12,6 +12,7 @@ using Kombin.Api.Features.Identity;
 using Kombin.Api.Features.Notification;
 using Kombin.Api.Features.Profile;
 using Kombin.Api.Features.Recommendation;
+using Kombin.Api.Features.Social;
 using Kombin.Api.Features.Wardrobe;
 using Kombin.Api.Persistence;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
@@ -43,6 +44,7 @@ builder.Services.AddAnalyticsFeature();
 builder.Services.AddObjectStorage();
 builder.Services.AddWardrobeFeature();
 builder.Services.AddRecommendationFeature();
+builder.Services.AddSocialFeature();
 
 var app = builder.Build();
 
@@ -70,6 +72,7 @@ app.MapNotificationEndpoints();
 app.MapAnalyticsEndpoints();
 app.MapWardrobeEndpoints();
 app.MapRecommendationEndpoints();
+app.MapSocialEndpoints();
 
 await app.MigrateDatabaseOnStartupAsync();
 await app.SeedStyleCardsOnStartupAsync();
@@ -80,6 +83,7 @@ app.UseNotificationJobs();
 app.UseCatalogJobs();
 app.UseAnalyticsJobs();
 app.UseWardrobeJobs();
+app.UseSocialJobs();
 await app.RunAsync();
 
 static LogEventLevel RequestLogLevel(HttpContext context, double elapsedMilliseconds, Exception? exception)

@@ -268,6 +268,14 @@ or a bad `sessionId`, `platform`, `appVersion`, `occurredAt` or `anonymousId`.
   | `outfit_feedback` | `action` (`Save`, `Dismiss`, `Worn` or `Shuffle`), `reason?` (a dismiss reason) |
   | `wardrobe_pairings_view` | `companionTotal` (0-500), `hasUnlock` (`true` or `false`) |
   | `wardrobe_unlock_click` | - |
+  | `post_view` | `postId`, `source` (`feed`, `profile`, `creator`, `mine`, `link`), optional `position` (0-500) |
+  | `post_tag_tap` | `postId`, `tagKind` (`Wardrobe`, `Product`, `Unknown`), `hasOffer` (`true` or `false`) |
+  | `post_like` | `postId`, `liked` (`true` or `false`) |
+  | `post_create_start` | `kind` (`Photo`, `Outfit`), `source` (`camera`, `library`, `outfit`) |
+  | `post_create_done` | `kind`, `status` (`Live`, `Draft`, `NeedsReview`, `Blocked`, `Failed`, `Cancelled`), `tagCount` (0-6), optional `visibility` (`Private`, `Followers`, `Public`), `durationMs` (0-3,600,000) |
+  | `post_report` | `postId`, `reason` (`Nudity`, `Violence`, `Hate`, `Harassment`, `Spam`, `Scam`, `Other`) |
+  | `creator_profile_view` | `creatorId` |
+  | `try_with_wardrobe` | `postId`, `anchorCount` (0-3), `outfitCount` (0-10) |
 
   Values are GUIDs, integers, booleans, enum names or short identifiers (letters, digits and `_ . : / -`), never free text.
 - **A wrong clock does not cost the event.** `occurredAt` more than 7 days old or more than 5 minutes ahead is replaced by the server's
@@ -332,7 +340,7 @@ A good first dashboard is `analytics.weekly_metrics` (a line per `metric`, `week
 | DELETE | `/items/{id}` | 204, archives (soft, idempotent); `wardrobe-cleanup` deletes the images 30 days later | 404 |
 | POST | `/items/{id}/wear` | 200 `{ itemId, wornOn, wearCount, lastWornAt }`; body optional `{ wornOn? }` (default today in `Europe/Istanbul`); one row per day | 400 future or before 2000, 404, 409 archived |
 | DELETE | `/items/{id}/wear/{yyyy-MM-dd}` | 200 same shape with `wornOn: null`, idempotent | 404 |
-| GET | `/stats` | 200 `{ itemCount, byCategory: [{ slug, count }], byColor: [{ color, count }], unwornFor180Days, mostWorn: [3], leastWorn: [3], possibleOutfits }`; `possibleOutfits` is the outfit engine's count of complete core outfits, capped at 999 | - |
+| GET | `/stats` | 200 `{ itemCount, byCategory: [{ slug, count }], byColor: [{ color, count }], unwornFor180Days, mostWorn: [3], leastWorn: [3], possibleOutfits, unmatchedCount }`; `possibleOutfits` is the outfit engine's count of complete core outfits, capped at 999; `unmatchedCount` the wearable pieces that pair with nothing (`companionCount` 0) | - |
 | GET | `/gaps` | 200 `{ personaId, gaps: [{ kind, message, categorySlug, color, formality, band, unlocksEstimate }], suggestedProducts: [3] }` | - |
 
 **Photo flow.** `upload-url` → the app PUTs the photo straight to storage → `process` → the `wardrobe-analyze` job (Hangfire, started at
@@ -379,6 +387,59 @@ Vision: `Vision:BaseUrl` (compose: `http://vision:8090`; `http://localhost:8092`
 |---|---|---|
 | `wardrobe-analyze` | per item, enqueued by `process` | the photo analysis above; 3 retries |
 | `wardrobe-cleanup` | daily 05:00 `Europe/Istanbul` | deletes the images of items archived more than 30 days ago (the row and its wear history stay), and uploads started but never processed for a day (row and object) |
+
+### Social
+
+**The rule: a shoppable, price-aware feed, never an Instagram clone.** Every post answers what it is, where it is cheapest and whether it
+goes with what the viewer owns. No comments, DMs, stories, video, hashtags or post search in v1. Design: `docs/design/social.md`; every
+personal-data touchpoint: `docs/privacy-notes.md`. Routes marked *public* work signed out (public posts only); the rest need a bearer token.
+
+| Method | Route | Success | Errors |
+|---|---|---|---|
+| GET / POST | `/social/consent` | 200 `{ version, text, acceptedAt }`; POST `{ version }` accepts the current version (idempotent, the shown text is stored) | 400 `Social.ConsentOutdated` |
+| POST | `/posts/upload-url` | 201 `{ postId, uploadUrl, headers, expiresAt }`; body `{ contentType, sizeBytes }` (jpeg, png, webp, ≤ 8 MB). A private `Processing` photo post | 400, 403 `Social.ConsentRequired` |
+| POST | `/posts/{id}/process` | 202 `{ postId, status }`; enqueues `post-process` (idempotent like the wardrobe's) | 400 `Social.ImageTooLarge`, 404, 409 `Social.UploadMissing` |
+| POST | `/posts/from-outfit` | 201 post; body `{ outfitId }` (a saved or worn outfit of the caller). A collage post: its pieces become proposals with collage boxes | 403 consent, 404 `Social.OutfitNotFound` |
+| PUT | `/posts/{id}/publish` | 200 post; body `{ caption?, visibility, tags: [{ kind, x, y, w, h, wardrobeItemId?, productId?, label? }] }` (≤ 6 tags, boxes are 0-1 fractions). Replaces every tag and proposal with the confirmed ones; `Draft` → `Live`, `NeedsReview` stays until a reviewer approves; a live post can be re-published | 400 validation / `Social.InvalidTagTarget`, 404, 409 `Social.PostProcessing` / `Social.PostNotPublishable` |
+| GET | `/posts/{id}?personaId=` *public* | 200 post: `author { id, displayName, handle, isCreator }`, `image { url, previewUrl, aspect }` (1-hour presigned, null for outfit posts), `tags` (confirmed only; each with `name`, `imageUrl`, `offer { offerId, seller, price, goPath }`, `inWardrobe`: `exact`/`similar`/null), `summary { totalPrice, pieceCount, ownedCount }`, `likeCount`, `likedByMe`, `followingAuthor`, `matchScore`, `disclosure` (creators), and for the author `statusMessage` and `proposals` | 400 persona, 404 (also for posts the caller may not see) |
+| DELETE | `/posts/{id}` | 204; gone at once, storage and rows purged within the hour | 404 |
+| POST / DELETE | `/posts/{id}/like` | 200 `{ liked, likeCount }`, idempotent | 404 |
+| POST | `/posts/{id}/report` | 202; body `{ reason }` (`Nudity`, `Violence`, `Hate`, `Harassment`, `Spam`, `Scam`, `Other`). The third distinct reporter hides the post | 400 (also own post), 404, 409 `Social.AlreadyReported` |
+| POST | `/posts/{id}/try` | 200 `{ postId, groups: [{ tagId, productId, owned, outfits, message }] }`; body `{ seed?, occasion?, personaId? }`. "Dolabımla dene": each tagged product (≤ 3) as a how-to-wear anchor against the caller's wardrobe, 2 outfits each | 404, 409 `Social.NothingToTry` |
+| GET | `/me/posts?page=` | 200 paged, every status but deleted, newest first | - |
+| GET | `/feed?mode=&page=&personaId=` *public* | 200 `{ mode, items, page, pageSize, hasMore }`; `mode` is `forYou` (default: followed posts of the last 72 h, then ranked "sana göre" posts) or `following` (followed authors, newest first). Items carry `reason` (`Following`/`ForYou`). Never two posts of one author adjacent | 400, 401 `Social.FollowingRequiresAuth` |
+| GET | `/users/{id}` *public* | 200 `{ id, displayName, handle, isCreator, bio, link, followerCount, followingCount, postCount, isFollowing, followsYou }` | 404 (also across a block) |
+| GET | `/users/{id}/posts?page=` *public* | 200 paged posts the caller may see | 404 |
+| POST / DELETE | `/users/{id}/follow` | 200 `{ following, followerCount }`, idempotent | 400 self, 404 |
+| POST / DELETE | `/users/{id}/block` | 204, idempotent; removes follows both ways | 400 self, 404 |
+| GET | `/me/blocks` | 200 `[{ id, displayName, blockedAt }]` | - |
+| GET | `/creators/{handle}` *public* | 200 `{ profile, disclosure, posts }` | 404 `Social.CreatorNotFound` |
+| GET | `/me/creator/stats?days=30` | 200 `{ days, since, clicks, estimatedEarnings { amount, currency, isEstimate, clicks, conversionRatePercent, averageOrderValue, commissionPercent, sharePercent }, confirmedEarnings, followerCount, topPosts }` | 403 `Social.NotACreator` |
+| PUT | `/internal/social/creators/{userId}` | 200; body `{ handle, bio?, link?, isActive? }` (internal key) | 400, 404, 409 `Social.HandleTaken` |
+| GET | `/internal/social/review-queue` | 200 hidden and borderline posts, oldest first (internal key) | 401 |
+| POST | `/internal/social/posts/{id}/review` | 200 `{ postId, status }`; body `{ decision }`: `Approve` or `Remove` (internal key) | 404, 409 `Social.NotReviewable` |
+
+**Post flow.** consent → `upload-url` → PUT the photo → `process` → `post-process` strips the metadata (EXIF location and the rest; the
+stored original is replaced), calls `kombin-vision /v1/moderate?renditions=true` (allow → `Draft`, review → `NeedsReview`, block → `Blocked`
+with "Fotoğraf topluluk kurallarına uymuyor."), stores the re-encoded feed image (≤ 1600 px) and preview (400 px) as private objects, then
+`/v1/detect` for up to 6 tag proposals → the app polls `GET /posts/{id}`, shows the proposals in the tag editor, and calls `publish`.
+**No tag reaches a viewer without the author's confirmation**, and **no seller URL ever reaches the client**: offers carry
+`goPath = /api/v1/go/{offerId}?src=feed&post={postId}`.
+
+**Attribution.** `/go` with `post=` checks that the post is live, not private and tags the clicked product; it stamps `clicks.post_id`, and
+`clicks.creator_id` plus a `social.referral_events` row when the author is an active creator who is not the clicker. `Creators:SharePercent`
+(40) is snapshotted on the referral row; `Creators:AverageOrderValue` (750), `CommissionPercent` (8) and `ConversionRatePercent` (3) only feed
+the estimate on the stats.
+
+**Feed ranking** (`FeedRanking`, formula at the top of the file): `recency = exp(−ageHours / 48)`, `popularity = 1 + ln(1 + likes) / 4`, creator
+boost 1.3, times the viewer's persona match of the product tags (posts below 60 are dropped once the persona has learned from swipes); SQL keeps
+the best 200 of the last 14 days, the rest is reranked in memory. Measured by `FeedPerformanceTests` (50k posts, `KOMBIN_PERF=1`): p95 66 ms
+for-you, 40 ms following, 49 ms signed out (budget 250 ms).
+
+| Job | Schedule | Does |
+|---|---|---|
+| `post-process` | per post, enqueued by `process` and `from-outfit` | the pipeline above; 3 retries, the 4th failed vision call makes the post `Failed` (never published unmoderated) |
+| `social-purge` | hourly | deletes the objects and rows of deleted posts, uploads never processed (1 day), failed posts (1 day), unpublished drafts (7 days) and blocked posts (30 days) |
 
 ## Decisions worth knowing
 

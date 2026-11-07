@@ -73,6 +73,14 @@ public class AnalyticsValidatorTests
             ["outfit_gap_click"] = null,
             ["wardrobe_pairings_view"] = """{"companionTotal":12,"hasUnlock":true}""",
             ["wardrobe_unlock_click"] = null,
+            ["post_view"] = $$"""{"postId":"{{ProductId}}","source":"feed","position":2}""",
+            ["post_tag_tap"] = $$"""{"postId":"{{ProductId}}","tagKind":"Product","hasOffer":true}""",
+            ["post_like"] = $$"""{"postId":"{{ProductId}}","liked":true}""",
+            ["post_create_start"] = """{"kind":"Photo","source":"library"}""",
+            ["post_create_done"] = """{"kind":"Photo","status":"NeedsReview","tagCount":2,"visibility":"Followers","durationMs":38000}""",
+            ["post_report"] = $$"""{"postId":"{{ProductId}}","reason":"Harassment"}""",
+            ["creator_profile_view"] = $$"""{"creatorId":"{{persona}}"}""",
+            ["try_with_wardrobe"] = $$"""{"postId":"{{ProductId}}","anchorCount":1,"outfitCount":2}""",
         };
 
         Assert.Equal(samples.Keys.Order(), AnalyticsEventCatalog.Names.Order());

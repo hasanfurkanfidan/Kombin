@@ -17,7 +17,8 @@ internal sealed record ColorCount(ProductColor Color, int Count);
 /// <summary>
 /// Over the wardrobe (not archived, not failed). An item counts as unworn for 180 days when its last wear, or its creation when it was
 /// never worn, is more than 180 days ago. <c>PossibleOutfits</c> is the outfit engine's count of complete, wearable core outfits (top,
-/// bottom, shoes) the wardrobe makes, capped at 999 (see <c>OutfitCounter</c>); never null since Task 12.
+/// bottom, shoes) the wardrobe makes, capped at 999 (see <c>OutfitCounter</c>); never null since Task 12. <c>UnmatchedCount</c> is how many
+/// wearable pieces pair with nothing else in the wardrobe (<c>companionCount</c> 0 on the grid): the pieces a purchase would unlock.
 /// </summary>
 internal sealed record WardrobeStatsResponse(
     int ItemCount,
@@ -26,7 +27,8 @@ internal sealed record WardrobeStatsResponse(
     int UnwornFor180Days,
     IReadOnlyList<WardrobeItemSummary> MostWorn,
     IReadOnlyList<WardrobeItemSummary> LeastWorn,
-    int? PossibleOutfits);
+    int? PossibleOutfits,
+    int UnmatchedCount);
 
 internal static class GetStatsEndpoint
 {
@@ -101,6 +103,15 @@ internal static class GetStatsEndpoint
             unworn,
             await WardrobeItemResponses.SummarizeAsync(db, storage, mostWorn, cancellationToken),
             await WardrobeItemResponses.SummarizeAsync(db, storage, leastWorn, cancellationToken),
-            await OutfitCounts.PossibleOutfitsAsync(db, cache, currentUser.UserId, cancellationToken)));
+            await OutfitCounts.PossibleOutfitsAsync(db, cache, currentUser.UserId, cancellationToken),
+            await UnmatchedAsync(db, cache, currentUser.UserId, cancellationToken)));
     }
+
+    /// <summary>
+    /// Ready, categorised pieces with no companion (the grid's <c>companionCount</c> 0). Items the engine cannot use (no category, still
+    /// processing) are not counted: they are not unmatched, they are unfinished. The companion counts hold every wearable piece (cached
+    /// under the wardrobe fingerprint, shared with the grid).
+    /// </summary>
+    private static async Task<int> UnmatchedAsync(KombinDbContext db, IMemoryCache cache, Guid userId, CancellationToken cancellationToken) =>
+        (await OutfitCounts.CompanionCountsAsync(db, cache, userId, cancellationToken)).Count(pair => pair.Value == 0);
 }

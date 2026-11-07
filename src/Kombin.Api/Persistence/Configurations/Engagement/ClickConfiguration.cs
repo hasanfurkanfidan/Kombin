@@ -25,10 +25,18 @@ internal sealed class ClickConfiguration : IEntityTypeConfiguration<Click>
         builder.HasIndex(click => new { click.OfferId, click.ClickedAt });
         builder.HasIndex(click => new { click.UserId, click.ClickedAt });
 
+        // GET /me/creator/stats.
+        builder.HasIndex(click => new { click.CreatorId, click.ClickedAt }).HasFilter("creator_id IS NOT NULL");
+
         // Clicks are the revenue record: they outlive the user (anonymized) and refuse to disappear with an offer, product or seller.
         builder.HasOne<User>()
             .WithMany()
             .HasForeignKey(click => click.UserId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        builder.HasOne<User>()
+            .WithMany()
+            .HasForeignKey(click => click.CreatorId)
             .OnDelete(DeleteBehavior.SetNull);
 
         builder.HasOne<Offer>()

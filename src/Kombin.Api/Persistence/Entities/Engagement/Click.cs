@@ -20,6 +20,12 @@ internal sealed class Click
     /// <summary>The active style persona; there is no table to reference yet.</summary>
     public Guid? PersonaId { get; set; }
 
+    /// <summary>The social post the click came from (<c>/go?post=</c>), when it tags the clicked product. No foreign key: a deleted post must not take revenue records with it.</summary>
+    public Guid? PostId { get; set; }
+
+    /// <summary>The post's author when they are an active creator and not the clicker: who earns a share of the commission.</summary>
+    public Guid? CreatorId { get; set; }
+
     public string CorrelationId { get; set; } = string.Empty;
 
     public string? UserAgent { get; set; }

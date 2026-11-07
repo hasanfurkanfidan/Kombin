@@ -52,10 +52,51 @@ internal sealed record VisionResult(VisionAnalysis? Analysis, string? Error, boo
     public static VisionResult Transient(string error) => new(null, error, true);
 }
 
+/// <summary>Re-encoded images of a post photo (<c>/v1/moderate?renditions=true</c>): a base64 JPEG of at most 1600 px and a base64 WEBP preview.</summary>
+internal sealed record VisionRenditions(string FeedImage, int FeedWidth, int FeedHeight, string Preview);
+
+/// <summary>
+/// The answer of <c>POST /v1/moderate</c>. <c>Verdict</c> is <c>allow</c>, <c>review</c> or <c>block</c>; <c>Labels</c> the labels at or above
+/// their review threshold; <c>Scores</c> per label (<c>nsfw</c>, <c>nudity</c>, <c>violence</c>, <c>not_person_or_garment</c>).
+/// </summary>
+internal sealed record VisionModeration(
+    bool Allowed,
+    bool NeedsReview,
+    string Verdict,
+    IReadOnlyList<string> Labels,
+    IReadOnlyDictionary<string, double> Scores,
+    VisionRenditions? Renditions);
+
+/// <summary>Fractions of the image (0-1).</summary>
+internal sealed record VisionRegionBox(double X, double Y, double W, double H);
+
+/// <summary>A garment region proposal. <c>Slot</c> is an <c>OutfitSlot</c> name, the category a leaf slug of ours.</summary>
+internal sealed record VisionRegion(VisionRegionBox Box, string Slot, VisionCategory Category, IReadOnlyList<VisionCategory> CategoryCandidates, VisionColor Color, double Confidence);
+
+/// <summary>The answer of <c>POST /v1/detect</c>: <c>Layout</c> is <c>person</c> or <c>flatlay</c>, at most 6 regions.</summary>
+internal sealed record VisionDetection(string Layout, IReadOnlyList<VisionRegion> Regions);
+
+/// <summary>A value or an error, like <see cref="VisionResult"/> for the other endpoints.</summary>
+internal sealed record VisionCall<T>(T? Value, string? Error, bool IsTransient)
+    where T : class
+{
+    public static VisionCall<T> Ok(T value) => new(value, null, false);
+
+    public static VisionCall<T> Permanent(string error) => new(null, error, false);
+
+    public static VisionCall<T> Transient(string error) => new(null, error, true);
+}
+
 /// <summary>Never throws for a failed call (only when the caller cancels); the job decides what a failure means.</summary>
 internal interface IVisionClient
 {
     Task<VisionResult> AnalyzeAsync(byte[] image, string contentType, CancellationToken cancellationToken);
+
+    /// <summary><c>POST /v1/moderate</c>, the safety filter for social posts; with <paramref name="renditions"/> also the feed image and preview.</summary>
+    Task<VisionCall<VisionModeration>> ModerateAsync(byte[] image, string contentType, bool renditions, CancellationToken cancellationToken);
+
+    /// <summary><c>POST /v1/detect</c>, garment region proposals for an outfit photo.</summary>
+    Task<VisionCall<VisionDetection>> DetectAsync(byte[] image, string contentType, CancellationToken cancellationToken);
 
     /// <summary>The CLIP model behind the embeddings (<c>/health</c>'s <c>clipModel</c>), or null when the service cannot be asked.</summary>
     Task<string?> GetEmbeddingModelAsync(CancellationToken cancellationToken);
@@ -86,9 +127,26 @@ internal sealed partial class VisionClient(HttpClient http, ILogger<VisionClient
 
     public async Task<VisionResult> AnalyzeAsync(byte[] image, string contentType, CancellationToken cancellationToken)
     {
+        var call = await PostImageAsync<VisionAnalysis>("v1/garment/analyze", image, contentType, cancellationToken);
+
+        return call.Value is { } analysis
+            ? VisionResult.Ok(analysis)
+            : call.IsTransient ? VisionResult.Transient(call.Error!) : VisionResult.Permanent(call.Error!);
+    }
+
+    public Task<VisionCall<VisionModeration>> ModerateAsync(byte[] image, string contentType, bool renditions, CancellationToken cancellationToken) =>
+        PostImageAsync<VisionModeration>(renditions ? "v1/moderate?renditions=true" : "v1/moderate", image, contentType, cancellationToken);
+
+    public Task<VisionCall<VisionDetection>> DetectAsync(byte[] image, string contentType, CancellationToken cancellationToken) =>
+        PostImageAsync<VisionDetection>("v1/detect", image, contentType, cancellationToken);
+
+    /// <summary>Posts the image as the multipart field <c>image</c> and reads the JSON answer; failures become values, never exceptions.</summary>
+    private async Task<VisionCall<T>> PostImageAsync<T>(string path, byte[] image, string contentType, CancellationToken cancellationToken)
+        where T : class
+    {
         if (http.BaseAddress is null)
         {
-            return VisionResult.Transient("vision_not_configured: set Vision:BaseUrl");
+            return VisionCall<T>.Transient("vision_not_configured: set Vision:BaseUrl");
         }
 
         try
@@ -98,20 +156,20 @@ internal sealed partial class VisionClient(HttpClient http, ILogger<VisionClient
             file.Headers.ContentType = MediaTypeHeaderValue.Parse(contentType);
             content.Add(file, "image", "upload");
 
-            using var response = await http.PostAsync(new Uri("v1/garment/analyze", UriKind.Relative), content, cancellationToken);
+            using var response = await http.PostAsync(new Uri(path, UriKind.Relative), content, cancellationToken);
             var body = await response.Content.ReadAsStringAsync(cancellationToken);
 
             if (!response.IsSuccessStatusCode)
             {
                 var error = $"vision_{(int)response.StatusCode}: {ReadDetail(body)}";
-                LogCallFailed(logger, error);
+                LogCallFailed(logger, path, error);
 
-                return IsTransient(response.StatusCode) ? VisionResult.Transient(error) : VisionResult.Permanent(error);
+                return IsTransient(response.StatusCode) ? VisionCall<T>.Transient(error) : VisionCall<T>.Permanent(error);
             }
 
-            var analysis = JsonSerializer.Deserialize<VisionAnalysis>(body, Json);
+            var value = JsonSerializer.Deserialize<T>(body, Json);
 
-            return analysis is null ? VisionResult.Transient("vision_empty_response") : VisionResult.Ok(analysis);
+            return value is null ? VisionCall<T>.Transient("vision_empty_response") : VisionCall<T>.Ok(value);
         }
         catch (Exception exception) when (exception is HttpRequestException or JsonException or TaskCanceledException or IOException)
         {
@@ -120,9 +178,9 @@ internal sealed partial class VisionClient(HttpClient http, ILogger<VisionClient
                 throw;
             }
 
-            LogCallFailed(logger, exception.Message);
+            LogCallFailed(logger, path, exception.Message);
 
-            return VisionResult.Transient($"vision_unreachable: {exception.Message}");
+            return VisionCall<T>.Transient($"vision_unreachable: {exception.Message}");
         }
     }
 
@@ -184,6 +242,6 @@ internal sealed partial class VisionClient(HttpClient http, ILogger<VisionClient
 
     private static string Summarize(string text) => text.Length <= 200 ? text : text[..200];
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Vision analyze call failed: {Reason}")]
-    private static partial void LogCallFailed(ILogger logger, string reason);
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Vision call {Path} failed: {Reason}")]
+    private static partial void LogCallFailed(ILogger logger, string path, string reason);
 }
