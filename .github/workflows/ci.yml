@@ -41,7 +41,7 @@ jobs:
       - name: Performance budget
         env:
           KOMBIN_PERF: "1"
-        run: dotnet test --project tests/Kombin.Api.IntegrationTests --configuration Release --no-build -- --filter-class "Kombin.Api.IntegrationTests.OutfitPerformanceTests"
+        run: dotnet test --project tests/Kombin.Api.IntegrationTests --configuration Release --no-build -- --filter-class "Kombin.Api.IntegrationTests.OutfitPerformanceTests" --filter-class "Kombin.Api.IntegrationTests.FeedPerformanceTests"
 
       - name: Prepare compose environment
         run: |

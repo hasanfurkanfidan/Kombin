@@ -912,6 +912,10 @@ namespace Kombin.Api.Persistence.Migrations
                         .HasColumnType("character varying(64)")
                         .HasColumnName("correlation_id");
 
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("creator_id");
+
                     b.Property<string>("IpHash")
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)")
@@ -924,6 +928,10 @@ namespace Kombin.Api.Persistence.Migrations
                     b.Property<Guid?>("PersonaId")
                         .HasColumnType("uuid")
                         .HasColumnName("persona_id");
+
+                    b.Property<Guid?>("PostId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("post_id");
 
                     b.Property<Guid>("ProductId")
                         .HasColumnType("uuid")
@@ -962,6 +970,10 @@ namespace Kombin.Api.Persistence.Migrations
 
                     b.HasIndex("SellerId")
                         .HasDatabaseName("ix_clicks_seller_id");
+
+                    b.HasIndex("CreatorId", "ClickedAt")
+                        .HasDatabaseName("ix_clicks_creator_id_clicked_at")
+                        .HasFilter("creator_id IS NOT NULL");
 
                     b.HasIndex("OfferId", "ClickedAt")
                         .HasDatabaseName("ix_clicks_offer_id_clicked_at");
@@ -2062,6 +2074,600 @@ namespace Kombin.Api.Persistence.Migrations
                     b.ToTable("narrations", "recommendation");
                 });
 
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Social.CreatorProfile", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("Bio")
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)")
+                        .HasColumnName("bio");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Handle")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("handle");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_active");
+
+                    b.Property<string>("Link")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("link");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("UserId")
+                        .HasName("pk_creator_profiles");
+
+                    b.HasIndex("Handle")
+                        .IsUnique()
+                        .HasDatabaseName("ix_creator_profiles_handle");
+
+                    b.ToTable("creator_profiles", "social");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Social.Follow", b =>
+                {
+                    b.Property<Guid>("FollowerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("follower_id");
+
+                    b.Property<Guid>("FolloweeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("followee_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.HasKey("FollowerId", "FolloweeId")
+                        .HasName("pk_follows");
+
+                    b.HasIndex("FolloweeId")
+                        .HasDatabaseName("ix_follows_followee_id");
+
+                    b.ToTable("follows", "social", t =>
+                        {
+                            t.HasCheckConstraint("ck_follows_not_self", "follower_id <> followee_id");
+                        });
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Social.Post", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Audience")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("audience");
+
+                    b.Property<Guid>("AuthorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("author_id");
+
+                    b.Property<string>("Caption")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("caption");
+
+                    b.Property<DateTimeOffset?>("ConfirmedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("confirmed_at");
+
+                    b.Property<DateTimeOffset>("ConsentAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("consent_at");
+
+                    b.Property<string>("ConsentVersion")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("consent_version");
+
+                    b.Property<string>("ContentType")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("content_type");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<string>("FailureReason")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("failure_reason");
+
+                    b.Property<DateTimeOffset?>("HiddenAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("hidden_at");
+
+                    b.Property<double?>("ImageAspect")
+                        .HasColumnType("double precision")
+                        .HasColumnName("image_aspect");
+
+                    b.Property<string>("ImageFeedKey")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("image_feed_key");
+
+                    b.Property<string>("ImageOriginalKey")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("image_original_key");
+
+                    b.Property<string>("ImagePreviewKey")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("image_preview_key");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("kind");
+
+                    b.Property<int>("LikeCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("like_count");
+
+                    b.Property<string>("ModerationJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("moderation_json");
+
+                    b.Property<string>("ModerationReason")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("moderation_reason");
+
+                    b.Property<string>("ModerationVerdict")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("moderation_verdict");
+
+                    b.Property<Guid?>("OutfitId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("outfit_id");
+
+                    b.Property<DateTimeOffset?>("ProcessRequestedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("process_requested_at");
+
+                    b.Property<int>("ProcessingAttempts")
+                        .HasColumnType("integer")
+                        .HasColumnName("processing_attempts");
+
+                    b.Property<DateTimeOffset?>("PublishedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("published_at");
+
+                    b.Property<int>("ReportCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("report_count");
+
+                    b.Property<DateTimeOffset?>("ReviewedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("reviewed_at");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("Visibility")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("visibility");
+
+                    b.HasKey("Id")
+                        .HasName("pk_posts");
+
+                    b.HasIndex("PublishedAt")
+                        .IsDescending()
+                        .HasDatabaseName("ix_posts_feed_window")
+                        .HasFilter("status = 'Live' AND visibility = 'Public'");
+
+                    b.HasIndex("AuthorId", "CreatedAt")
+                        .HasDatabaseName("ix_posts_author_id_created_at");
+
+                    b.HasIndex("AuthorId", "PublishedAt")
+                        .IsDescending(false, true)
+                        .HasDatabaseName("ix_posts_author_live")
+                        .HasFilter("status = 'Live'");
+
+                    b.HasIndex("Status", "UpdatedAt")
+                        .HasDatabaseName("ix_posts_status_updated_at");
+
+                    b.ToTable("posts", "social", t =>
+                        {
+                            t.HasCheckConstraint("ck_posts_caption", "char_length(caption) <= 300");
+
+                            t.HasCheckConstraint("ck_posts_counts", "like_count >= 0 AND report_count >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Social.PostLike", b =>
+                {
+                    b.Property<Guid>("PostId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("post_id");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.HasKey("PostId", "UserId")
+                        .HasName("pk_likes");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_likes_user_id");
+
+                    b.ToTable("likes", "social");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Social.PostReport", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("PostId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("post_id");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("reason");
+
+                    b.Property<Guid>("ReporterId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("reporter_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_reports");
+
+                    b.HasIndex("ReporterId")
+                        .HasDatabaseName("ix_reports_reporter_id");
+
+                    b.HasIndex("PostId", "ReporterId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_reports_post_id_reporter_id");
+
+                    b.ToTable("reports", "social");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Social.PostTag", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("CategoryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("category_id");
+
+                    b.Property<string>("Color")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("color");
+
+                    b.Property<double?>("Confidence")
+                        .HasColumnType("double precision")
+                        .HasColumnName("confidence");
+
+                    b.Property<DateTimeOffset?>("ConfirmedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("confirmed_at");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<double>("H")
+                        .HasColumnType("double precision")
+                        .HasColumnName("h");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Label")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("label");
+
+                    b.Property<Guid?>("OfferId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("offer_id");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("integer")
+                        .HasColumnName("position");
+
+                    b.Property<Guid>("PostId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("post_id");
+
+                    b.Property<decimal?>("PriceAtTag")
+                        .HasPrecision(12, 2)
+                        .HasColumnType("numeric(12,2)")
+                        .HasColumnName("price_at_tag");
+
+                    b.Property<Guid?>("ProductId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("product_id");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("source");
+
+                    b.Property<double>("W")
+                        .HasColumnType("double precision")
+                        .HasColumnName("w");
+
+                    b.Property<Guid?>("WardrobeItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("wardrobe_item_id");
+
+                    b.Property<double>("X")
+                        .HasColumnType("double precision")
+                        .HasColumnName("x");
+
+                    b.Property<double>("Y")
+                        .HasColumnType("double precision")
+                        .HasColumnName("y");
+
+                    b.HasKey("Id")
+                        .HasName("pk_post_tags");
+
+                    b.HasIndex("CategoryId")
+                        .HasDatabaseName("ix_post_tags_category_id");
+
+                    b.HasIndex("OfferId")
+                        .HasDatabaseName("ix_post_tags_offer_id");
+
+                    b.HasIndex("ProductId")
+                        .HasDatabaseName("ix_post_tags_product_id")
+                        .HasFilter("product_id IS NOT NULL");
+
+                    b.HasIndex("WardrobeItemId")
+                        .HasDatabaseName("ix_post_tags_wardrobe_item_id");
+
+                    b.HasIndex("PostId", "Position")
+                        .HasDatabaseName("ix_post_tags_post_id_position");
+
+                    b.ToTable("post_tags", "social", t =>
+                        {
+                            t.HasCheckConstraint("ck_post_tags_box", "x >= 0 AND y >= 0 AND w > 0 AND h > 0 AND x + w <= 1.0001 AND y + h <= 1.0001");
+
+                            t.HasCheckConstraint("ck_post_tags_kind", "(kind = 'Product' AND product_id IS NOT NULL) OR (kind = 'Wardrobe' AND wardrobe_item_id IS NOT NULL) OR kind = 'Unknown' OR confirmed_at IS NULL");
+                        });
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Social.PostingConsentRecord", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTimeOffset>("AcceptedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("accepted_at");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("text");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("Version")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_posting_consents");
+
+                    b.HasIndex("UserId", "Version")
+                        .HasDatabaseName("ix_posting_consents_user_id_version");
+
+                    b.ToTable("posting_consents", "social");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Social.ReferralEvent", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<long?>("ClickId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("click_id");
+
+                    b.Property<decimal?>("CommissionAmount")
+                        .HasPrecision(12, 2)
+                        .HasColumnType("numeric(12,2)")
+                        .HasColumnName("commission_amount");
+
+                    b.Property<decimal?>("CreatorAmount")
+                        .HasPrecision(12, 2)
+                        .HasColumnType("numeric(12,2)")
+                        .HasColumnName("creator_amount");
+
+                    b.Property<Guid>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("creator_id");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character(3)")
+                        .HasColumnName("currency")
+                        .IsFixedLength();
+
+                    b.Property<string>("ExternalOrderRef")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("external_order_ref");
+
+                    b.Property<DateTimeOffset?>("ImportedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("imported_at");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("kind");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("occurred_at");
+
+                    b.Property<Guid?>("OfferId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("offer_id");
+
+                    b.Property<decimal?>("OrderAmount")
+                        .HasPrecision(12, 2)
+                        .HasColumnType("numeric(12,2)")
+                        .HasColumnName("order_amount");
+
+                    b.Property<Guid>("PostId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("post_id");
+
+                    b.Property<Guid?>("PostTagId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("post_tag_id");
+
+                    b.Property<Guid?>("ProductId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("product_id");
+
+                    b.Property<Guid?>("SellerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("seller_id");
+
+                    b.Property<decimal>("SharePercent")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("numeric(5,2)")
+                        .HasColumnName("share_percent");
+
+                    b.Property<Guid?>("ViewerUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("viewer_user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_referral_events");
+
+                    b.HasIndex("ClickId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_referral_events_click_id")
+                        .HasFilter("kind = 'Click'");
+
+                    b.HasIndex("OfferId")
+                        .HasDatabaseName("ix_referral_events_offer_id");
+
+                    b.HasIndex("PostId")
+                        .HasDatabaseName("ix_referral_events_post_id");
+
+                    b.HasIndex("ProductId")
+                        .HasDatabaseName("ix_referral_events_product_id");
+
+                    b.HasIndex("ViewerUserId")
+                        .HasDatabaseName("ix_referral_events_viewer_user_id");
+
+                    b.HasIndex("CreatorId", "OccurredAt")
+                        .HasDatabaseName("ix_referral_events_creator_id_occurred_at");
+
+                    b.HasIndex("SellerId", "ExternalOrderRef")
+                        .IsUnique()
+                        .HasDatabaseName("ix_referral_events_seller_id_external_order_ref")
+                        .HasFilter("external_order_ref IS NOT NULL");
+
+                    b.ToTable("referral_events", "social", t =>
+                        {
+                            t.HasCheckConstraint("ck_referral_events_share", "share_percent BETWEEN 0 AND 100");
+                        });
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Social.UserBlock", b =>
+                {
+                    b.Property<Guid>("BlockerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("blocker_id");
+
+                    b.Property<Guid>("BlockedId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("blocked_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.HasKey("BlockerId", "BlockedId")
+                        .HasName("pk_blocks");
+
+                    b.HasIndex("BlockedId")
+                        .HasDatabaseName("ix_blocks_blocked_id");
+
+                    b.ToTable("blocks", "social", t =>
+                        {
+                            t.HasCheckConstraint("ck_blocks_not_self", "blocker_id <> blocked_id");
+                        });
+                });
+
             modelBuilder.Entity("Kombin.Api.Persistence.Entities.Wardrobe.WardrobeItem", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2403,6 +3009,12 @@ namespace Kombin.Api.Persistence.Migrations
 
             modelBuilder.Entity("Kombin.Api.Persistence.Entities.Engagement.Click", b =>
                 {
+                    b.HasOne("Kombin.Api.Persistence.Entities.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatorId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_clicks_users_creator_id");
+
                     b.HasOne("Kombin.Api.Persistence.Entities.Catalog.Offer", null)
                         .WithMany()
                         .HasForeignKey("OfferId")
@@ -2650,6 +3262,178 @@ namespace Kombin.Api.Persistence.Migrations
                         .HasConstraintName("fk_outfit_items_wardrobe_items_wardrobe_item_id");
                 });
 
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Social.CreatorProfile", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.Identity.User", null)
+                        .WithOne()
+                        .HasForeignKey("Kombin.Api.Persistence.Entities.Social.CreatorProfile", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_creator_profiles_users_user_id");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Social.Follow", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("FolloweeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_follows_users_followee_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("FollowerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_follows_users_follower_id");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Social.Post", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("AuthorId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_posts_users_author_id");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Social.PostLike", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.Social.Post", null)
+                        .WithMany()
+                        .HasForeignKey("PostId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_likes_posts_post_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_likes_users_user_id");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Social.PostReport", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.Social.Post", null)
+                        .WithMany()
+                        .HasForeignKey("PostId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_reports_posts_post_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("ReporterId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_reports_users_reporter_id");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Social.PostTag", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.Catalog.Category", null)
+                        .WithMany()
+                        .HasForeignKey("CategoryId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_post_tags_categories_category_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Catalog.Offer", null)
+                        .WithMany()
+                        .HasForeignKey("OfferId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_post_tags_offers_offer_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Social.Post", null)
+                        .WithMany("Tags")
+                        .HasForeignKey("PostId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_post_tags_posts_post_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Catalog.Product", null)
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_post_tags_products_product_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Wardrobe.WardrobeItem", null)
+                        .WithMany()
+                        .HasForeignKey("WardrobeItemId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_post_tags_wardrobe_items_wardrobe_item_id");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Social.PostingConsentRecord", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_posting_consents_users_user_id");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Social.ReferralEvent", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.Engagement.Click", null)
+                        .WithMany()
+                        .HasForeignKey("ClickId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_referral_events_clicks_click_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatorId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_referral_events_users_creator_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Catalog.Offer", null)
+                        .WithMany()
+                        .HasForeignKey("OfferId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_referral_events_offers_offer_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Catalog.Product", null)
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_referral_events_products_product_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Catalog.Seller", null)
+                        .WithMany()
+                        .HasForeignKey("SellerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_referral_events_sellers_seller_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("ViewerUserId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_referral_events_users_viewer_user_id");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Social.UserBlock", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("BlockedId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_blocks_users_blocked_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("BlockerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_blocks_users_blocker_id");
+                });
+
             modelBuilder.Entity("Kombin.Api.Persistence.Entities.Wardrobe.WardrobeItem", b =>
                 {
                     b.HasOne("Kombin.Api.Persistence.Entities.Catalog.Brand", null)
@@ -2705,6 +3489,11 @@ namespace Kombin.Api.Persistence.Migrations
             modelBuilder.Entity("Kombin.Api.Persistence.Entities.Recommendation.Outfit", b =>
                 {
                     b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Social.Post", b =>
+                {
+                    b.Navigation("Tags");
                 });
 #pragma warning restore 612, 618
         }

@@ -5,6 +5,7 @@ using Kombin.Api.Persistence.Entities.Identity;
 using Kombin.Api.Persistence.Entities.Notification;
 using Kombin.Api.Persistence.Entities.Profile;
 using Kombin.Api.Persistence.Entities.Recommendation;
+using Kombin.Api.Persistence.Entities.Social;
 using Kombin.Api.Persistence.Entities.Wardrobe;
 
 namespace Kombin.Api.Persistence;
@@ -70,6 +71,24 @@ internal sealed class KombinDbContext(DbContextOptions<KombinDbContext> options)
     public DbSet<OutfitFeedback> OutfitFeedback => Set<OutfitFeedback>();
 
     public DbSet<OutfitNarration> OutfitNarrations => Set<OutfitNarration>();
+
+    public DbSet<Post> Posts => Set<Post>();
+
+    public DbSet<PostTag> PostTags => Set<PostTag>();
+
+    public DbSet<Follow> Follows => Set<Follow>();
+
+    public DbSet<UserBlock> UserBlocks => Set<UserBlock>();
+
+    public DbSet<PostLike> PostLikes => Set<PostLike>();
+
+    public DbSet<PostReport> PostReports => Set<PostReport>();
+
+    public DbSet<PostingConsentRecord> PostingConsents => Set<PostingConsentRecord>();
+
+    public DbSet<CreatorProfile> CreatorProfiles => Set<CreatorProfile>();
+
+    public DbSet<ReferralEvent> ReferralEvents => Set<ReferralEvent>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

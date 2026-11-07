@@ -1,11 +1,16 @@
 namespace Kombin.Api.Common.Storage;
 
-/// <summary>The renditions of one stored image. Only <c>Cutout</c> and <c>Thumb</c> are public; an original stays private.</summary>
+/// <summary>
+/// The renditions of one stored image. Only <c>Cutout</c> and <c>Thumb</c> are public; an original stays private, and so do a social post's
+/// <c>Feed</c> image and <c>Preview</c> (a followers-only post must not be readable by URL), which are served through presigned GETs.
+/// </summary>
 internal enum ImageVariant
 {
     Original,
     Cutout,
     Thumb,
+    Feed,
+    Preview,
 }
 
 /// <summary>

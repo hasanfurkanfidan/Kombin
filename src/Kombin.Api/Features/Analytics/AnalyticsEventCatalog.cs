@@ -6,6 +6,7 @@ using Kombin.Api.Persistence.Entities.Engagement;
 using Kombin.Api.Persistence.Entities.Notification;
 using Kombin.Api.Persistence.Entities.Profile;
 using Kombin.Api.Persistence.Entities.Recommendation;
+using Kombin.Api.Persistence.Entities.Social;
 
 namespace Kombin.Api.Features.Analytics;
 
@@ -53,6 +54,24 @@ internal static partial class AnalyticsEventCatalog
         // Pairings: how many pieces the wardrobe item goes with (capped like the engine's counts) and whether a catalog suggestion is shown.
         ["wardrobe_pairings_view"] = [Required("companionTotal", Integer(0, 500)), Required("hasUnlock", Boolean)],
         ["wardrobe_unlock_click"] = [],
+
+        // Social: posts are referred to by ID only (never the caption). `position` is the card's index in the feed; `status` how a post
+        // flow ended (`Cancelled` when the user backed out); a tag tap says what kind of tag it was and whether it had a price.
+        ["post_view"] = [Required("postId", Id), Required("source", OneOf("feed", "profile", "creator", "mine", "link")), Optional("position", Integer(0, 500))],
+        ["post_tag_tap"] = [Required("postId", Id), Required("tagKind", OneOf<PostTagKind>()), Required("hasOffer", Boolean)],
+        ["post_like"] = [Required("postId", Id), Required("liked", Boolean)],
+        ["post_create_start"] = [Required("kind", OneOf<PostKind>()), Required("source", OneOf("camera", "library", "outfit"))],
+        ["post_create_done"] =
+        [
+            Required("kind", OneOf<PostKind>()),
+            Required("status", OneOf("Live", "Draft", "NeedsReview", "Blocked", "Failed", "Cancelled")),
+            Required("tagCount", Integer(0, 6)),
+            Optional("visibility", OneOf<PostVisibility>()),
+            Required("durationMs", Integer(0, 3_600_000)),
+        ],
+        ["post_report"] = [Required("postId", Id), Required("reason", OneOf<ReportReason>())],
+        ["creator_profile_view"] = [Required("creatorId", Id)],
+        ["try_with_wardrobe"] = [Required("postId", Id), Required("anchorCount", Integer(0, 3)), Required("outfitCount", Integer(0, 10))],
     };
 
     public static IEnumerable<string> Names => Events.Keys;

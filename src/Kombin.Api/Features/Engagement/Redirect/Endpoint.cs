@@ -4,6 +4,7 @@ using Kombin.Api.Common.Auth;
 using Kombin.Api.Common.Http;
 using Kombin.Api.Common.Results;
 using Kombin.Api.Common.Time;
+using Kombin.Api.Features.Social;
 using Kombin.Api.Persistence;
 using Kombin.Api.Persistence.Entities.Engagement;
 using Microsoft.Extensions.Options;
@@ -15,8 +16,10 @@ internal static class RedirectEndpoint
     private const int MaxUserAgentLength = 512;
 
     /// <summary>
-    /// The only way the app sends a user to a seller: <c>GET /api/v1/go/{offerId}?src=&amp;personaId=</c>. It records a
-    /// <see cref="Click"/> and answers 302 with the affiliate URL. Anonymous callers are fine; a valid bearer token adds the user.
+    /// The only way the app sends a user to a seller: <c>GET /api/v1/go/{offerId}?src=&amp;personaId=&amp;post=</c>. It records a
+    /// <see cref="Click"/> and answers 302 with the affiliate URL. Anonymous callers are fine; a valid bearer token adds the user. With
+    /// <c>post=</c> (the social feed's tags) the click is attributed to that post, and to its creator with a referral event
+    /// (<see cref="CreatorAttribution"/>).
     /// There is deliberately no rate limiting yet (out of scope, see CLAUDE.md); bots and scrapers will need it before launch.
     /// </summary>
     public static void Map(RouteGroupBuilder group) =>
@@ -29,11 +32,13 @@ internal static class RedirectEndpoint
         Guid offerId,
         string? src,
         string? personaId,
+        string? post,
         HttpContext httpContext,
         ICurrentUser currentUser,
         KombinDbContext db,
         IClock clock,
         IOptions<OutboundOptions> options,
+        IOptions<CreatorOptions> creators,
         CancellationToken cancellationToken)
     {
         // Dead listings never get traffic: inactive offers and offers of switched-off sellers are as good as missing.
@@ -57,6 +62,7 @@ internal static class RedirectEndpoint
         }
 
         var source = ClickSources.Normalize(src);
+        var attribution = await CreatorAttribution.ResolveAsync(db, post, offer.ProductId, currentUser.UserIdOrNull, cancellationToken);
 
         // The click ID goes into the URL we redirect to, so it is reserved first and inserted explicitly: one append-only INSERT, no follow-up UPDATE.
         var clickId = await db.Database
@@ -66,7 +72,7 @@ internal static class RedirectEndpoint
         var redirectUrl = AffiliateUrlBuilder.Build(offer.Url, offer.AffiliateUrlTemplate, offer.AffiliateParams, clickId, source);
         var userAgent = httpContext.Request.Headers.UserAgent.ToString();
 
-        db.Clicks.Add(new Click
+        var click = new Click
         {
             Id = clickId,
             UserId = currentUser.UserIdOrNull,
@@ -74,13 +80,23 @@ internal static class RedirectEndpoint
             ProductId = offer.ProductId,
             SellerId = offer.SellerId,
             Source = source,
+            PostId = attribution?.PostId,
+            CreatorId = attribution?.CreatorId,
             PersonaId = Guid.TryParse(personaId, out var persona) && persona != Guid.Empty ? persona : null,
             CorrelationId = httpContext.GetCorrelationId() ?? Guid.NewGuid().ToString("N"),
             UserAgent = userAgent.Length == 0 ? null : userAgent[..Math.Min(userAgent.Length, MaxUserAgentLength)],
             IpHash = HashIp(httpContext.Connection.RemoteIpAddress?.ToString(), options.Value.IpSalt),
             RedirectUrl = redirectUrl,
             ClickedAt = clock.UtcNow,
-        });
+        };
+        db.Clicks.Add(click);
+
+        // Same transaction as the click: a creator's click and its referral row exist together or not at all.
+        if (attribution is { CreatorId: not null })
+        {
+            db.ReferralEvents.Add(CreatorAttribution.ClickEvent(attribution, click, creators.Value.SharePercent));
+        }
+
         await db.SaveChangesAsync(cancellationToken);
 
         // Each click must reach the handler: a cached redirect would skip recording it.
