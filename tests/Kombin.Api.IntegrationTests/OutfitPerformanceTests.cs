@@ -21,9 +21,11 @@ using Testcontainers.PostgreSql;
 namespace Kombin.Api.IntegrationTests;
 
 /// <summary>
-/// The outfit engine's latency budget: daily and how-to-wear at most 300 ms p95 for a 200-piece wardrobe against a 50,000-product
+/// The outfit engine's latency budget: daily, how-to-wear, pairings and the wardrobe grid at most 300 ms p95 for a 200-piece wardrobe against a 50,000-product
 /// catalog. The data is synthetic and seeded (<see cref="Random"/> with a fixed seed), so every run measures the same thing. It has its
 /// own PostgreSQL container: 50,000 products in the shared test database would crowd the other tests' "newest products" queries.
+/// A latency budget means something only on a quiet machine, so the tests run when <c>KOMBIN_PERF=1</c> is set: in CI, in a step of their
+/// own. Without it they are skipped and the fixture starts nothing.
 /// </summary>
 public sealed class OutfitPerformanceTests(OutfitPerformanceTests.PerformanceFactory factory) : IClassFixture<OutfitPerformanceTests.PerformanceFactory>
 {
@@ -33,11 +35,15 @@ public sealed class OutfitPerformanceTests(OutfitPerformanceTests.PerformanceFac
 
     public const int Samples = 60;
 
+    public const string SkipMessage = "Set KOMBIN_PERF=1 to run the latency budget tests. They need a quiet machine; CI runs them in their own step.";
+
     public static readonly TimeSpan Budget = TimeSpan.FromMilliseconds(300);
+
+    public static bool Enabled => Environment.GetEnvironmentVariable("KOMBIN_PERF") == "1";
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    [Fact]
+    [Fact(Skip = SkipMessage, SkipUnless = nameof(Enabled))]
     public async Task DailyAndHowToWearStayWithinThreeHundredMillisecondsAtP95()
     {
         var (client, anchors) = await factory.SeedAsync(Ct);
@@ -65,7 +71,48 @@ public sealed class OutfitPerformanceTests(OutfitPerformanceTests.PerformanceFac
         Assert.True(Percentile(howToWear, 95) <= Budget.TotalMilliseconds, $"how-to-wear p95 {Percentile(howToWear, 95):F1} ms");
     }
 
+    [Fact(Skip = SkipMessage, SkipUnless = nameof(Enabled))]
+    public async Task PairingsAndTheWardrobeGridStayWithinThreeHundredMillisecondsAtP95()
+    {
+        var (client, _) = await factory.SeedAsync(Ct);
+
+        var (_, grid) = await MeasureAsync(client, "/api/v1/me/wardrobe/items");
+        using var document = JsonDocument.Parse(grid);
+        var items = document.RootElement.GetProperty("items").EnumerateArray().Select(item => item.GetProperty("id").GetGuid()).ToList();
+
+        for (var index = 0; index < 5; index++)
+        {
+            await MeasureAsync(client, $"/api/v1/me/wardrobe/items/{items[index]}/pairings");
+        }
+
+        var pairings = new List<double>();
+        var list = new List<double>();
+        for (var index = 0; index < Samples; index++)
+        {
+            pairings.Add((await MeasureAsync(client, $"/api/v1/me/wardrobe/items/{items[index % items.Count]}/pairings")).Milliseconds);
+            list.Add((await MeasureAsync(client, $"/api/v1/me/wardrobe/items?page={(index % 3) + 1}")).Milliseconds);
+        }
+
+        var output = TestContext.Current.TestOutputHelper;
+        output?.WriteLine($"pairings p50 {Percentile(pairings, 50):F1} ms  p95 {Percentile(pairings, 95):F1} ms  max {pairings.Max():F1} ms");
+        output?.WriteLine($"grid     p50 {Percentile(list, 50):F1} ms  p95 {Percentile(list, 95):F1} ms  max {list.Max():F1} ms");
+
+        Assert.True(Percentile(pairings, 95) <= Budget.TotalMilliseconds, $"pairings p95 {Percentile(pairings, 95):F1} ms");
+        Assert.True(Percentile(list, 95) <= Budget.TotalMilliseconds, $"grid p95 {Percentile(list, 95):F1} ms");
+    }
+
     private static async Task<double> TimeAsync(HttpClient client, string url)
+    {
+        var (milliseconds, body) = await MeasureAsync(client, url);
+
+        using var json = JsonDocument.Parse(body);
+        var outfits = json.RootElement.TryGetProperty("outfits", out var list) ? list.GetArrayLength() : json.RootElement.GetProperty("outfit").ValueKind == JsonValueKind.Object ? 1 : 0;
+        Assert.True(outfits > 0, $"{url} returned no outfit");
+
+        return milliseconds;
+    }
+
+    private static async Task<(double Milliseconds, string Body)> MeasureAsync(HttpClient client, string url)
     {
         var stopwatch = Stopwatch.StartNew();
         using var response = await client.GetAsync(url, Ct);
@@ -73,11 +120,8 @@ public sealed class OutfitPerformanceTests(OutfitPerformanceTests.PerformanceFac
         stopwatch.Stop();
 
         Assert.True(response.IsSuccessStatusCode, $"{url}: {(int)response.StatusCode} {body}");
-        using var json = JsonDocument.Parse(body);
-        var outfits = json.RootElement.TryGetProperty("outfits", out var list) ? list.GetArrayLength() : json.RootElement.GetProperty("outfit").ValueKind == JsonValueKind.Object ? 1 : 0;
-        Assert.True(outfits > 0, $"{url} returned no outfit");
 
-        return stopwatch.Elapsed.TotalMilliseconds;
+        return (stopwatch.Elapsed.TotalMilliseconds, body);
     }
 
     private static double Percentile(List<double> samples, int percentile)
@@ -99,6 +143,11 @@ public sealed class OutfitPerformanceTests(OutfitPerformanceTests.PerformanceFac
 
         public async ValueTask InitializeAsync()
         {
+            if (!Enabled)
+            {
+                return;
+            }
+
             await _postgres.StartAsync();
             _ = Services;
         }

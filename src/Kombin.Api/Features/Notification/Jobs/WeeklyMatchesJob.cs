@@ -30,17 +30,20 @@ internal sealed partial class WeeklyMatchesJob(KombinDbContext db, IClock clock,
     [DisableConcurrentExecution(60)]
     public async Task RunAsync(CancellationToken cancellationToken)
     {
-        var created = await SendAsync(null, cancellationToken);
+        var created = await SendAsync(null, null, cancellationToken);
         LogRun(logger, created);
     }
 
-    /// <summary>Returns the number of notifications created. <paramref name="userId"/> restricts the run to one user (tests, support).</summary>
-    public async Task<int> SendAsync(Guid? userId, CancellationToken cancellationToken)
+    /// <summary>
+    /// Returns the number of notifications created. <paramref name="userId"/> restricts the run to one user (tests, support) and
+    /// <paramref name="products"/> the candidates to those products (tests: the candidates are otherwise every new product of the shared database).
+    /// </summary>
+    public async Task<int> SendAsync(Guid? userId, IReadOnlyCollection<Guid>? products, CancellationToken cancellationToken)
     {
         var now = clock.UtcNow;
         var since = now - Lookback;
 
-        var candidates = await LoadCandidatesAsync(since, cancellationToken);
+        var candidates = await LoadCandidatesAsync(since, products, cancellationToken);
         if (candidates.Count == 0)
         {
             return 0;
@@ -74,11 +77,15 @@ internal sealed partial class WeeklyMatchesJob(KombinDbContext db, IClock clock,
         }
     }
 
-    private async Task<List<WeeklyCandidate>> LoadCandidatesAsync(DateTimeOffset since, CancellationToken cancellationToken)
+    private async Task<List<WeeklyCandidate>> LoadCandidatesAsync(DateTimeOffset since, IReadOnlyCollection<Guid>? products, CancellationToken cancellationToken)
     {
-        var rows = await db.Products
-            .AsNoTracking()
-            .Where(product => product.IsActive && product.CreatedAt >= since)
+        var newProducts = db.Products.AsNoTracking().Where(product => product.IsActive && product.CreatedAt >= since);
+        if (products is not null)
+        {
+            newProducts = newProducts.Where(product => products.Contains(product.Id));
+        }
+
+        var rows = await newProducts
             .Where(product => product.Offers.Any(offer => offer.IsActive && (offer.StockStatus == StockStatus.InStock || offer.StockStatus == StockStatus.LowStock)))
             .OrderByDescending(product => product.CreatedAt)
             .ThenByDescending(product => product.Id)

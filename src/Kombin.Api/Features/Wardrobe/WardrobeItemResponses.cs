@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Kombin.Api.Common.Storage;
 using Kombin.Api.Features.Catalog;
 using Kombin.Api.Persistence;
@@ -44,7 +45,10 @@ internal sealed record WardrobeItemResponse(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt);
 
-/// <summary>An item in lists (the wardrobe grid, the stats' most and least worn).</summary>
+/// <summary>
+/// An item in lists (the wardrobe grid, the stats' most and least worn). <c>CompanionCount</c>, how many pieces of the wardrobe it pairs
+/// with, is present only on <c>GET /items</c>; an item that cannot be worn (yet) has 0.
+/// </summary>
 internal sealed record WardrobeItemSummary(
     Guid Id,
     WardrobeItemStatus Status,
@@ -56,7 +60,8 @@ internal sealed record WardrobeItemSummary(
     int WearCount,
     DateOnly? LastWornAt,
     bool IsArchived,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? CompanionCount = null);
 
 internal static class WardrobeItemResponses
 {

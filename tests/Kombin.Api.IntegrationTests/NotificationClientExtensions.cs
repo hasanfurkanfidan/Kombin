@@ -70,8 +70,9 @@ internal static class NotificationClientExtensions
     public static Task<int> CheckReceiptsAsync(this ApiFactory factory, Guid userId, CancellationToken cancellationToken) =>
         factory.RunJobAsync<PushReceiptsJob, int>(job => job.CheckAsync(userId, cancellationToken));
 
-    public static Task<int> SendWeeklyMatchesAsync(this ApiFactory factory, Guid userId, CancellationToken cancellationToken) =>
-        factory.RunJobAsync<WeeklyMatchesJob, int>(job => job.SendAsync(userId, cancellationToken));
+    /// <summary>Runs the job for one user over <paramref name="products"/>; null means every new product of the shared database.</summary>
+    public static Task<int> SendWeeklyMatchesAsync(this ApiFactory factory, Guid userId, IReadOnlyCollection<Guid>? products, CancellationToken cancellationToken) =>
+        factory.RunJobAsync<WeeklyMatchesJob, int>(job => job.SendAsync(userId, products, cancellationToken));
 
     /// <summary>Runs <paramref name="action"/> with the database, for arranging and checking state that has no endpoint.</summary>
     public static async Task<TResult> WithDbAsync<TResult>(this ApiFactory factory, Func<KombinDbContext, Task<TResult>> action)

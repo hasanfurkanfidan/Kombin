@@ -37,6 +37,12 @@ jobs:
       - name: Test
         run: dotnet test --solution Kombin.slnx --configuration Release --no-build
 
+      # The latency budgets, skipped above. A step of their own: the other tests running alongside would be what they measure.
+      - name: Performance budget
+        env:
+          KOMBIN_PERF: "1"
+        run: dotnet test --project tests/Kombin.Api.IntegrationTests --configuration Release --no-build -- --filter-class "Kombin.Api.IntegrationTests.OutfitPerformanceTests"
+
       - name: Prepare compose environment
         run: |
           cp docker/.env.example docker/.env
