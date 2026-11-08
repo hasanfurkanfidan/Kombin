@@ -24,4 +24,7 @@ internal sealed class Seller : BaseEntity
     public Dictionary<string, string>? AffiliateParams { get; set; }
 
     public bool IsActive { get; set; } = true;
+
+    /// <summary>ISO 3166-1 alpha-2 code of the market the seller serves. Every seller is Turkish so far and nothing filters on it yet.</summary>
+    public string Country { get; set; } = "TR";
 }

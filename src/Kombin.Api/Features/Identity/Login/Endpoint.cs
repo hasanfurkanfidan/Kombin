@@ -39,7 +39,8 @@ internal static class LoginEndpoint
         var email = request.Email.Trim().ToLowerInvariant();
         var user = await db.Users.SingleOrDefaultAsync(candidate => candidate.Email == email, cancellationToken);
 
-        if (user is null)
+        // A Google/Apple-only account has no password; it fails exactly like an unknown email so the response never reveals how it signs in.
+        if (user?.PasswordHash is null)
         {
             passwordHasher.VerifyHashedPassword(DummyUser, DummyPasswordHash, request.Password);
             return IdentityErrors.InvalidCredentials.ToHttpResult();

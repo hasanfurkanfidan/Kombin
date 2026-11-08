@@ -8,4 +8,5 @@ internal enum ErrorType
     Forbidden,
     NotFound,
     Conflict,
+    Unavailable,
 }

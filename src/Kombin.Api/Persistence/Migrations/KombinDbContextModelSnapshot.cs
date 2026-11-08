@@ -739,6 +739,13 @@ namespace Kombin.Api.Persistence.Migrations
                         .HasColumnType("character varying(1024)")
                         .HasColumnName("affiliate_url_template");
 
+                    b.Property<string>("Country")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("char(2)")
+                        .HasDefaultValue("TR")
+                        .HasColumnName("country");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -795,6 +802,7 @@ namespace Kombin.Api.Persistence.Migrations
                         {
                             Id = new Guid("5e110000-0000-7000-8000-000000000001"),
                             AffiliateNetwork = "trendyol-partner",
+                            Country = "TR",
                             CreatedAt = new DateTimeOffset(new DateTime(2026, 11, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             IsActive = true,
                             Kind = "Marketplace",
@@ -806,6 +814,7 @@ namespace Kombin.Api.Persistence.Migrations
                         new
                         {
                             Id = new Guid("5e110000-0000-7000-8000-000000000002"),
+                            Country = "TR",
                             CreatedAt = new DateTimeOffset(new DateTime(2026, 11, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             IsActive = true,
                             Kind = "Marketplace",
@@ -1079,6 +1088,54 @@ namespace Kombin.Api.Persistence.Migrations
                     b.ToTable("saved_products", "engagement");
                 });
 
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Identity.ExternalLogin", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("EmailAtLink")
+                        .HasColumnType("text")
+                        .HasColumnName("email_at_link");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("provider");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("subject");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_external_logins");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_external_logins_user_id");
+
+                    b.HasIndex("Provider", "Subject")
+                        .IsUnique()
+                        .HasDatabaseName("ix_external_logins_provider_subject");
+
+                    b.ToTable("external_logins", "identity", t =>
+                        {
+                            t.HasCheckConstraint("ck_external_logins_provider", "provider IN ('google', 'apple')");
+                        });
+                });
+
             modelBuilder.Entity("Kombin.Api.Persistence.Entities.Identity.RefreshToken", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1169,7 +1226,6 @@ namespace Kombin.Api.Persistence.Migrations
                         .HasColumnName("last_login_at");
 
                     b.Property<string>("PasswordHash")
-                        .IsRequired()
                         .HasMaxLength(512)
                         .HasColumnType("character varying(512)")
                         .HasColumnName("password_hash");
@@ -3075,6 +3131,16 @@ namespace Kombin.Api.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_saved_products_users_user_id");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Identity.ExternalLogin", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_external_logins_users_user_id");
                 });
 
             modelBuilder.Entity("Kombin.Api.Persistence.Entities.Identity.RefreshToken", b =>

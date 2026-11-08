@@ -40,6 +40,7 @@ public sealed class SellerIngestionTests(ApiFactory factory)
         Assert.Equal(slug, created.GetProperty("slug").GetString());
         Assert.Equal("BrandStore", created.GetProperty("kind").GetString());
         Assert.False(created.GetProperty("isActive").GetBoolean());
+        Assert.Equal("TR", created.GetProperty("country").GetString());
 
         var stored = await SellerAsync(slug);
         Assert.Equal(created.GetProperty("id").GetGuid(), stored.Id);

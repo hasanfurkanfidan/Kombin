@@ -63,11 +63,45 @@ and `POST /internal/social/posts/{id}/review` (see Social rules).
   are turned into a generic 500 by `GlobalExceptionHandler`.
 - Define a feature's errors once, e.g. `IdentityErrors`: `Error.Conflict("Identity.EmailTaken", "...")`. Codes are
   `<Feature>.<Name>` and are part of the API contract (clients read `errorCode`).
-- `error.ToHttpResult()` / `result.ToHttpResult()` map `ErrorType` to 400/401/403/404/409/500 as `application/problem+json`
+- `error.ToHttpResult()` / `result.ToHttpResult()` map `ErrorType` to 400/401/403/404/409/503/500 as `application/problem+json`
   with an `errorCode` extension and the `correlationId`.
 - Input validation uses FluentValidation through `ValidationFilter`: failures become a 400 problem with an `errors`
   dictionary (`{ "email": ["..."] }`, camelCase keys). Do not validate inside handlers what a validator can express.
 - Every response, including errors, carries `X-Correlation-ID`.
+
+## Identity rules
+
+- **Three ways in, one token pipeline.** `POST /auth/register`, `POST /auth/login` and `POST /auth/external` (Google or Apple) all end in
+  `AuthTokenIssuer.Issue` and return the same `AuthTokensResponse { accessToken, refreshToken, expiresIn, isNewUser }`; refresh-token
+  rotation is shared too. `isNewUser` is true only when the request created the account (register, or a first external sign-in); login
+  and refresh say false. Never mint tokens anywhere else.
+- **External sign-in takes an ID token, nothing else.** The app gets an OpenID Connect ID token from Google or Apple on the device and posts
+  `{ provider, idToken, displayName?, deviceName?, anonymousId?, nonce? }`. No OAuth redirect flow, no server-side login page, no provider
+  access or refresh token is ever stored. `IExternalTokenVerifier` (`Features/Identity/ExternalTokens`) dispatches by provider to
+  `GoogleTokenVerifier` / `AppleTokenVerifier`, which share `IdTokenValidation` (RS256 against the provider's JWKS, issuer, audience in the
+  configured client IDs, `exp`/`nbf` against `IClock` with 2 minutes of skew, a `sub`, and the nonce when sent: the raw value or its
+  SHA-256 hex). `JwksKeySource` caches each provider's keys for 24 h, refreshes once on an unknown `kid` (at most once a minute), and keeps
+  the old keys if a refresh fails. Built on `Microsoft.IdentityModel.JsonWebTokens` (already there through JwtBearer); no Google or Apple SDK.
+- **Identity comes from the token's claims only.** `sub`, `email`, `email_verified` and `name` are read from the verified token; nothing in
+  the request body (`displayName` included) is ever used to decide who the caller is. `displayName` is applied only when an account is
+  created (Apple gives the app the name once).
+- **Find-or-create** (`ExternalSignInRules`, pure): (provider, subject) linked -> that user; else the token needs a verified email
+  (`Identity.ExternalEmailMissing` otherwise) -> an account with that email gets linked (safe only because both providers verify the email:
+  Google's `email_verified` must be true, Apple's counts as true unless it says `false`, as a boolean or the string); else a new account with
+  `password_hash = null` and display name request -> token `name` -> email local part (cut to 50). Private-relay Apple emails are ordinary
+  emails. Two simultaneous first sign-ins rely on the unique indexes (`identity.external_logins (provider, subject)`, `users.email`): the
+  loser clears its change tracker and retries the lookup once. After the commit it calls `IAnalyticsIdentityLinker.LinkAsync`, like register
+  and login.
+- **Passwords are optional.** `users.password_hash` is nullable. A passwordless (Google/Apple-only) account answers `POST /auth/login` with
+  the same `Identity.InvalidCredentials` as an unknown email, after the same dummy hash check; never reveal how an account signs in.
+- **Errors:** `Identity.ExternalTokenInvalid` (401, every token defect, deliberately one code), `Identity.ExternalEmailMissing` (400),
+  `Identity.ExternalProviderDisabled` (503, no client ID configured for that provider), `Identity.ExternalProviderUnavailable` (503, the
+  provider's keys could never be fetched).
+- **Config:** `Authentication:Google:ClientIds` (Android, iOS and web client IDs) and `Authentication:Apple:ClientIds` (the iOS bundle ID,
+  later the Services ID), env `Authentication__Google__ClientIds__0`, ...; compose maps `GOOGLE_CLIENT_ID_ANDROID/_IOS/_WEB`,
+  `APPLE_CLIENT_ID_IOS` and `APPLE_SERVICES_ID`. Blank entries are ignored. Never commit real IDs. Integration tests replace the verifier with
+  `FakeExternalTokenVerifier` (the "token" spells out `sub=...;email=...;verified=...;name=...`); the real verifiers are unit-tested with
+  tokens signed by test RSA keys against a fake JWKS handler.
 
 ## Catalog ingestion rules
 
@@ -82,7 +116,8 @@ External Python workers (a separate repo) push the catalog through the internal 
 - **`PUT /internal/catalog/sellers/{slug}`** with `{ name, kind, websiteUrl, affiliateNetwork?, affiliateUrlTemplate?, affiliateParams?,
   isActive }` registers or updates a seller before the first upsert. `name`, `kind`, `websiteUrl` and `isActive` (default
   true) are replaced on every call; the affiliate fields are not: **left out = unchanged, explicit null = cleared**, so a worker that only
-  knows the shop never wipes hand-configured affiliate settings. `kind` is `Marketplace` or `BrandStore`, the slug is kebab-case, and a template must contain `{url}` or
+  knows the shop never wipes hand-configured affiliate settings. Sellers also have `country` (`char(2)`, default `TR`), returned on the PUT
+  response and on the `seller` of product offers and price history; it is not settable yet and nothing filters on it. `kind` is `Marketplace` or `BrandStore`, the slug is kebab-case, and a template must contain `{url}` or
   `{rawUrl}`. A name another seller uses is 409 `Catalog.SellerNameTaken`. The upsert's `<brand>-store` auto-create stays for backward
   compatibility (a PUT may take such a seller over).
 - **`GET /internal/catalog/sellers/{sellerSlug}/offers?updatedAfter=&page=&pageSize=`** pages through every offer of a seller, inactive
@@ -431,10 +466,11 @@ the shared test database stays independent of the seed. `ApiFactory` switches se
 
 ## Explicitly out of scope (do not add)
 
-Rate limiting (including on `/go` and `/events`), email verification, password reset, social login, admin UI, MediatR/CQRS, generic
+Rate limiting (including on `/go`, `/events` and the auth endpoints), email verification, password reset, social login beyond Google and
+Apple ID tokens (no OAuth redirect flow, no other providers), admin UI, MediatR/CQRS, generic
 repositories, AutoMapper, email/SMS/marketing notifications, A/B testing, scraping workers, affiliate conversion import, a free-form
 analytics event stream (Analytics accepts only its allow-list), and in Social: comments, DMs, stories or video, hashtags or search over
-posts, follow requests, creator payouts and public web pages for posts. Features that exist: Identity (auth, me), Catalog (brands, sellers, categories, products, offers, price
+posts, follow requests, creator payouts and public web pages for posts. Features that exist: Identity (auth with a password or a Google/Apple ID token, me), Catalog (brands, sellers, categories, products, offers, price
 snapshots, internal upsert, seller bootstrap and listing, offer sweep), Engagement (saved products, price alerts and their trigger feed, `/go` redirect, click
 history) and Profile (user profile and measurements, personas, swipe onboarding with style cards, derived style profile,
 rule-based match score, size map with hints) and Notification (devices, notification preferences, the notification feed, push

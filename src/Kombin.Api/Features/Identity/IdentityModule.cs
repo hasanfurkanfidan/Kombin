@@ -1,3 +1,5 @@
+using Kombin.Api.Features.Identity.ExternalSignIn;
+using Kombin.Api.Features.Identity.ExternalTokens;
 using Kombin.Api.Features.Identity.GetMe;
 using Kombin.Api.Features.Identity.Login;
 using Kombin.Api.Features.Identity.Logout;
@@ -16,6 +18,14 @@ internal static class IdentityModule
         services.AddSingleton<IPasswordHasher<User>, PasswordHasher<User>>();
         services.AddScoped<AuthTokenIssuer>();
 
+        // Sign in with Google / Apple: the app sends the provider's ID token, we check it against the provider's published keys.
+        // Singletons because each verifier caches its provider's JWKS for a day.
+        services.AddOptions<ExternalAuthOptions>().BindConfiguration(ExternalAuthOptions.SectionName);
+        services.AddHttpClient(JwksKeySource.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(5));
+        services.AddSingleton<GoogleTokenVerifier>();
+        services.AddSingleton<AppleTokenVerifier>();
+        services.AddSingleton<IExternalTokenVerifier, ExternalTokenVerifier>();
+
         return services;
     }
 
@@ -24,6 +34,7 @@ internal static class IdentityModule
         var auth = app.MapGroup("/api/v1/auth").WithTags("Auth");
         RegisterEndpoint.Map(auth);
         LoginEndpoint.Map(auth);
+        ExternalSignInEndpoint.Map(auth);
         RefreshTokenEndpoint.Map(auth);
         LogoutEndpoint.Map(auth);
 

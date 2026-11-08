@@ -12,7 +12,7 @@ internal sealed record BrandRef(Guid Id, string Name, string Slug);
 
 internal sealed record CategoryRef(Guid Id, string Slug, string Name);
 
-internal sealed record SellerRef(Guid Id, string Name, string Slug, SellerKind Kind);
+internal sealed record SellerRef(Guid Id, string Name, string Slug, SellerKind Kind, string Country);
 
 /// <summary>
 /// <c>GoPath</c> (<c>/api/v1/go/{offerId}</c>) is the only way to open an offer: the redirect records the click and adds the affiliate
@@ -120,7 +120,7 @@ internal static class GetProductEndpoint
         var offers = activeOffers
             .Select(offer => new OfferResponse(
                 offer.Id,
-                new SellerRef(offer.Seller.Id, offer.Seller.Name, offer.Seller.Slug, offer.Seller.Kind),
+                new SellerRef(offer.Seller.Id, offer.Seller.Name, offer.Seller.Slug, offer.Seller.Kind, offer.Seller.Country),
                 $"/api/v1/go/{offer.Id}",
                 offer.CurrentPrice,
                 offer.OriginalPrice,

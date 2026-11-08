@@ -106,6 +106,7 @@ public sealed class CatalogIngestionTests(ApiFactory factory)
 
         Assert.Equal(brandStore, offers[0].GetProperty("seller").GetProperty("slug").GetString());
         Assert.Equal("BrandStore", offers[0].GetProperty("seller").GetProperty("kind").GetString());
+        Assert.Equal("TR", offers[0].GetProperty("seller").GetProperty("country").GetString());
         Assert.Equal(120m, offers[0].GetProperty("effectivePrice").GetDecimal());
 
         Assert.Equal("trendyol", offers[1].GetProperty("seller").GetProperty("slug").GetString());
