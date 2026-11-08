@@ -4,7 +4,7 @@ using System.Text.Json;
 
 namespace Kombin.Api.IntegrationTests;
 
-internal sealed record TokenPair(string AccessToken, string RefreshToken, int ExpiresIn);
+internal sealed record TokenPair(string AccessToken, string RefreshToken, int ExpiresIn, bool IsNewUser = false);
 
 internal static class ApiClientExtensions
 {
@@ -19,6 +19,10 @@ internal static class ApiClientExtensions
     public static Task<HttpResponseMessage> LoginAsync(
         this HttpClient client, string email, string password, string? deviceName = null, CancellationToken cancellationToken = default) =>
         client.PostAsJsonAsync("/api/v1/auth/login", new { email, password, deviceName }, cancellationToken);
+
+    public static Task<HttpResponseMessage> ExternalSignInAsync(
+        this HttpClient client, string provider, string idToken, string? displayName = null, string? deviceName = null, CancellationToken cancellationToken = default) =>
+        client.PostAsJsonAsync("/api/v1/auth/external", new { provider, idToken, displayName, deviceName }, cancellationToken);
 
     public static Task<HttpResponseMessage> RefreshAsync(this HttpClient client, string refreshToken, CancellationToken cancellationToken = default) =>
         client.PostAsJsonAsync("/api/v1/auth/refresh", new { refreshToken }, cancellationToken);

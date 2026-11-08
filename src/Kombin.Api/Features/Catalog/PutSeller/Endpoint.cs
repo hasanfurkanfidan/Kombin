@@ -75,6 +75,7 @@ internal sealed record PutSellerResponse(
     string? AffiliateUrlTemplate,
     Dictionary<string, string>? AffiliateParams,
     bool IsActive,
+    string Country,
     bool Created);
 
 internal static class PutSellerEndpoint
@@ -141,6 +142,7 @@ internal static class PutSellerEndpoint
             seller.AffiliateUrlTemplate,
             seller.AffiliateParams,
             seller.IsActive,
+            seller.Country,
             created));
     }
 

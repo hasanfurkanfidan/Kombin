@@ -5,7 +5,7 @@ using Kombin.Api.Persistence.Entities.Catalog;
 
 namespace Kombin.Api.Features.Catalog.GetPriceHistory;
 
-internal sealed record SellerRef(Guid Id, string Name, string Slug, SellerKind Kind);
+internal sealed record SellerRef(Guid Id, string Name, string Slug, SellerKind Kind, string Country);
 
 internal sealed record PricePoint(DateOnly Date, decimal MinPrice, StockStatus StockStatus);
 
@@ -54,7 +54,7 @@ internal static class GetPriceHistoryEndpoint
             .ThenBy(offer => offer.Id)
             .Select(offer => new OfferSeries(
                 offer.Id,
-                new SellerRef(offer.Seller.Id, offer.Seller.Name, offer.Seller.Slug, offer.Seller.Kind),
+                new SellerRef(offer.Seller.Id, offer.Seller.Name, offer.Seller.Slug, offer.Seller.Kind, offer.Seller.Country),
                 // One point per UTC calendar day: that day's cheapest observation (the latest one on a tie).
                 [.. snapshotsByOffer[offer.Id]
                     .GroupBy(snapshot => DateOnly.FromDateTime(snapshot.ObservedAt.UtcDateTime))

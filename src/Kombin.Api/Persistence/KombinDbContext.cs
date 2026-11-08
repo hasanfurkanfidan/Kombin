@@ -16,6 +16,8 @@ internal sealed class KombinDbContext(DbContextOptions<KombinDbContext> options)
 
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
+    public DbSet<ExternalLogin> ExternalLogins => Set<ExternalLogin>();
+
     public DbSet<Brand> Brands => Set<Brand>();
 
     public DbSet<Seller> Sellers => Set<Seller>();

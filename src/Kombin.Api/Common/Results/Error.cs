@@ -18,5 +18,7 @@ internal sealed record Error(string Code, string Description, ErrorType ErrorTyp
 
     public static Error Conflict(string code, string description) => new(code, description, ErrorType.Conflict);
 
+    public static Error Unavailable(string code, string description) => new(code, description, ErrorType.Unavailable);
+
     public static Error Failure(string code, string description) => new(code, description, ErrorType.Failure);
 }

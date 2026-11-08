@@ -341,6 +341,7 @@ public sealed class CatalogReadTests(ApiFactory factory)
         var series = Assert.Single(history.EnumerateArray());
         Assert.Equal(offerId, series.GetProperty("offerId").GetGuid());
         Assert.Equal("trendyol", series.GetProperty("seller").GetProperty("slug").GetString());
+        Assert.Equal("TR", series.GetProperty("seller").GetProperty("country").GetString());
 
         var points = series.GetProperty("points").EnumerateArray().Select(point => (point.GetProperty("date").GetString()!, point.GetProperty("minPrice").GetDecimal())).ToList();
         Assert.Equal(

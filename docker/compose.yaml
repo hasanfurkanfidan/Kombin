@@ -114,6 +114,13 @@ services:
       Jwt__SigningKey: ${JWT_SIGNING_KEY:?JWT_SIGNING_KEY is required, generate one with `openssl rand -base64 48` and put it in docker/.env}
       Jwt__Issuer: ${JWT_ISSUER:-kombin-api}
       Jwt__Audience: ${JWT_AUDIENCE:-kombin-app}
+      # Sign in with Google / Apple: the client IDs an ID token's audience must match (blank entries are ignored). A provider without any
+      # answers POST /api/v1/auth/external with 503 Identity.ExternalProviderDisabled.
+      Authentication__Google__ClientIds__0: ${GOOGLE_CLIENT_ID_ANDROID:-}
+      Authentication__Google__ClientIds__1: ${GOOGLE_CLIENT_ID_IOS:-}
+      Authentication__Google__ClientIds__2: ${GOOGLE_CLIENT_ID_WEB:-}
+      Authentication__Apple__ClientIds__0: ${APPLE_CLIENT_ID_IOS:-}
+      Authentication__Apple__ClientIds__1: ${APPLE_SERVICES_ID:-}
       Internal__ApiKey: ${INTERNAL_API_KEY:?INTERNAL_API_KEY is required, generate one with `openssl rand -base64 48` and put it in docker/.env}
       # Salt for the hashed IPs stored with outbound clicks. The default is a Development-only placeholder; any other environment must set its own.
       Outbound__IpSalt: ${OUTBOUND_IP_SALT:-dev-only-ip-salt-change-me-0123456789abcdef}

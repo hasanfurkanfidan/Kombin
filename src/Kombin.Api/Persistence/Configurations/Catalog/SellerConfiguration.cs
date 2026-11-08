@@ -35,6 +35,7 @@ internal sealed class SellerConfiguration : IEntityTypeConfiguration<Seller>
                     parameters => parameters == null ? null : new Dictionary<string, string>(parameters)));
 
         builder.Property(seller => seller.IsActive).HasDefaultValue(true);
+        builder.Property(seller => seller.Country).HasColumnType("char(2)").HasDefaultValue("TR").IsRequired();
 
         builder.HasIndex(seller => seller.Name).IsUnique();
         builder.HasIndex(seller => seller.Slug).IsUnique();

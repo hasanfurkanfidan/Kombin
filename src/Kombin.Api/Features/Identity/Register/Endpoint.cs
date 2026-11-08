@@ -47,7 +47,7 @@ internal static class RegisterEndpoint
         user.PasswordHash = passwordHasher.HashPassword(user, request.Password);
 
         db.Users.Add(user);
-        var issued = tokens.Issue(user, deviceName: null);
+        var issued = tokens.Issue(user, deviceName: null, isNewUser: true);
 
         try
         {

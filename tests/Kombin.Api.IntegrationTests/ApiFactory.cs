@@ -1,5 +1,6 @@
 using Hangfire;
 using Kombin.Api.Common.Storage;
+using Kombin.Api.Features.Identity.ExternalTokens;
 using Kombin.Api.Features.Notification;
 using Kombin.Api.Features.Recommendation.Weather;
 using Kombin.Api.Features.Wardrobe;
@@ -70,6 +71,9 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
             services.AddSingleton<IBackgroundJobClient>(provider => provider.GetRequiredService<RecordingJobClient>());
 
             services.AddHttpClient(WardrobeModule.CatalogImageClient).ConfigurePrimaryHttpMessageHandler(() => new FakeCatalogImageHandler());
+
+            services.RemoveAll<IExternalTokenVerifier>();
+            services.AddSingleton<IExternalTokenVerifier, FakeExternalTokenVerifier>();
 
             services.RemoveAll<IWeatherProvider>();
             services.AddSingleton<IWeatherProvider, FakeWeatherProvider>();

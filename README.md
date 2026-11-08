@@ -84,11 +84,31 @@ KOMBIN_PERF=1 dotnet test --project tests/Kombin.Api.IntegrationTests --configur
 
 | Method | Route | Auth | Success | Errors |
 |---|---|---|---|---|
-| POST | `/auth/register` | - | 201 `{ accessToken, refreshToken, expiresIn }`; body `{ email, password, displayName, anonymousId? }` | 400 validation, 409 `Identity.EmailTaken` |
+| POST | `/auth/register` | - | 201 `{ accessToken, refreshToken, expiresIn, isNewUser }`; body `{ email, password, displayName, anonymousId? }` | 400 validation, 409 `Identity.EmailTaken` |
 | POST | `/auth/login` | - | 200 same shape; body `{ email, password, deviceName?, anonymousId? }` | 400, 401 `Identity.InvalidCredentials` |
+| POST | `/auth/external` | - | 200 same shape; body `{ provider: "google" or "apple", idToken, displayName?, deviceName?, anonymousId?, nonce? }` | 400 validation or `Identity.ExternalEmailMissing`, 401 `Identity.ExternalTokenInvalid`, 503 `Identity.ExternalProviderDisabled` / `Identity.ExternalProviderUnavailable` |
 | POST | `/auth/refresh` | - | 200 same shape; old token revoked | 401 `Identity.InvalidRefreshToken` |
 | POST | `/auth/logout` | Bearer | 204 | 401 |
 | GET | `/me` | Bearer | 200 `{ id, email, displayName, createdAt }` | 401 |
+
+Every token response carries `isNewUser`: true when that request created the account (register, first Google/Apple sign-in), so the
+app can route to onboarding; login and refresh say false.
+
+#### Sign in with Google and Apple
+
+The app obtains an ID token from Google or Apple on the device and posts it to `/auth/external`; the server checks it against the
+provider's published keys and returns our own tokens. There is no OAuth redirect flow and no provider token is stored. The user is found
+by the provider's subject, else linked by the token's verified email (a password account gains a second way in), else created without a
+password (such an account gets `Identity.InvalidCredentials` from `/auth/login`, like an unknown email). `displayName` is used only when
+the account is created; who the user is always comes from the token. `nonce`, when sent, must match the token's `nonce` claim (raw or
+SHA-256 hex).
+
+| Setting | Env | `docker/.env` | Meaning |
+|---|---|---|---|
+| `Authentication:Google:ClientIds` | `Authentication__Google__ClientIds__0`, `__1`, ... | `GOOGLE_CLIENT_ID_ANDROID`, `GOOGLE_CLIENT_ID_IOS`, `GOOGLE_CLIENT_ID_WEB` | OAuth client IDs a Google ID token's `aud` must match |
+| `Authentication:Apple:ClientIds` | `Authentication__Apple__ClientIds__0`, `__1`, ... | `APPLE_CLIENT_ID_IOS`, `APPLE_SERVICES_ID` | the iOS bundle ID (later the Services ID for Android/web) an Apple ID token's `aud` must match |
+
+A provider with no client ID answers 503 `Identity.ExternalProviderDisabled`; blank values do not count. Never commit real IDs.
 
 ### Profile
 
@@ -114,7 +134,8 @@ Public reads need no auth (the app browses before login).
 | GET | `/catalog/products/{id}/price-history?days=90` | 200 `[{ offerId, seller, points: [{ date, minPrice, stockStatus }] }]`, one point per UTC day | 404 `Catalog.ProductNotFound` |
 | POST | `/internal/catalog/offers/upsert` | 200 `{ created, updated, snapshotsWritten, errors: [{ index, externalId, errorCode, message }] }` | 400 validation or `Catalog.BatchTooLarge`, 401 `Catalog.InvalidInternalKey`, 404 `Catalog.SellerNotFound` |
 
-List items carry `cheapestSeller { name, slug }`: the seller of the offer that defines `lowestPrice`. The OpenAPI document
+List items carry `cheapestSeller { name, slug }`: the seller of the offer that defines `lowestPrice`. The `seller` of product offers and price history is `{ id, name, slug, kind, country }`; `country` is ISO 3166-1 alpha-2
+(`TR` for every seller so far, also on the internal seller PUT response) and nothing filters on it yet. The OpenAPI document
 (`/openapi/v1.json`, Development) is generated from the endpoints and records, so it follows.
 
 `sort` is `relevance` (default, newest first for now), `priceAsc`, `priceDesc` or `newest`; enum filters are case-insensitive.
@@ -450,6 +471,8 @@ for-you, 40 ms following, 49 ms signed out (budget 250 ms).
   successor through `ReplacedByTokenId`. Presenting an already-revoked token revokes **all** active refresh tokens of
   that user (the whole account is signed out everywhere). Parallel refreshes of the same token are serialized by an
   optimistic concurrency token on PostgreSQL's `xmin`, so exactly one wins.
+- **Google/Apple ID tokens** are validated with `Microsoft.IdentityModel.JsonWebTokens` (already a dependency of JwtBearer) against
+  each provider's JWKS, cached 24 h and refreshed once on an unknown key ID; no provider SDK.
 - **Logout** revokes only the caller's own token and is idempotent (an unknown token still returns 204).
 - **Logging:** Serilog to the console, with the correlation ID on every event. `GlobalExceptionHandler` is the single place
   that logs an unhandled exception (once, at Error), so EF Core's own command/query/update error categories are muted in
