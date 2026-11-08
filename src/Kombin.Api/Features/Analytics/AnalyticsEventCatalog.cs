@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Kombin.Api.Features.Catalog;
 using Kombin.Api.Features.Catalog.ListProducts;
+using Kombin.Api.Features.Lens;
 using Kombin.Api.Persistence.Entities.Engagement;
 using Kombin.Api.Persistence.Entities.Notification;
 using Kombin.Api.Persistence.Entities.Profile;
@@ -75,6 +76,20 @@ internal static partial class AnalyticsEventCatalog
 
         // Identity: a Google or Apple sign-in succeeded; `isNewUser` is true when it created the account.
         ["auth_external"] = [Required("provider", OneOf("google", "apple")), Required("isNewUser", Boolean)],
+
+        // Visual search ("Görselden ürün bul"): never image data or text. `entry` is where the screen was opened; a search reports how many
+        // regions and results it got, how long it took on the device and where the photo came from; a result tap its position in the region's
+        // rail and the response's `level` (`close` / `similar`); adding a region to the wardrobe its category family (absent for the whole photo).
+        ["lens_open"] = [Required("entry", OneOf("explore", "home", "other"))],
+        ["lens_search"] =
+        [
+            Required("regionCount", Integer(0, 6)),
+            Required("resultCount", Integer(0, 72)),
+            Required("durationMs", Integer(0, 600_000)),
+            Required("source", OneOf("camera", "gallery")),
+        ],
+        ["lens_result_tap"] = [Required("productId", Id), Required("position", Integer(0, 11)), Required("similarity", OneOf("close", "similar"))],
+        ["lens_add_to_wardrobe"] = [Optional("family", OneOf<CategoryFamily>())],
     };
 
     public static IEnumerable<string> Names => Events.Keys;

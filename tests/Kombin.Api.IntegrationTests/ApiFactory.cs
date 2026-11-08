@@ -1,5 +1,6 @@
 using Hangfire;
 using Kombin.Api.Common.Storage;
+using Kombin.Api.Features.Catalog.Jobs;
 using Kombin.Api.Features.Identity.ExternalTokens;
 using Kombin.Api.Features.Notification;
 using Kombin.Api.Features.Recommendation.Weather;
@@ -71,6 +72,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
             services.AddSingleton<IBackgroundJobClient>(provider => provider.GetRequiredService<RecordingJobClient>());
 
             services.AddHttpClient(WardrobeModule.CatalogImageClient).ConfigurePrimaryHttpMessageHandler(() => new FakeCatalogImageHandler());
+            services.AddHttpClient(ProductEmbeddingJob.ImageClient).ConfigurePrimaryHttpMessageHandler(() => new FakeCatalogImageHandler());
 
             services.RemoveAll<IExternalTokenVerifier>();
             services.AddSingleton<IExternalTokenVerifier, FakeExternalTokenVerifier>();
@@ -92,6 +94,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
             ["Serilog:MinimumLevel:Default"] = "Warning",
             // Tests call the jobs directly; no Hangfire server, recurring jobs or dashboard, and the hangfire schema is never created.
             ["Hangfire:Enabled"] = "false",
+            // The embedding job's one-request-per-host-per-second pace would make every test wait; PoliteScheduleTests pin the rule.
+            ["CatalogEmbeddings:HostInterval"] = "00:00:00",
         }));
     }
 }

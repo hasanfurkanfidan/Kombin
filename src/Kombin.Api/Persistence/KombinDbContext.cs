@@ -32,6 +32,8 @@ internal sealed class KombinDbContext(DbContextOptions<KombinDbContext> options)
 
     public DbSet<PriceSnapshot> PriceSnapshots => Set<PriceSnapshot>();
 
+    public DbSet<ProductEmbedding> ProductEmbeddings => Set<ProductEmbedding>();
+
     public DbSet<SavedProduct> SavedProducts => Set<SavedProduct>();
 
     public DbSet<PriceAlert> PriceAlerts => Set<PriceAlert>();
@@ -94,7 +96,7 @@ internal sealed class KombinDbContext(DbContextOptions<KombinDbContext> options)
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        // pgvector, for the wardrobe embeddings (the only vector columns so far).
+        // pgvector, for the wardrobe and catalog embeddings (visual search).
         modelBuilder.HasPostgresExtension("vector");
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(KombinDbContext).Assembly);
     }

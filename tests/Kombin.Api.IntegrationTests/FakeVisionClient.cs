@@ -1,4 +1,7 @@
+using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using Kombin.Api.Features.Wardrobe;
 
 namespace Kombin.Api.IntegrationTests;
@@ -16,8 +19,13 @@ namespace Kombin.Api.IntegrationTests;
 /// Moderation and detection (social posts) answer by the same text: <c>nsfw</c> blocks, <c>borderline</c> needs review, <c>unreachable</c>
 /// and <c>refused</c> fail as above, <c>no-detect</c> moderates fine but detection fails; anything else is allowed, with two proposals
 /// (a red t-shirt and blue jeans). <see cref="PostPhoto"/> makes a structurally valid JPEG carrying the text and a GPS EXIF block.
+/// <para>
+/// Visual search: <c>/v1/embed</c> answers <see cref="EmbeddingFor"/> of the image's text (<c>unreachable</c> and <c>refused</c> fail as above), and a
+/// detection of a <see cref="LensPhoto"/> answers the regions that photo spells out, each with that embedding. Texts that share a
+/// <c>look-&lt;key&gt;</c> marker get near vectors (see <see cref="EmbeddingFor"/>), any other two are unrelated.
+/// </para>
 /// </summary>
-internal sealed class FakeVisionClient : IVisionClient
+internal sealed partial class FakeVisionClient : IVisionClient
 {
     public const string Model = "ViT-B-32/laion2b_s34b_b79k";
 
@@ -130,11 +138,17 @@ internal sealed class FakeVisionClient : IVisionClient
             renditions ? new VisionRenditions(Convert.ToBase64String(FeedImage), 1200, 1600, Convert.ToBase64String(Preview)) : null)));
     }
 
-    public Task<VisionCall<VisionDetection>> DetectAsync(byte[] image, string contentType, CancellationToken cancellationToken)
+    public Task<VisionCall<VisionDetection>> DetectAsync(byte[] image, string contentType, bool embed, CancellationToken cancellationToken)
     {
-        if (Encoding.UTF8.GetString(image).Contains("no-detect", StringComparison.Ordinal))
+        var text = Encoding.UTF8.GetString(image);
+        if (text.Contains("no-detect", StringComparison.Ordinal))
         {
             return Task.FromResult(VisionCall<VisionDetection>.Transient("vision_503: busy"));
+        }
+
+        if (text.StartsWith(LensPrefix, StringComparison.Ordinal))
+        {
+            return Task.FromResult(DetectLens(text, embed));
         }
 
         VisionRegion Region(double y, string slot, string slug, string color) =>
@@ -144,4 +158,113 @@ internal sealed class FakeVisionClient : IVisionClient
             "person",
             [Region(0.15, "Top", "ust-giyim/tisort", "Red"), Region(0.5, "Bottom", "alt-giyim/jean", "Blue")])));
     }
+
+    public Task<VisionCall<VisionEmbedding>> EmbedAsync(byte[] image, string contentType, CancellationToken cancellationToken)
+    {
+        var text = Encoding.UTF8.GetString(image);
+
+        if (text.Contains("unreachable", StringComparison.Ordinal))
+        {
+            return Task.FromResult(VisionCall<VisionEmbedding>.Transient("vision_unreachable: connection refused"));
+        }
+
+        if (text.Contains("refused", StringComparison.Ordinal))
+        {
+            return Task.FromResult(VisionCall<VisionEmbedding>.Permanent("vision_400: unsupported_image"));
+        }
+
+        return Task.FromResult(VisionCall<VisionEmbedding>.Ok(new VisionEmbedding(EmbeddingFor(text))));
+    }
+
+    private const string LensPrefix = "lens|";
+
+    /// <summary>
+    /// A query photo for <c>/lens/search</c>: <paramref name="embeddingText"/> is what its regions embed as (pass the catalog image's bytes as
+    /// text, <c>FakeCatalogImageHandler.BytesFor(url)</c>, to photograph that very product); each region is given by its candidates, best first
+    /// (slug and confidence). No region: the photo is only embedded as a whole.
+    /// </summary>
+    public static byte[] LensPhoto(string embeddingText, params (string Slug, double Confidence)[][] regions) =>
+        Encoding.UTF8.GetBytes(LensPrefix
+            + string.Join(';', regions.Select(region => string.Join(',', region.Select(candidate => $"{candidate.Slug}={candidate.Confidence.ToString(CultureInfo.InvariantCulture)}"))))
+            + "|" + embeddingText);
+
+    /// <summary>One confident region of the given category.</summary>
+    public static byte[] LensPhoto(string embeddingText, string categorySlug) => LensPhoto(embeddingText, [(categorySlug, 0.9)]);
+
+    private static VisionCall<VisionDetection> DetectLens(string text, bool embed)
+    {
+        var parts = text.Split('|', 3);
+        var embedding = EmbeddingFor(parts[2]);
+        var regions = parts[1].Length == 0
+            ? []
+            : parts[1].Split(';').Select((region, index) =>
+            {
+                var candidates = region.Split(',')
+                    .Select(candidate => candidate.Split('='))
+                    .Select(pair => new VisionCategory(pair[0], double.Parse(pair[1], CultureInfo.InvariantCulture)))
+                    .ToList();
+                var slot = candidates[0].Slug.Split('/')[0] switch
+                {
+                    "ust-giyim" => "Top",
+                    "alt-giyim" => "Bottom",
+                    "dis-giyim" => "Outerwear",
+                    "ayakkabi" => "Shoes",
+                    _ => "Accessory",
+                };
+
+                return new VisionRegion(
+                    new VisionRegionBox(0.2, 0.1 + (0.3 * index), 0.6, 0.3),
+                    slot,
+                    candidates[0],
+                    candidates,
+                    new VisionColor("Navy", 0.7, "#1F2A44"),
+                    candidates[0].Confidence,
+                    embed ? embedding : null);
+            }).ToList();
+
+        return VisionCall<VisionDetection>.Ok(new VisionDetection("flatlay", regions, embed ? embedding : null));
+    }
+
+    /// <summary>
+    /// A deterministic unit vector for a text. A text with a <c>look-&lt;key&gt;</c> marker is that look's vector plus a little of its own
+    /// (weight 0.25, or 0.6 when the text also says <c>loose</c>): two tight members of a look are ~0.94 alike, a loose and a tight one
+    /// ~0.83, unrelated texts ~0.
+    /// </summary>
+    public static float[] EmbeddingFor(string text)
+    {
+        var own = RandomVector(text);
+        var look = LookMarker().Match(text);
+        if (!look.Success)
+        {
+            return own;
+        }
+
+        var weight = text.Contains("loose", StringComparison.Ordinal) ? 0.6f : 0.25f;
+        var shared = RandomVector(look.Value);
+        var mixed = shared.Select((value, index) => value + (weight * own[index])).ToArray();
+
+        return Normalize(mixed);
+    }
+
+    private static float[] RandomVector(string seed)
+    {
+        var random = new Random(BitConverter.ToInt32(SHA256.HashData(Encoding.UTF8.GetBytes(seed)), 0));
+        var vector = new float[512];
+        for (var index = 0; index < vector.Length; index++)
+        {
+            // Box-Muller: Gaussian components make random directions uniform on the sphere.
+            vector[index] = (float)(Math.Sqrt(-2 * Math.Log(1 - random.NextDouble())) * Math.Cos(2 * Math.PI * random.NextDouble()));
+        }
+
+        return Normalize(vector);
+    }
+
+    private static float[] Normalize(float[] vector)
+    {
+        var length = (float)Math.Sqrt(vector.Sum(value => (double)value * value));
+        return [.. vector.Select(value => value / length)];
+    }
+
+    [GeneratedRegex("look-[a-z0-9]+")]
+    private static partial Regex LookMarker();
 }

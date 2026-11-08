@@ -681,6 +681,83 @@ namespace Kombin.Api.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Catalog.ProductEmbedding", b =>
+                {
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("product_id");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempts");
+
+                    b.Property<DateTimeOffset>("CheckedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("checked_at");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Vector>("Embedding")
+                        .HasColumnType("vector(512)")
+                        .HasColumnName("embedding");
+
+                    b.Property<string>("FailureReason")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("failure_reason");
+
+                    b.Property<string>("Model")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("model");
+
+                    b.Property<DateTimeOffset?>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("next_attempt_at");
+
+                    b.Property<Guid?>("SourceImageId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("source_image_id");
+
+                    b.Property<string>("SourceImageUrl")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("source_image_url");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("ProductId")
+                        .HasName("pk_product_embeddings");
+
+                    b.HasIndex("Embedding")
+                        .HasDatabaseName("ix_product_embeddings_embedding_hnsw")
+                        .HasAnnotation("Npgsql:StorageParameter:ef_construction", 64)
+                        .HasAnnotation("Npgsql:StorageParameter:m", 16);
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Embedding"), "hnsw");
+                    NpgsqlIndexBuilderExtensions.HasOperators(b.HasIndex("Embedding"), new[] { "vector_cosine_ops" });
+
+                    b.HasIndex("SourceImageId")
+                        .HasDatabaseName("ix_product_embeddings_source_image_id");
+
+                    b.HasIndex("SourceImageUrl")
+                        .HasDatabaseName("ix_product_embeddings_source_image_url");
+
+                    b.ToTable("product_embeddings", "catalog");
+                });
+
             modelBuilder.Entity("Kombin.Api.Persistence.Entities.Catalog.ProductImage", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3021,6 +3098,24 @@ namespace Kombin.Api.Persistence.Migrations
                     b.Navigation("Brand");
 
                     b.Navigation("Category");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Catalog.ProductEmbedding", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.Catalog.Product", "Product")
+                        .WithOne()
+                        .HasForeignKey("Kombin.Api.Persistence.Entities.Catalog.ProductEmbedding", "ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_product_embeddings_products_product_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Catalog.ProductImage", null)
+                        .WithMany()
+                        .HasForeignKey("SourceImageId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_product_embeddings_product_images_source_image_id");
+
+                    b.Navigation("Product");
                 });
 
             modelBuilder.Entity("Kombin.Api.Persistence.Entities.Catalog.ProductImage", b =>

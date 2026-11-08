@@ -9,6 +9,7 @@ using Kombin.Api.Features.Analytics;
 using Kombin.Api.Features.Catalog;
 using Kombin.Api.Features.Engagement;
 using Kombin.Api.Features.Identity;
+using Kombin.Api.Features.Lens;
 using Kombin.Api.Features.Notification;
 using Kombin.Api.Features.Profile;
 using Kombin.Api.Features.Recommendation;
@@ -73,6 +74,7 @@ app.MapAnalyticsEndpoints();
 app.MapWardrobeEndpoints();
 app.MapRecommendationEndpoints();
 app.MapSocialEndpoints();
+app.MapLensEndpoints();
 
 await app.MigrateDatabaseOnStartupAsync();
 await app.SeedStyleCardsOnStartupAsync();
