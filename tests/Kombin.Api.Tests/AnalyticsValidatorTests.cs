@@ -81,6 +81,7 @@ public class AnalyticsValidatorTests
             ["post_report"] = $$"""{"postId":"{{ProductId}}","reason":"Harassment"}""",
             ["creator_profile_view"] = $$"""{"creatorId":"{{persona}}"}""",
             ["try_with_wardrobe"] = $$"""{"postId":"{{ProductId}}","anchorCount":1,"outfitCount":2}""",
+            ["auth_external"] = """{"provider":"google","isNewUser":true}""",
         };
 
         Assert.Equal(samples.Keys.Order(), AnalyticsEventCatalog.Names.Order());
@@ -183,6 +184,11 @@ public class AnalyticsValidatorTests
     [InlineData("wardrobe_pairings_view", """{"companionTotal":3}""", "hasUnlock")]
     [InlineData("wardrobe_pairings_view", """{"companionTotal":3,"hasUnlock":"true"}""", "hasUnlock")]
     [InlineData("wardrobe_pairings_view", """{"companionTotal":3,"hasUnlock":1}""", "hasUnlock")]
+    [InlineData("auth_external", """{"provider":"facebook","isNewUser":false}""", "provider")]
+    [InlineData("auth_external", """{"isNewUser":true}""", "provider")]
+    [InlineData("auth_external", """{"provider":"apple"}""", "isNewUser")]
+    [InlineData("auth_external", """{"provider":"apple","isNewUser":"true"}""", "isNewUser")]
+    [InlineData("auth_external", """{"provider":"apple","isNewUser":true,"email":"a@b.com"}""", "email")]
     [InlineData("wardrobe_unlock_click", """{"productId":"3f2c8f0e-8f3e-4c1b-9a53-5d7b0b3a1c11"}""", "productId")]
     [InlineData("product_list_view", """{"sort":"cheapest","filters":""}""", "sort")]
     [InlineData("product_list_view", """{"sort":"newest","filters":"a b"}""", "filters")]

@@ -72,6 +72,9 @@ internal static partial class AnalyticsEventCatalog
         ["post_report"] = [Required("postId", Id), Required("reason", OneOf<ReportReason>())],
         ["creator_profile_view"] = [Required("creatorId", Id)],
         ["try_with_wardrobe"] = [Required("postId", Id), Required("anchorCount", Integer(0, 3)), Required("outfitCount", Integer(0, 10))],
+
+        // Identity: a Google or Apple sign-in succeeded; `isNewUser` is true when it created the account.
+        ["auth_external"] = [Required("provider", OneOf("google", "apple")), Required("isNewUser", Boolean)],
     };
 
     public static IEnumerable<string> Names => Events.Keys;

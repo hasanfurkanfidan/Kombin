@@ -297,6 +297,7 @@ or a bad `sessionId`, `platform`, `appVersion`, `occurredAt` or `anonymousId`.
   | `post_report` | `postId`, `reason` (`Nudity`, `Violence`, `Hate`, `Harassment`, `Spam`, `Scam`, `Other`) |
   | `creator_profile_view` | `creatorId` |
   | `try_with_wardrobe` | `postId`, `anchorCount` (0-3), `outfitCount` (0-10) |
+  | `auth_external` | `provider` (`google` or `apple`), `isNewUser` (`true` or `false`) |
 
   Values are GUIDs, integers, booleans, enum names or short identifiers (letters, digits and `_ . : / -`), never free text.
 - **A wrong clock does not cost the event.** `occurredAt` more than 7 days old or more than 5 minutes ahead is replaced by the server's
