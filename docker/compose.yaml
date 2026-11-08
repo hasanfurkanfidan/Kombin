@@ -139,6 +139,9 @@ services:
       Storage__ForcePathStyle: "true"
       Vision__BaseUrl: http://vision:8090
       Vision__InternalKey: ${VISION_INTERNAL_KEY:-}
+      # Visual search: the product-embeddings job downloads catalog images as KombinBot (1 request per host per second), like kombin-workers;
+      # the contact goes into its User-Agent and stays a placeholder until the owner fills it.
+      CatalogEmbeddings__BotContact: ${BOT_CONTACT:-[YOUR EMAIL]}
       # Outfit engine: Open-Meteo forecasts (free, no key) for the profile's city; narration by templates unless an Anthropic key is set
       # and NARRATION_PROVIDER=Anthropic, in which case template lines are upgraded in the background (outfit-narrate job).
       Weather__Enabled: ${WEATHER_ENABLED:-true}

@@ -40,7 +40,8 @@ seed data lives in `src/Kombin.Api/Persistence/Seed/`.
 
 Internal endpoints (called by workers, not the app) live under `/api/v1/internal/...` and use `.RequireInternalKey()`. The ones that
 exist: `POST /internal/catalog/offers/upsert`, `POST /internal/catalog/offers/sweep`, `GET /internal/catalog/sellers/{sellerSlug}/offers`,
-`PUT /internal/catalog/sellers/{slug}` (see Catalog ingestion rules), `POST /internal/notifications/test`,
+`PUT /internal/catalog/sellers/{slug}` (see Catalog ingestion rules), `POST /internal/catalog/embeddings/run` (see Visual search rules),
+`POST /internal/notifications/test`,
 `GET /internal/analytics/weekly` (see Analytics rules), and `PUT /internal/social/creators/{userId}`, `GET /internal/social/review-queue`
 and `POST /internal/social/posts/{id}/review` (see Social rules).
 
@@ -230,7 +231,7 @@ External Python workers (a separate repo) push the catalog through the internal 
 - **Hangfire wiring:** `AddNotificationFeature` registers storage lazily; `UseNotificationJobs` (called in `Program.cs` after the EF
   migrations and the seeds) is what first creates the `hangfire` schema, registers the recurring jobs (`UseCatalogJobs` adds the
   Catalog's `offer-sweep`, `UseAnalyticsJobs` the Analytics' `weekly-metrics`, `UseWardrobeJobs` the Wardrobe's `wardrobe-cleanup` and
-  `UseSocialJobs` the Social's `social-purge` right after it, behind the same flag; `outfit-narrate` and `post-process` are fire-and-forget,
+  `UseSocialJobs` the Social's `social-purge` right after it, behind the same flag; `UseCatalogJobs` also registers `product-embeddings`; `outfit-narrate` and `post-process` are fire-and-forget,
   not recurring) and, **in Development only**,
   maps the dashboard at `/hangfire` (open, no auth, unmapped in every other environment). Nothing happens unless `Hangfire:Enabled` is
   true (compose sets it; tests set it to false; `Development` defaults to true). The storage uses `EnableLongPolling`
@@ -291,7 +292,8 @@ External Python workers (a separate repo) push the catalog through the internal 
   `embedding`, `quality { isGarment, confidence, warnings }`. Errors are `{ "detail": "<code>" }`. The typed client is `IVisionClient`
   (`Features/Wardrobe/VisionClient.cs`, 30 s timeout); like the Expo client it never throws for a failed call: 4xx (except 401/408/429)
   is permanent, the rest transient. It also reads `/health`'s `clipModel` once per process for `EmbeddingModel`. Social posts use two more
-  endpoints of the same service through the same client: `POST /v1/moderate?renditions=true` and `POST /v1/detect` (see Social rules).
+  endpoints of the same service through the same client: `POST /v1/moderate?renditions=true` and `POST /v1/detect` (see Social rules), and
+  visual search two: `POST /v1/embed?removeBackground=false` and `POST /v1/detect?embed=true` (see Visual search rules).
 - **`wardrobe-analyze`** (`Jobs/WardrobeAnalyzeJob.cs`): fire-and-forget per item, `[AutomaticRetry(Attempts = 3)]` with 5/15/30 s delays.
   It only works on a `Processing` item and writes the same keys and fields on every run (idempotent). Category = top candidate when its
   confidence is ≥ 0.35 (`WardrobeAnalysis.CategoryThreshold`), else null and `needsCategory`. `isGarment=false` is still `Ready`, with the
@@ -325,7 +327,8 @@ External Python workers (a separate repo) push the catalog through the internal 
   while the app uploads to `STORAGE_PUBLIC_URL`.
 - **pgvector** is installed (`CREATE EXTENSION vector` in the `Wardrobe` migration via `HasPostgresExtension`, `UseVector()` on the Npgsql
   options, image `pgvector/pgvector:pg18` in compose and in the test containers). `WardrobeItem.Embedding` (`vector(512)`) is the only vector
-  column so far; nothing queries it yet. A test that builds its own `DbContextOptions` must call `UseVector()` too.
+  column of the wardrobe; visual search reads it. `catalog.product_embeddings.embedding` is the other one (HNSW index). A test that builds
+  its own `DbContextOptions` must call `UseVector()` too.
 - **Tests** replace the outside world in `ApiFactory`: `FakeVisionClient` (answers by the photo's text: `unreachable`, `refused`, `unsure`,
   `not-garment`), `FakeObjectStorage` (in memory; the S3 implementation is exercised against MinIO in the compose walkthrough, not in the
   test suite), `RecordingJobClient` for `IBackgroundJobClient` (jobs are recorded, the test runs them), and `FakeCatalogImageHandler` on the
@@ -421,6 +424,52 @@ External Python workers (a separate repo) push the catalog through the internal 
   (review), `no-detect`, plus the wardrobe ones. Tests run `PostProcessJob.ProcessAsync` and `SocialPurgeJob.PurgeAsync(authorId)` directly.
   The feed is global: assert on your own posts, never on absolute positions beyond the followed section.
 
+## Visual search rules
+
+- **What exists:** "Görselden ürün bul" (`Features/Lens`, design in `docs/design/visual-search.md`): `POST /api/v1/lens/search?audience=`
+  (public, multipart field `image` ≤ 8 MB, jpeg/png/webp/heic), the table `catalog.product_embeddings` (one row per product), the Catalog job
+  `product-embeddings` and `POST /internal/catalog/embeddings/run { limit?, productIds? }` (limit default 100, at most 1000).
+- **The promise: instant and never embarrassing.** A photo of a coat never answers with sneakers; "no result" is a valid, honest answer. The
+  rules are the pure `LensRanking` (documented at the top of the file, unit-tested): each region searches only its **category family**
+  (`top/bottom/outerwear/shoes/bag/accessory`; the blazer is outerwear, as in `OutfitSlots`), widened to its candidates' families below
+  `LowConfidence` (0.35), everything only for the whole-photo fallback; nothing below `SimilarityFloor` (`WholePhotoFloor` for the whole
+  photo); order = similarity minus `OutOfStockPenalty` for a product nobody sells, then price, then ID; products with the same image (same URL,
+  or the very same vector) are one result; 12 per region; `level` `close`/`similar` (the app never shows a percentage). The numbers come from
+  the calibration in the design doc; change a constant there, in the comment block and in the doc together.
+- **The query photo is never stored or logged.** It lives in memory for the request, goes to `kombin-vision /v1/detect?embed=true` (regions
+  plus each crop's embedding, and the whole photo's for a photo without regions) and is dropped. "Dolabıma ekle" is the app cropping the
+  region on the device and using the normal wardrobe upload flow; the backend has no lens-specific upload. `docs/privacy-notes.md` section 4.
+- **Everything is a `/go`.** Results carry the product list item (`ProductSummaries`), the cheapest sellable offer by effective price
+  (`OutfitSources.CheapestOffersAsync`) and `goPath = /api/v1/go/{offerId}?src=lens` (`lens` is a `ClickSources` value). Never `Offer.Url`.
+- **Audience:** `audience` = an `Audience` name or `all`; left out, a signed-in caller's profile audience applies when it is Women or Men
+  (Unisex, the default, means no filter). Women/Men let Unisex through. The response says which filter was applied, so the app can offer to
+  drop it.
+- **Wardrobe matches** only for a signed-in caller (absent otherwise): up to 3 of their ready pieces per region from `WardrobeFloor`, `exact`
+  from `WardrobeExact` or when the piece came from a product in the results, else `similar`. Pieces added from the catalog have no embedding
+  of their own and are compared through their product's catalog embedding.
+- **Index:** HNSW on `vector_cosine_ops` (`m = 16`, `ef_construction = 64`, in `ProductEmbeddingConfiguration`; the migration creates it from
+  the model). Each search runs in a transaction with `SET LOCAL hnsw.ef_search = 100` and `hnsw.iterative_scan = relaxed_order` (pgvector
+  0.8: filters never starve the candidate list) and asks for `Candidates` (48) neighbours of the current vision model only. Budget: one region
+  ≤ 400 ms p95 at 50k products excluding the vision call, `LensPerformanceTests` (`KOMBIN_PERF=1`, own container, CI's perf step).
+- **`product-embeddings`** (`Features/Catalog/Jobs/ProductEmbeddingJob.cs`, daily 03:00 `Europe/Istanbul`, `[DisableConcurrentExecution(60)]`,
+  `[AutomaticRetry(Attempts = 0)]`, time budget `CatalogEmbeddings:MaxRunDuration` 3 h; tests call `EmbedAsync(productIds, limit, budget, ct)`
+  with their own product IDs). Which product is due is the pure `ProductEmbeddingRules.IsDue`: no row; a `Ready` row whose image URL or model
+  changed; an `Unusable` row (404/410, not an image, > 8 MB, refused by vision) only for a new URL or after 30 days; a `Failed` row (transient)
+  after its back-off (1 h doubling to 24 h; the previous vector stays meanwhile). New products first, hosts interleaved. Source image = primary
+  image, else the first. A product whose image URL another product already embedded (same model) reuses that vector without a download. Each
+  product is committed on its own, so a run is resumable and a rerun idempotent; the run stops after 3 vision failures in a row. One vision
+  call at a time, so wardrobe photos always find the vision service's second slot.
+- **Politeness** is the workers' discipline (`Features/Catalog/Embeddings`): `CatalogImageFetcher` with `User-Agent: KombinBot/0.1
+  (+https://kombin.app/bot; contact: <CatalogEmbeddings:BotContact>)` (env `CatalogEmbeddings__BotContact`, compose `BOT_CONTACT`), one request
+  per host per `CatalogEmbeddings:HostInterval` (1 s; the pure `PoliteSchedule`), `Retry-After` honoured on 429/503. Tests set the interval to 0.
+- **Models:** rows keep the vision `clipModel` of their vector; search reads only rows of the current model, the job recomputes the others.
+  `VisionClient` caches the model name per process, so restart the API after deploying another vision model. ViT-B/32 stays (no new model
+  families); the design doc says when a fashion-specific model would be worth it.
+- **Tests:** `FakeVisionClient.EmbeddingFor(text)` is a deterministic unit vector per text (texts sharing a `look-<key>` marker are ~0.94 alike,
+  with `loose` ~0.83, others ~0); `/v1/embed` answers it for the downloaded image (`FakeCatalogImageHandler.TextFor(url)`), and
+  `FakeVisionClient.LensPhoto(text, regions...)` is a query photo whose regions embed as that text. `FakeCatalogImageHandler` 404s `missing`,
+  503s `busy` and counts requests per URL. The search is global: give each test its own look key.
+
 ## Commands
 
 ```bash
@@ -429,7 +478,7 @@ dotnet format Kombin.slnx --verify-no-changes --no-restore     # drop --verify-n
 dotnet build Kombin.slnx --configuration Release --no-restore
 dotnet test --solution Kombin.slnx --configuration Release --no-build    # integration tests need Docker
 dotnet test --project tests/Kombin.Api.Tests                            # unit tests only, no Docker
-KOMBIN_PERF=1 dotnet test --project tests/Kombin.Api.IntegrationTests --configuration Release -- --filter-class "Kombin.Api.IntegrationTests.OutfitPerformanceTests" --filter-class "Kombin.Api.IntegrationTests.FeedPerformanceTests"    # latency budgets, on a quiet machine
+KOMBIN_PERF=1 dotnet test --project tests/Kombin.Api.IntegrationTests --configuration Release -- --filter-class "Kombin.Api.IntegrationTests.OutfitPerformanceTests" --filter-class "Kombin.Api.IntegrationTests.FeedPerformanceTests" --filter-class "Kombin.Api.IntegrationTests.LensPerformanceTests"    # latency budgets, on a quiet machine
 
 # Run the API against a local PostgreSQL (docker/.env must define JWT_SIGNING_KEY)
 docker compose --file docker/compose.yaml up --build --detach --wait db
@@ -470,7 +519,8 @@ Rate limiting (including on `/go`, `/events` and the auth endpoints), email veri
 Apple ID tokens (no OAuth redirect flow, no other providers), admin UI, MediatR/CQRS, generic
 repositories, AutoMapper, email/SMS/marketing notifications, A/B testing, scraping workers, affiliate conversion import, a free-form
 analytics event stream (Analytics accepts only its allow-list), and in Social: comments, DMs, stories or video, hashtags or search over
-posts, follow requests, creator payouts and public web pages for posts. Features that exist: Identity (auth with a password or a Google/Apple ID token, me), Catalog (brands, sellers, categories, products, offers, price
+posts, follow requests, creator payouts and public web pages for posts, and in Lens: text search, multi-photo or video search, storing
+query photos, retraining or fine-tuning, other model families. Features that exist: Identity (auth with a password or a Google/Apple ID token, me), Catalog (brands, sellers, categories, products, offers, price
 snapshots, internal upsert, seller bootstrap and listing, offer sweep), Engagement (saved products, price alerts and their trigger feed, `/go` redirect, click
 history) and Profile (user profile and measurements, personas, swipe onboarding with style cards, derived style profile,
 rule-based match score, size map with hints) and Notification (devices, notification preferences, the notification feed, push
@@ -478,5 +528,6 @@ delivery through Expo, and the Hangfire jobs above) and Analytics (the allow-lis
 metrics and the operators' Metabase) and Wardrobe (photo items analysed by kombin-vision, catalog items, object storage, wears, stats, gap
 analysis, pairings) and Recommendation (the rule-based outfit engine: daily, how-to-wear, saved outfits, feedback, weather, narration) and
 Social (versioned posting consent, photo and outfit posts with moderation, metadata stripping and confirmed shoppable tags, likes, follows,
-blocks, reports and review, the feed, try-with-wardrobe, creators with click attribution and earnings estimates). Learning from
+blocks, reports and review, the feed, try-with-wardrobe, creators with click attribution and earnings estimates) and Lens (visual search:
+catalog embeddings and their job, photo search with family, floor and audience guardrails, wardrobe matches). Learning from
 clicks, saves and outfit feedback is still to come, and not Profile's job. Add other features only when a task asks for them.

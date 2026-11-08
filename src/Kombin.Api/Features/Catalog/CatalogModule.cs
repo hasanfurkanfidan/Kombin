@@ -1,5 +1,6 @@
 using Hangfire;
 using Kombin.Api.Common.Auth;
+using Kombin.Api.Features.Catalog.Embeddings;
 using Kombin.Api.Features.Catalog.GetPriceHistory;
 using Kombin.Api.Features.Catalog.GetProduct;
 using Kombin.Api.Features.Catalog.Jobs;
@@ -8,9 +9,11 @@ using Kombin.Api.Features.Catalog.ListCategories;
 using Kombin.Api.Features.Catalog.ListProducts;
 using Kombin.Api.Features.Catalog.ListSellerOffers;
 using Kombin.Api.Features.Catalog.PutSeller;
+using Kombin.Api.Features.Catalog.RunEmbeddings;
 using Kombin.Api.Features.Catalog.SweepOffers;
 using Kombin.Api.Features.Catalog.UpsertOffers;
 using Kombin.Api.Features.Notification;
+using Microsoft.Extensions.Options;
 
 namespace Kombin.Api.Features.Catalog;
 
@@ -22,6 +25,14 @@ internal static class CatalogModule
 
         // A plain class with constructor injection, like the Notification jobs: Hangfire activates it from a scope, the tests resolve it directly.
         services.AddScoped<OfferSweepJob>();
+        services.AddScoped<ProductEmbeddingJob>();
+
+        services.AddOptions<CatalogEmbeddingOptions>().BindConfiguration(CatalogEmbeddingOptions.SectionName);
+        services.AddHttpClient(ProductEmbeddingJob.ImageClient, (provider, client) =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(20);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd(provider.GetRequiredService<IOptions<CatalogEmbeddingOptions>>().Value.UserAgent);
+        });
 
         return services;
     }
@@ -42,6 +53,7 @@ internal static class CatalogModule
         SweepOffersEndpoint.Map(internalCatalog);
         ListSellerOffersEndpoint.Map(internalCatalog);
         PutSellerEndpoint.Map(internalCatalog);
+        RunEmbeddingsEndpoint.Map(internalCatalog);
 
         return app;
     }
@@ -61,6 +73,12 @@ internal static class CatalogModule
             OfferSweepJob.JobId,
             job => job.RunAsync(CancellationToken.None),
             OfferSweepJob.Cron,
+            new RecurringJobOptions { TimeZone = QuietHours.Zone });
+
+        app.Services.GetRequiredService<IRecurringJobManager>().AddOrUpdate<ProductEmbeddingJob>(
+            ProductEmbeddingJob.JobId,
+            job => job.RunAsync(CancellationToken.None),
+            ProductEmbeddingJob.Cron,
             new RecurringJobOptions { TimeZone = QuietHours.Zone });
     }
 }

@@ -82,6 +82,10 @@ public class AnalyticsValidatorTests
             ["creator_profile_view"] = $$"""{"creatorId":"{{persona}}"}""",
             ["try_with_wardrobe"] = $$"""{"postId":"{{ProductId}}","anchorCount":1,"outfitCount":2}""",
             ["auth_external"] = """{"provider":"google","isNewUser":true}""",
+            ["lens_open"] = """{"entry":"explore"}""",
+            ["lens_search"] = """{"regionCount":2,"resultCount":17,"durationMs":2140,"source":"camera"}""",
+            ["lens_result_tap"] = $$"""{"productId":"{{ProductId}}","position":0,"similarity":"close"}""",
+            ["lens_add_to_wardrobe"] = """{"family":"Outerwear"}""",
         };
 
         Assert.Equal(samples.Keys.Order(), AnalyticsEventCatalog.Names.Order());
@@ -189,6 +193,11 @@ public class AnalyticsValidatorTests
     [InlineData("auth_external", """{"provider":"apple"}""", "isNewUser")]
     [InlineData("auth_external", """{"provider":"apple","isNewUser":"true"}""", "isNewUser")]
     [InlineData("auth_external", """{"provider":"apple","isNewUser":true,"email":"a@b.com"}""", "email")]
+    [InlineData("lens_search", """{"regionCount":7,"resultCount":0,"durationMs":10,"source":"camera"}""", "regionCount")]
+    [InlineData("lens_search", """{"regionCount":1,"resultCount":0,"durationMs":10,"source":"upload"}""", "source")]
+    [InlineData("lens_result_tap", """{"productId":"3f2c8f0e-8f3e-4c1b-9a53-5d7b0b3a1c11","position":0,"similarity":0.93}""", "similarity")]
+    [InlineData("lens_add_to_wardrobe", """{"family":"Hat"}""", "family")]
+    [InlineData("lens_open", """{"entry":"explore","imageUrl":"x"}""", "imageUrl")]
     [InlineData("wardrobe_unlock_click", """{"productId":"3f2c8f0e-8f3e-4c1b-9a53-5d7b0b3a1c11"}""", "productId")]
     [InlineData("product_list_view", """{"sort":"cheapest","filters":""}""", "sort")]
     [InlineData("product_list_view", """{"sort":"newest","filters":"a b"}""", "filters")]

@@ -128,7 +128,7 @@ internal sealed partial class PostProcessJob(KombinDbContext db, IObjectStorage 
             post.ImagePreviewKey = previewKey;
             post.ImageAspect = renditions.FeedHeight > 0 ? Math.Round(renditions.FeedWidth / (double)renditions.FeedHeight, 4) : null;
 
-            var detected = await vision.DetectAsync(stripped.Content, stripped.ContentType, cancellationToken);
+            var detected = await vision.DetectAsync(stripped.Content, stripped.ContentType, embed: false, cancellationToken);
             detection = detected.Value;
             if (detection is null)
             {

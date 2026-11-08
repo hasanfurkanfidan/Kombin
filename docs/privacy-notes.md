@@ -1,6 +1,6 @@
 # Privacy notes: every personal-data touchpoint (for counsel)
 
-Scope: the Kombin backend (`kombin-backend`) and the vision service it calls (`kombin-vision`), as of Task 14 (social posts). Turkish
+Scope: the Kombin backend (`kombin-backend`) and the vision service it calls (`kombin-vision`), as of Task 15 (visual search). Turkish
 law (KVKK, Law No. 6698) and, for EU users, the GDPR are the frames in mind. This is an engineering inventory, not a legal opinion: it says
 what we collect, why, where it lives, who can see it, how long we keep it and how it is deleted. Open questions are at the end.
 
@@ -79,7 +79,25 @@ UI: reviewers are the founder/operators with the internal key.
 - Kept after deletion: buy clicks (`engagement.clicks`) and creator referral events keep the post's ID (a random UUID, no image, no text):
   they are the revenue and commission record. Storage backups (if the provider keeps any) follow the provider's retention.
 
-## 4. Buy clicks and creators (Engagement, Social)
+## 4. Visual search ("Görselden ürün bul", Task 15)
+
+`POST /api/v1/lens/search` takes a photo (camera or gallery; often of a person in the street or of a screen) and answers the garments in it
+and the closest catalog products. Anonymous callers may use it.
+
+| Data | Why | Where | Retention |
+|---|---|---|---|
+| The query photo | find the garments and their embeddings | **nowhere**: held in the API's memory for the request and sent to `kombin-vision`, which stores nothing either; never logged | gone when the request ends |
+| Region embeddings (512 numbers per garment) | the catalog and wardrobe search | memory only | gone when the request ends |
+| Signed in: the caller's profile audience and wardrobe embeddings are *read* | filter the catalog; "dolabında benzeri var" | `profile.user_profiles`, `wardrobe.items` (nothing written) | — |
+
+The photo only becomes stored data when the user taps "Dolabıma ekle": the app then crops the region **on the device** and uploads the crop
+through the normal wardrobe flow (section 2), with its usual rules. Taps on results go through `/go` with `src=lens` (section 5). Analytics
+(`lens_open`, `lens_search`, `lens_result_tap`, `lens_add_to_wardrobe`) carry counts, durations, positions and enums, never image data.
+
+Catalog product images are downloaded by the `product-embeddings` job (`KombinBot` user agent, one request per host per second) to compute
+the catalog's embeddings; they are sellers' product shots, not personal data, and only the URL and the vector are kept.
+
+## 5. Buy clicks and creators (Engagement, Social)
 
 | Data | Why | Where | Retention |
 |---|---|---|---|
@@ -90,27 +108,28 @@ UI: reviewers are the founder/operators with the internal key.
 Creators see aggregate numbers only (`GET /me/creator/stats`: clicks, an estimate, top posts) — never who clicked. Creator posts show "Bu
 içerikten komisyon kazanabilir" (advertising disclosure). Affiliate URLs carry our click ID, never user identifiers.
 
-## 5. Analytics (Analytics)
+## 6. Analytics (Analytics)
 
 Allow-listed events only (`AnalyticsEventCatalog`); values are IDs, numbers and enum names, never free text. Social events: `post_view`,
 `post_tag_tap`, `post_like`, `post_create_start/done`, `post_report`, `creator_profile_view`, `try_with_wardrobe` — post and creator IDs,
-counts and enums; **no captions, handles or labels**. Keys named like personal data are refused on every event. Anonymous events are linked to
+counts and enums; **no captions, handles or labels**. Visual-search events: counts, durations, result positions and match levels, **no
+image data**. Keys named like personal data are refused on every event. Anonymous events are linked to
 the account after sign-in (`IAnalyticsIdentityLinker`).
 
-## 6. Processors and transfers
+## 7. Processors and transfers
 
 | Recipient | What | Where |
 |---|---|---|
 | Object storage (MinIO in development; S3/R2 planned) | photos and renditions | hosting provider — **region to be decided** |
-| `kombin-vision` | photos for analysis, moderation and detection; stores nothing | our own service, same deployment |
+| `kombin-vision` | photos for analysis, moderation and detection, visual-search query photos; stores nothing | our own service, same deployment |
 | Expo Push Service | push tokens and notification text | Expo (US) |
 | Open-Meteo | the profile's city (no user ID) | Open-Meteo (EU) |
 | Anthropic (only if `Narration:Provider = Anthropic`) | outfit summaries (garment categories/colours, no photos, no user data) | Anthropic (US) |
 | Affiliate networks / sellers | the redirect with our click ID | the seller's site |
 
-Photos of posts are never sent to a third party.
+Photos of posts and visual-search photos are never sent to a third party.
 
-## 7. Open questions for counsel
+## 8. Open questions for counsel
 
 1. **Account deletion and data export** are not built (a cross-feature task). Until then deletion requests are manual.
 2. Do photos of people (and of third parties in them) need consent beyond the poster's confirmation in the consent text?
@@ -120,3 +139,5 @@ Photos of posts are never sent to a third party.
 6. Storage region and cross-border transfer (KVKK Art. 9) for the chosen provider; Expo and Anthropic are US-based.
 7. Creator commission disclosure wording and whether creators need a separate agreement (payouts are not built).
 8. Minors: there is no age gate.
+9. Visual search processes photos of other people (a stranger in the street) in memory only, never stored. Is an in-app notice on the
+   lens screen enough, and should anonymous use need anything more?

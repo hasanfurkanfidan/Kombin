@@ -70,11 +70,27 @@ internal sealed record VisionModeration(
 /// <summary>Fractions of the image (0-1).</summary>
 internal sealed record VisionRegionBox(double X, double Y, double W, double H);
 
-/// <summary>A garment region proposal. <c>Slot</c> is an <c>OutfitSlot</c> name, the category a leaf slug of ours.</summary>
-internal sealed record VisionRegion(VisionRegionBox Box, string Slot, VisionCategory Category, IReadOnlyList<VisionCategory> CategoryCandidates, VisionColor Color, double Confidence);
+/// <summary>
+/// A garment region proposal. <c>Slot</c> is an <c>OutfitSlot</c> name, the category a leaf slug of ours. <c>Embedding</c> (512 unit floats of
+/// the region's cutout) is there only when the detection was asked with <c>embed</c>.
+/// </summary>
+internal sealed record VisionRegion(
+    VisionRegionBox Box,
+    string Slot,
+    VisionCategory Category,
+    IReadOnlyList<VisionCategory> CategoryCandidates,
+    VisionColor Color,
+    double Confidence,
+    float[]? Embedding = null);
 
-/// <summary>The answer of <c>POST /v1/detect</c>: <c>Layout</c> is <c>person</c> or <c>flatlay</c>, at most 6 regions.</summary>
-internal sealed record VisionDetection(string Layout, IReadOnlyList<VisionRegion> Regions);
+/// <summary>
+/// The answer of <c>POST /v1/detect</c>: <c>Layout</c> is <c>person</c> or <c>flatlay</c>, at most 6 regions. <c>Embedding</c> is the whole
+/// photo's, only with <c>embed</c>.
+/// </summary>
+internal sealed record VisionDetection(string Layout, IReadOnlyList<VisionRegion> Regions, float[]? Embedding = null);
+
+/// <summary>The answer of <c>POST /v1/embed</c>: 512 unit-length floats.</summary>
+internal sealed record VisionEmbedding(float[] Embedding);
 
 /// <summary>A value or an error, like <see cref="VisionResult"/> for the other endpoints.</summary>
 internal sealed record VisionCall<T>(T? Value, string? Error, bool IsTransient)
@@ -95,8 +111,14 @@ internal interface IVisionClient
     /// <summary><c>POST /v1/moderate</c>, the safety filter for social posts; with <paramref name="renditions"/> also the feed image and preview.</summary>
     Task<VisionCall<VisionModeration>> ModerateAsync(byte[] image, string contentType, bool renditions, CancellationToken cancellationToken);
 
-    /// <summary><c>POST /v1/detect</c>, garment region proposals for an outfit photo.</summary>
-    Task<VisionCall<VisionDetection>> DetectAsync(byte[] image, string contentType, CancellationToken cancellationToken);
+    /// <summary>
+    /// <c>POST /v1/detect</c>, garment region proposals for an outfit photo; with <paramref name="embed"/> (visual search) every region and the
+    /// whole photo also carry their embedding.
+    /// </summary>
+    Task<VisionCall<VisionDetection>> DetectAsync(byte[] image, string contentType, bool embed, CancellationToken cancellationToken);
+
+    /// <summary><c>POST /v1/embed</c>: the embedding of the image as it is (no background removal), for catalog product shots.</summary>
+    Task<VisionCall<VisionEmbedding>> EmbedAsync(byte[] image, string contentType, CancellationToken cancellationToken);
 
     /// <summary>The CLIP model behind the embeddings (<c>/health</c>'s <c>clipModel</c>), or null when the service cannot be asked.</summary>
     Task<string?> GetEmbeddingModelAsync(CancellationToken cancellationToken);
@@ -137,8 +159,11 @@ internal sealed partial class VisionClient(HttpClient http, ILogger<VisionClient
     public Task<VisionCall<VisionModeration>> ModerateAsync(byte[] image, string contentType, bool renditions, CancellationToken cancellationToken) =>
         PostImageAsync<VisionModeration>(renditions ? "v1/moderate?renditions=true" : "v1/moderate", image, contentType, cancellationToken);
 
-    public Task<VisionCall<VisionDetection>> DetectAsync(byte[] image, string contentType, CancellationToken cancellationToken) =>
-        PostImageAsync<VisionDetection>("v1/detect", image, contentType, cancellationToken);
+    public Task<VisionCall<VisionDetection>> DetectAsync(byte[] image, string contentType, bool embed, CancellationToken cancellationToken) =>
+        PostImageAsync<VisionDetection>(embed ? "v1/detect?embed=true" : "v1/detect", image, contentType, cancellationToken);
+
+    public Task<VisionCall<VisionEmbedding>> EmbedAsync(byte[] image, string contentType, CancellationToken cancellationToken) =>
+        PostImageAsync<VisionEmbedding>("v1/embed?removeBackground=false", image, contentType, cancellationToken);
 
     /// <summary>Posts the image as the multipart field <c>image</c> and reads the JSON answer; failures become values, never exceptions.</summary>
     private async Task<VisionCall<T>> PostImageAsync<T>(string path, byte[] image, string contentType, CancellationToken cancellationToken)

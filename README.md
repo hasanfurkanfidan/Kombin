@@ -73,7 +73,7 @@ dotnet test --solution Kombin.slnx --configuration Release
 
 Integration tests start their own PostgreSQL container with Testcontainers, so Docker must be running.
 
-The latency budgets (`OutfitPerformanceTests`, 300 ms p95) are skipped unless `KOMBIN_PERF=1` is set: a laptop that also runs vision and MinIO
+The latency budgets (`OutfitPerformanceTests`, 300 ms p95; `FeedPerformanceTests`, 250 ms; `LensPerformanceTests`, 400 ms) are skipped unless `KOMBIN_PERF=1` is set: a laptop that also runs vision and MinIO
 measures itself. CI runs them in a step of their own. To run them by hand, on a quiet machine and on their own:
 
 ```bash
@@ -133,6 +133,7 @@ Public reads need no auth (the app browses before login).
 | GET | `/catalog/products/{id}` | 200 product, images, active offers by effective price, `priceSummary` | 404 `Catalog.ProductNotFound` |
 | GET | `/catalog/products/{id}/price-history?days=90` | 200 `[{ offerId, seller, points: [{ date, minPrice, stockStatus }] }]`, one point per UTC day | 404 `Catalog.ProductNotFound` |
 | POST | `/internal/catalog/offers/upsert` | 200 `{ created, updated, snapshotsWritten, errors: [{ index, externalId, errorCode, message }] }` | 400 validation or `Catalog.BatchTooLarge`, 401 `Catalog.InvalidInternalKey`, 404 `Catalog.SellerNotFound` |
+| POST | `/internal/catalog/embeddings/run` | 200 `{ due, embedded, reused, unusable, failed, remaining, aborted }`; optional body `{ limit?, productIds? }` (limit 100 by default, at most 1000). Runs the `product-embeddings` job in the request (visual search) | 401 |
 
 List items carry `cheapestSeller { name, slug }`: the seller of the offer that defines `lowestPrice`. The `seller` of product offers and price history is `{ id, name, slug, kind, country }`; `country` is ISO 3166-1 alpha-2
 (`TR` for every seller so far, also on the internal seller PUT response) and nothing filters on it yet. The OpenAPI document
@@ -298,6 +299,10 @@ or a bad `sessionId`, `platform`, `appVersion`, `occurredAt` or `anonymousId`.
   | `creator_profile_view` | `creatorId` |
   | `try_with_wardrobe` | `postId`, `anchorCount` (0-3), `outfitCount` (0-10) |
   | `auth_external` | `provider` (`google` or `apple`), `isNewUser` (`true` or `false`) |
+  | `lens_open` | `entry` (`explore`, `home` or `other`) |
+  | `lens_search` | `regionCount` (0-6), `resultCount` (0-72), `durationMs` (0-600000), `source` (`camera` or `gallery`) |
+  | `lens_result_tap` | `productId`, `position` (0-11, in the region's rail), `similarity` (`close` or `similar`, the result's `level`) |
+  | `lens_add_to_wardrobe` | `family` (optional: `Top`, `Bottom`, `Outerwear`, `Shoes`, `Bag`, `Accessory`; absent for the whole photo) |
 
   Values are GUIDs, integers, booleans, enum names or short identifiers (letters, digits and `_ . : / -`), never free text.
 - **A wrong clock does not cost the event.** `occurredAt` more than 7 days old or more than 5 minutes ahead is replaced by the server's
@@ -462,6 +467,29 @@ for-you, 40 ms following, 49 ms signed out (budget 250 ms).
 |---|---|---|
 | `post-process` | per post, enqueued by `process` and `from-outfit` | the pipeline above; 3 retries, the 4th failed vision call makes the post `Failed` (never published unmoderated) |
 | `social-purge` | hourly | deletes the objects and rows of deleted posts, uploads never processed (1 day), failed posts (1 day), unpublished drafts (7 days) and blocked posts (30 days) |
+
+### Lens (visual search, "Görselden ürün bul")
+
+Design: `docs/design/visual-search.md`. Public; a bearer token adds the caller's wardrobe matches and profile audience.
+
+| Method | Route | Success | Errors |
+|---|---|---|---|
+| POST | `/lens/search?audience=` | 200 `{ regions: [{ index, box { x, y, w, h }, slot, family, category { slug, confidence }, color, familyRestricted, results: [{ product, similarity, level, inStock, offer { offerId, seller, price, goPath } }], wardrobeMatches?: [{ item, similarity, match }] }], audience, wholePhoto }`. Multipart field `image` (jpeg/png/webp/heic, ≤ 8 MB), never stored | 400 `Lens.ImageMissing`, `Lens.ImageTooLarge`, `Lens.UnsupportedImage`, `Lens.InvalidAudience`; 503 `Lens.VisionUnavailable` |
+
+- `product` is the catalog list item; `offer.goPath` is `/api/v1/go/{offerId}?src=lens` (null `offer` when nothing can be bought now). `level` is
+  `close` ("yakın eşleşme") or `similar` ("benzer"); the app never shows a percentage. An empty `results` is an honest "no close product".
+- Each region searches only its category family (`Top`, `Bottom`, `Outerwear`, `Shoes`, `Bag`, `Accessory`; widened to its candidates' families
+  when the category is unsure: `familyRestricted` false). A photo with no detected garment is searched as a whole (`wholePhoto`, stricter floor).
+- `audience`: an `Audience` name, or `all` to drop the filter; left out, a signed-in caller's profile audience (Women/Men) applies. The response's
+  `audience` is the filter that was applied.
+- `wardrobeMatches` (signed in only): up to 3 of the caller's pieces, `exact` or `similar`.
+- "Dolabıma ekle" on a region: crop it on the device with `box` and use the wardrobe upload flow.
+
+| Job | Schedule | Does |
+|---|---|---|
+| `product-embeddings` | daily 03:00 Istanbul (3 h budget) | embeds due products' primary images through `kombin-vision /v1/embed` (new, new image, new model, failed after back-off); 1 request per image host per second as `KombinBot`; a 404 is marked and not refetched for 30 days |
+
+Measured by `LensPerformanceTests` (50k products, one region, `KOMBIN_PERF=1`, vision excluded): p95 71 ms signed in (wardrobe of 200 pieces, profile audience), 54 ms anonymous (budget 400 ms).
 
 ## Decisions worth knowing
 
