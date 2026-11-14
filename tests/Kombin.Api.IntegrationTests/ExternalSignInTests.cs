@@ -98,7 +98,7 @@ public sealed class ExternalSignInTests(ApiFactory factory)
     }
 
     [Fact]
-    public async Task APasswordUserLinksGoogleByEmailAndHasTwoWaysIn()
+    public async Task APasswordUserLinksGoogleByEmailAndGoogleBecomesTheWayIn()
     {
         using var client = factory.CreateClient();
         var email = ApiClientExtensions.NewEmail();
@@ -114,9 +114,13 @@ public sealed class ExternalSignInTests(ApiFactory factory)
         Assert.Equal(userId, me.GetProperty("id").GetGuid());
         Assert.Equal("Test User", me.GetProperty("displayName").GetString());
 
+        // The password was never proven to belong to the address (registration does not verify it), Google just did: the password ends
+        // (security review H1, account pre-hijacking), like any session it made.
         using var login = await client.LoginAsync(email, ApiClientExtensions.DefaultPassword, cancellationToken: Ct);
-        Assert.Equal(HttpStatusCode.OK, login.StatusCode);
-        Assert.False((await login.ReadTokensAsync(Ct)).IsNewUser);
+        Assert.Equal(HttpStatusCode.Unauthorized, login.StatusCode);
+        using var oldSession = await client.RefreshAsync(registered.RefreshToken, Ct);
+        Assert.Equal(HttpStatusCode.Unauthorized, oldSession.StatusCode);
+        Assert.Null((await InDbAsync(db => db.Users.SingleAsync(user => user.Id == userId, Ct))).PasswordHash);
 
         var again = await SignInOkAsync(client, "google", FakeExternalTokenVerifier.Token(subject, email));
         Assert.Equal(userId, (await MeAsync(client, again.AccessToken)).GetProperty("id").GetGuid());

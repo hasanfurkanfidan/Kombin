@@ -91,7 +91,7 @@ Blocking removes follows both ways and hides each side's posts and profile from 
 
 The founder sets `PUT /internal/social/creators/{userId}` (handle, bio, link, active). A creator's posts carry `isCreator` and the
 disclosure line "Bu içerikten komisyon kazanabilir". `/go` with `post=` checks that the post is live, not private and tags the offer's
-product; it then stamps `post_id`, and `creator_id` when the author is an active creator and not the clicker, and appends a `Click` referral
+product; it then stamps `post_id`, and `creator_id` when the author is an active creator, not the clicker and not already earned from this viewer (same user, or signed out the same hashed address) on this post and product in the last 24 h (`CreatorAttribution.AlreadyEarnedAsync`), and appends a `Click` referral
 event with the `Creators:SharePercent` (40) snapshot. When conversions are imported (out of scope), each affiliate report row carries our
 `kombin_click` id → a `Conversion` row with order, commission and `creator_amount = commission × share`. `GET /me/creator/stats` returns clicks,
 top posts and **an estimate** `clicks × conversion rate × average order value × commission × share` (all `Creators:*` settings). The brief's

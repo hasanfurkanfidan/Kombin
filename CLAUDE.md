@@ -91,7 +91,8 @@ Identity rules).
   (`Identity.ExternalEmailMissing` otherwise) -> an account with that email gets linked (safe only because both providers verify the email:
   Google's `email_verified` must be true, Apple's counts as true unless it says `false`, as a boolean or the string); else a new account with
   `password_hash = null` and display name request -> token `name` -> email local part (cut to 50). Private-relay Apple emails are ordinary
-  emails. Two simultaneous first sign-ins rely on the unique indexes (`identity.external_logins (provider, subject)`, `users.email`): the
+  emails. **Linking by email to an account with a password clears the password and deletes all its refresh tokens** (registration never
+  proves the address, so the password may be an attacker's: security review H1). Two simultaneous first sign-ins rely on the unique indexes (`identity.external_logins (provider, subject)`, `users.email`): the
   loser clears its change tracker and retries the lookup once. After the commit it calls `IAnalyticsIdentityLinker.LinkAsync`, like register
   and login.
 - **Passwords are optional.** `users.password_hash` is nullable. A passwordless (Google/Apple-only) account answers `POST /auth/login` with
@@ -420,7 +421,9 @@ External Python workers (a separate repo) push the catalog through the internal 
   whether it goes with what the viewer owns. No comments, DMs, stories, video, hashtags or search over posts, no payouts, no public web pages.
 - **No raw URL, ever.** Tags carry the product's current cheapest sellable offer (`OutfitSources.CheapestOffersAsync`) and a `goPath` with
   `src=feed&post=`; `PostResponses` is the only builder of post JSON. `/go` attributes only when the post is live, not private and tags the
-  clicked product (`CreatorAttribution`); a creator's own click earns nothing.
+  clicked product (`CreatorAttribution`); a creator's own click earns nothing, and one viewer (user, else hashed address) earns a creator once
+  per post and product a day (`AlreadyEarnedAsync`; later clicks keep `post_id`, not `creator_id`). `/go` keeps `personaId` only when it is the
+  caller's own.
 - **No tag without confirmation.** Detected regions and outfit pieces are proposals (`confirmed_at` null), shown to the author only.
   `PUT /posts/{id}/publish` replaces every tag and proposal with what the author sent, confirmed. Never return an unconfirmed tag to anyone
   else, and never auto-confirm.
@@ -571,6 +574,17 @@ External Python workers (a separate repo) push the catalog through the internal 
   `storage.$DOMAIN` to MinIO), `docker/.env.prod.example`, `scripts/gen-secrets.sh|.ps1`, `scripts/backup.sh` (pg_dump, gzip, age or openssl, bucket,
   7 days) and `scripts/restore.sh` (into a scratch database, `--compare` row counts), and `docs/deploy.md` (server steps, restore drill, update procedure,
   the closed-beta tunnel). Keep the variables of `.env.prod.example`, `compose.prod.yaml` and the validator in step.
+
+## Security rules
+
+- `docs/security-review.md` is the review's record (surface map, findings and their status). A fix or a newly accepted risk updates it.
+- **Every authenticated route has a case in `AuthorizationMatrixTests.Cases`** (user B against user A's IDs: a probe, a scoped read or an exemption
+  with its reason); the test fails for a route without one. Internal routes and admin pages are enumerated the same way.
+- **A URL someone else chose is fetched only through `.AddPublicOnlyGuard()`** (`Common/Http/OutboundGuard.cs`: http(s), public addresses after DNS,
+  re-checked at connect, at most 3 redirects, each checked). Fixed hosts in code (JWKS, Open-Meteo, Expo, Anthropic) and the vision service do not
+  need it. Tests fake its DNS with `FakeOutboundResolver` (`*.internal.test` resolves inside); never bypass it to make a test pass.
+- An upload whose stored size is over its limit is deleted when `process` refuses it (presigned PUTs cannot cap the size yet: review M2).
+- CI fails on any known-vulnerable package (`dotnet list package --vulnerable --include-transitive`); upgrade, do not suppress.
 
 ## Commands
 

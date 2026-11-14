@@ -1,4 +1,5 @@
 using Hangfire;
+using Kombin.Api.Common.Http;
 using Kombin.Api.Features.Notification;
 using Kombin.Api.Features.Wardrobe.AddFromProduct;
 using Kombin.Api.Features.Wardrobe.ArchiveItem;
@@ -25,7 +26,8 @@ internal static class WardrobeModule
     {
         services.AddOptions<VisionOptions>().BindConfiguration(VisionOptions.SectionName);
         services.AddHttpClient<IVisionClient, VisionClient>(VisionClient.Configure);
-        services.AddHttpClient(CatalogImageClient, client => client.Timeout = TimeSpan.FromSeconds(10));
+        // The image URL comes from a scraped page: public addresses only, at most three redirects (OutboundGuard).
+        services.AddHttpClient(CatalogImageClient, client => client.Timeout = TimeSpan.FromSeconds(10)).AddPublicOnlyGuard();
 
         // Plain classes with constructor injection, like the other jobs: Hangfire activates them from a scope, the tests resolve them directly.
         services.AddScoped<WardrobeAnalyzeJob>();

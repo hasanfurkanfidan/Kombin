@@ -42,7 +42,7 @@ public sealed class OutboundClickTests(ApiFactory factory)
     {
         using var user = await factory.CreateUserAsync(Ct);
         var product = await factory.SeedProductAsync(user.Client, 500m, cancellationToken: Ct);
-        var persona = Guid.NewGuid();
+        var persona = await user.Client.CreatePersonaAsync("Ofis", cancellationToken: Ct);
         user.Client.DefaultRequestHeaders.UserAgent.ParseAdd("KombinTest/1.0");
 
         using var response = await user.Client.GetAsync($"/api/v1/go/{product.OfferId}?src=outfit&personaId={persona}", Ct);

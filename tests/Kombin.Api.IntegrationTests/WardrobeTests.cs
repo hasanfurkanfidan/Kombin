@@ -305,6 +305,9 @@ public sealed class WardrobeTests(ApiFactory factory)
         using var process = await user.Client.ProcessAsync(itemId, Ct);
         Assert.Equal(HttpStatusCode.BadRequest, process.StatusCode);
         Assert.Equal("Wardrobe.ImageTooLarge", (await process.ReadProblemAsync(Ct)).GetProperty("errorCode").GetString());
+
+        // The oversized object is deleted at once instead of waiting for the daily cleanup (the presigned PUT cannot cap its size).
+        Assert.Null(factory.Storage.Find(await factory.OriginalKeyAsync(itemId, Ct)));
     }
 
     [Fact]

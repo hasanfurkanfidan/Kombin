@@ -1,5 +1,6 @@
 using Hangfire;
 using Kombin.Api.Common.Auth;
+using Kombin.Api.Common.Http;
 using Kombin.Api.Features.Catalog.Embeddings;
 using Kombin.Api.Features.Catalog.GetPriceHistory;
 using Kombin.Api.Features.Catalog.GetProduct;
@@ -32,7 +33,7 @@ internal static class CatalogModule
         {
             client.Timeout = TimeSpan.FromSeconds(20);
             client.DefaultRequestHeaders.UserAgent.ParseAdd(provider.GetRequiredService<IOptions<CatalogEmbeddingOptions>>().Value.UserAgent);
-        });
+        }).AddPublicOnlyGuard();
 
         return services;
     }
