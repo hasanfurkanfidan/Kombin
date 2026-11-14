@@ -22,14 +22,15 @@ internal static class PostRules
     public const int HideAtReports = 3;
 
     /// <summary>
-    /// The author sees every post of theirs that is not deleted. Anyone else needs a live post, no block between them and the author, and
+    /// The author sees every post of theirs that is not deleted (nor hidden by a pending account deletion). Anyone else needs a live post, no block between them and the author, and
     /// the visibility: public for everyone (anonymous included), followers for followers, private for nobody.
     /// </summary>
     public static bool CanView(PostViewFacts facts)
     {
         if (facts.IsAuthor)
         {
-            return facts.Status != PostStatus.Deleted;
+            // A post hidden by a pending account deletion is gone for its author too (they cannot sign in until they cancel).
+            return facts.Status is not (PostStatus.Deleted or PostStatus.AccountPending);
         }
 
         if (facts.BlockedEitherWay || facts.Status != PostStatus.Live)

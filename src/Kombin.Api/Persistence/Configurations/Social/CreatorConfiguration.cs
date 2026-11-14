@@ -46,8 +46,9 @@ internal sealed class ReferralEventConfiguration : IEntityTypeConfiguration<Refe
         builder.HasIndex(referral => referral.ClickId).IsUnique().HasFilter("kind = 'Click'");
         builder.HasIndex(referral => new { referral.SellerId, referral.ExternalOrderRef }).IsUnique().HasFilter("external_order_ref IS NOT NULL");
 
-        // Earnings outlive accounts and catalog cleanups, like clicks: the creator row is kept (restrict), the viewer is anonymized.
-        builder.HasOne<User>().WithMany().HasForeignKey(referral => referral.CreatorId).OnDelete(DeleteBehavior.Restrict);
+        // Earnings outlive accounts and catalog cleanups, like clicks: both the creator and the viewer are anonymized (set null) when their
+        // account is deleted, and the amounts stay as the financial record.
+        builder.HasOne<User>().WithMany().HasForeignKey(referral => referral.CreatorId).OnDelete(DeleteBehavior.SetNull);
         builder.HasOne<User>().WithMany().HasForeignKey(referral => referral.ViewerUserId).OnDelete(DeleteBehavior.SetNull);
         builder.HasOne<Click>().WithMany().HasForeignKey(referral => referral.ClickId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<Product>().WithMany().HasForeignKey(referral => referral.ProductId).OnDelete(DeleteBehavior.Restrict);

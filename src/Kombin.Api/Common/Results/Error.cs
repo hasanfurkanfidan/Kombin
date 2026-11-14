@@ -6,6 +6,16 @@ namespace Kombin.Api.Common.Results;
 /// </summary>
 internal sealed record Error(string Code, string Description, ErrorType ErrorType)
 {
+    /// <summary>Extra members of the problem document (for example a date the client needs), next to <c>errorCode</c> and <c>correlationId</c>.</summary>
+    public IReadOnlyDictionary<string, object?>? Extensions { get; init; }
+
+    public Error WithExtension(string name, object? value)
+    {
+        var extensions = new Dictionary<string, object?>(Extensions ?? new Dictionary<string, object?>()) { [name] = value };
+
+        return this with { Extensions = extensions };
+    }
+
     public static readonly Error None = new(string.Empty, string.Empty, ErrorType.Failure);
 
     public static Error Validation(string code, string description) => new(code, description, ErrorType.Validation);

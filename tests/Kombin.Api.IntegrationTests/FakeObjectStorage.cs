@@ -15,6 +15,13 @@ internal sealed class FakeObjectStorage : IObjectStorage
 
     private readonly ConcurrentQueue<string> _deleted = new();
 
+    private readonly ConcurrentDictionary<string, byte> _failingPrefixes = new(StringComparer.Ordinal);
+
+    /// <summary>Makes <see cref="DeleteAsync"/> throw (like an unreachable store) while any key it is given starts with <paramref name="prefix"/>.</summary>
+    public void FailDeletesUnder(string prefix) => _failingPrefixes[prefix] = 0;
+
+    public void StopFailingDeletes(string prefix) => _failingPrefixes.TryRemove(prefix, out _);
+
     /// <summary>Every key passed to <see cref="DeleteAsync"/>, oldest first.</summary>
     public IReadOnlyList<string> Deleted => [.. _deleted];
 
@@ -42,6 +49,11 @@ internal sealed class FakeObjectStorage : IObjectStorage
 
     public Task DeleteAsync(IReadOnlyCollection<string> keys, CancellationToken cancellationToken)
     {
+        if (keys.Any(key => _failingPrefixes.Keys.Any(prefix => key.StartsWith(prefix, StringComparison.Ordinal))))
+        {
+            throw new IOException("The object store is unreachable (simulated).");
+        }
+
         foreach (var key in keys)
         {
             _objects.TryRemove(key, out _);

@@ -1,4 +1,5 @@
 using Kombin.Api.Common.Auth;
+using Kombin.Api.Common.RateLimiting;
 using Kombin.Api.Common.Storage;
 using Kombin.Api.Common.Validation;
 using Kombin.Api.Persistence;
@@ -17,6 +18,7 @@ internal static class CreateUploadUrlEndpoint
         group.MapPost("/items/upload-url", Handle)
             .WithName("CreateWardrobeUploadUrl")
             .WithValidation<CreateUploadUrlRequest>()
+            .RequireRateLimiting(RateLimitPolicies.Uploads)
             .Produces<CreateUploadUrlResponse>(StatusCodes.Status201Created)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status401Unauthorized);

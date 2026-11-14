@@ -146,6 +146,21 @@ services:
       # scripts/admin-hash.sh; /admin must be reachable only by the founder (IP allow-list or Cloudflare Access, Task 16).
       Admin__Users__0__Email: ${ADMIN_EMAIL:-}
       Admin__Users__0__PasswordHash: ${ADMIN_PASSWORD_HASH:-}
+      # Legal pages (/legal/privacy, /terms, /delete-account) and GET /api/v1/legal: who the data controller is. Blank shows {{PLACEHOLDERS}}
+      # on the pages; Production refuses to start until the three are set.
+      Legal__Version: ${LEGAL_VERSION:-1.0}
+      Legal__ControllerName: ${LEGAL_CONTROLLER_NAME:-}
+      Legal__ContactEmail: ${LEGAL_CONTACT_EMAIL:-}
+      Legal__Address: ${LEGAL_ADDRESS:-}
+      Legal__PublicBaseUrl: ${LEGAL_PUBLIC_BASE_URL:-}
+      # Behind a reverse proxy: TLS ends there (HSTS, HTTPS redirect, X-Forwarded-Proto) and only these networks may set X-Forwarded-For.
+      Proxy__TlsTerminated: ${PROXY_TLS_TERMINATED:-false}
+      Proxy__KnownNetworks__0: ${PROXY_KNOWN_NETWORKS:-172.16.0.0/12}
+      # OpenAPI and the /hangfire dashboard outside Development. Off unless set.
+      Diagnostics__Expose: ${DIAGNOSTICS_EXPOSE:-false}
+      # Rate limits (RateLimits__* in appsettings.json). Off in the local stack: from the host every request comes from the Docker gateway
+      # address, so one shared bucket would limit the whole machine. The production override turns them on.
+      RateLimits__Enabled: ${RATE_LIMITS_ENABLED:-false}
       # Outfit engine: Open-Meteo forecasts (free, no key) for the profile's city; narration by templates unless an Anthropic key is set
       # and NARRATION_PROVIDER=Anthropic, in which case template lines are upgraded in the background (outfit-narrate job).
       Weather__Enabled: ${WEATHER_ENABLED:-true}

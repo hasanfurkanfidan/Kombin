@@ -1,3 +1,4 @@
+using Kombin.Api.Common.RateLimiting;
 using Kombin.Api.Common.Results;
 using Kombin.Api.Common.Time;
 using Kombin.Api.Common.Validation;
@@ -23,6 +24,7 @@ internal static class LoginEndpoint
         group.MapPost("/login", Handle)
             .WithName("Login")
             .WithValidation<LoginRequest>()
+            .RequireRateLimiting(RateLimitPolicies.Auth)
             .Produces<AuthTokensResponse>()
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -57,6 +59,12 @@ internal static class LoginEndpoint
         if (user.DisabledAt is not null)
         {
             return IdentityErrors.AccountDisabled.ToHttpResult();
+        }
+
+        // Said only now that the password was right. The app offers to cancel (POST /auth/cancel-deletion).
+        if (user.DeletionRequestedAt is not null)
+        {
+            return AccountDeletion.PendingError(user).ToHttpResult();
         }
 
         if (verification == PasswordVerificationResult.SuccessRehashNeeded)

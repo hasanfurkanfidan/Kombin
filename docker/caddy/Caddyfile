@@ -1,0 +1,80 @@
+# The only service that listens on the internet (compose.prod.yaml publishes just its 80 and 443). It gets the TLS certificates itself (Let's
+# Encrypt, HTTP-01 on port 80), sets X-Forwarded-For / -Proto / -Host for the API (replacing whatever a client sent: Caddy is the edge) and
+# keeps what must not be public away from the internet: internal endpoints, the job dashboard, OpenAPI and, by address, the admin panel.
+#
+# Variables (docker/.env.prod, passed through compose.prod.yaml):
+#   DOMAIN                the apex domain; the API is api.$DOMAIN and the object storage storage.$DOMAIN
+#   ACME_EMAIL            where Let's Encrypt sends expiry notices
+#   ADMIN_ALLOWED_IPS     space-separated addresses / CIDRs that may open /admin, e.g. "203.0.113.7 198.51.100.0/24"
+#   INTERNAL_ALLOWED_IPS  the same for /api/v1/internal/* (worker machines); defaults to loopback, i.e. nobody from outside
+{
+	email {$ACME_EMAIL}
+}
+
+api.{$DOMAIN} {
+	encode zstd gzip
+
+	# The API refuses more itself (10 MB, 1 MB for JSON, 8 MB for a search photo); this stops the bytes at the edge.
+	request_body {
+		max_size 12MB
+	}
+
+	header -Server
+
+	# Never public, whoever asks. (/internal/* is not a route today; it is blocked in case one appears at the root.)
+	@private path /internal/* /hangfire /hangfire/* /openapi /openapi/*
+	handle @private {
+		respond "Not found" 404
+	}
+
+	# Worker endpoints: only from the machines listed in INTERNAL_ALLOWED_IPS (the X-Internal-Key is checked by the API as well).
+	@workers path /api/v1/internal/*
+	handle @workers {
+		@workerIp remote_ip {$INTERNAL_ALLOWED_IPS:127.0.0.1}
+		handle @workerIp {
+			reverse_proxy api:8080
+		}
+		handle {
+			respond "Not found" 404
+		}
+	}
+
+	# The founder's panel: only from ADMIN_ALLOWED_IPS (or put Cloudflare Access in front and switch this to client_ip with trusted_proxies).
+	@admin path /admin /admin/*
+	handle @admin {
+		@adminIp remote_ip {$ADMIN_ALLOWED_IPS}
+		handle @adminIp {
+			reverse_proxy api:8080
+		}
+		handle {
+			respond "Not found" 404
+		}
+	}
+
+	handle {
+		reverse_proxy api:8080 {
+			health_uri /health/live
+			health_interval 15s
+		}
+	}
+}
+
+# The object store's S3 API: the phones PUT photos to it with presigned URLs and read the public images from it (STORAGE_PUBLIC_URL). Not
+# needed when the storage is Cloudflare R2 or S3. The MinIO console (port 9001) is never published, and neither are its admin paths.
+storage.{$DOMAIN} {
+	request_body {
+		max_size 12MB
+	}
+
+	header -Server
+	header Strict-Transport-Security "max-age=31536000"
+
+	@minio path /minio/*
+	handle @minio {
+		respond "Not found" 404
+	}
+
+	handle {
+		reverse_proxy minio:9000
+	}
+}

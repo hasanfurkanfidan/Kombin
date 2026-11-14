@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace Kombin.Api.Features.Admin.Pages;
 
-internal sealed record UserMatch(Guid Id, string Email, string DisplayName, DateTimeOffset CreatedAt, DateTimeOffset? LastLoginAt, DateTimeOffset? DisabledAt);
+internal sealed record UserMatch(Guid Id, string Email, string DisplayName, DateTimeOffset CreatedAt, DateTimeOffset? LastLoginAt, DateTimeOffset? DisabledAt, DateTimeOffset? DeletionRequestedAt);
 
 internal sealed record UserDetail(
     Guid Id,
@@ -16,6 +16,7 @@ internal sealed record UserDetail(
     DateTimeOffset CreatedAt,
     DateTimeOffset? LastLoginAt,
     DateTimeOffset? DisabledAt,
+    DateTimeOffset? DeletionRequestedAt,
     bool HasPassword,
     IReadOnlyList<string> Providers,
     string? Audience,
@@ -30,7 +31,7 @@ internal sealed record UserDetail(
     string? CreatorHandle,
     int ActiveTokens);
 
-internal sealed class UsersModel(KombinDbContext db, AccountAccess access, IClock clock) : AdminPageModel
+internal sealed class UsersModel(KombinDbContext db, AccountAccess access, AccountDeletion deletion, AccountPurger purger, IClock clock) : AdminPageModel
 {
     private const int MaxMatches = 20;
 
@@ -55,7 +56,7 @@ internal sealed class UsersModel(KombinDbContext db, AccountAccess access, ICloc
                 .Where(user => (asId != null && user.Id == asId) || user.Email.Contains(query))
                 .OrderBy(user => user.Email)
                 .Take(MaxMatches)
-                .Select(user => new UserMatch(user.Id, user.Email, user.DisplayName, user.CreatedAt, user.LastLoginAt, user.DisabledAt))
+                .Select(user => new UserMatch(user.Id, user.Email, user.DisplayName, user.CreatedAt, user.LastLoginAt, user.DisabledAt, user.DeletionRequestedAt))
                 .ToListAsync(cancellationToken);
 
             if (Matches.Count == 1)
@@ -103,6 +104,45 @@ internal sealed class UsersModel(KombinDbContext db, AccountAccess access, ICloc
         return RedirectToPage(new { id });
     }
 
+    /// <summary>"Delete now": removes the account and its data at once, whether or not the user asked and whatever the window says. Irreversible.</summary>
+    public async Task<IActionResult> OnPostDeleteNowAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var result = await purger.PurgeAsync(id, cancellationToken);
+
+        switch (result.Status)
+        {
+            case PurgeStatus.Purged:
+                await AuditAsync("user.delete", "user", id.ToString(), $"objects={result.ObjectsDeleted}", cancellationToken);
+                SetFlash($"Account deleted for good; {result.ObjectsDeleted} stored object(s) removed.");
+
+                return RedirectToPage();
+            case PurgeStatus.StorageFailed:
+                SetFlashError("The stored photos could not be deleted, so nothing was removed. Try again in a moment (the hourly job also keeps trying for accounts that asked for deletion).");
+                break;
+            default:
+                SetFlashError("There is no such user (already deleted?).");
+                break;
+        }
+
+        return RedirectToPage(new { id });
+    }
+
+    public async Task<IActionResult> OnPostCancelDeletionAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var result = await deletion.CancelAsync(id, cancellationToken);
+
+        if (result.IsFailure)
+        {
+            SetFlashError(result.Error.Description);
+            return RedirectToPage(new { id });
+        }
+
+        await AuditAsync("user.cancel-deletion", "user", id.ToString(), null, cancellationToken);
+        SetFlash("Deletion cancelled: the account can sign in again and its posts are visible as before. Devices have to register again.");
+
+        return RedirectToPage(new { id });
+    }
+
     private async Task<UserDetail?> LoadDetailAsync(Guid userId, CancellationToken cancellationToken)
     {
         var user = await db.Users.AsNoTracking().SingleOrDefaultAsync(candidate => candidate.Id == userId, cancellationToken);
@@ -130,6 +170,7 @@ internal sealed class UsersModel(KombinDbContext db, AccountAccess access, ICloc
             user.CreatedAt,
             user.LastLoginAt,
             user.DisabledAt,
+            user.DeletionRequestedAt,
             user.PasswordHash is not null,
             providers,
             profile?.Audience,

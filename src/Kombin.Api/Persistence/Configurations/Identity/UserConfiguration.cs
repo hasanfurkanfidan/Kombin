@@ -17,5 +17,8 @@ internal sealed class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(user => user.DisplayName).HasMaxLength(50).IsRequired();
 
         builder.HasIndex(user => user.Email).IsUnique();
+
+        // What the account-deletion job scans: only the few accounts waiting to be removed.
+        builder.HasIndex(user => user.DeletionRequestedAt).HasFilter("deletion_requested_at IS NOT NULL");
     }
 }

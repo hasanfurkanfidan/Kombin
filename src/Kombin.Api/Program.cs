@@ -1,7 +1,9 @@
 using System.Text.Json.Serialization;
 using Kombin.Api.Common.Auth;
 using Kombin.Api.Common.Health;
+using Kombin.Api.Common.Hosting;
 using Kombin.Api.Common.Http;
+using Kombin.Api.Common.RateLimiting;
 using Kombin.Api.Common.Storage;
 using Kombin.Api.Common.Time;
 using Kombin.Api.Common.Validation;
@@ -10,6 +12,7 @@ using Kombin.Api.Features.Analytics;
 using Kombin.Api.Features.Catalog;
 using Kombin.Api.Features.Engagement;
 using Kombin.Api.Features.Identity;
+using Kombin.Api.Features.Legal;
 using Kombin.Api.Features.Lens;
 using Kombin.Api.Features.Notification;
 using Kombin.Api.Features.Profile;
@@ -27,6 +30,12 @@ if (AdminHashCommand.IsRequested(args))
     return AdminHashCommand.Run(args, Console.Out, Console.Error, AdminHashCommand.ReadFromConsole);
 }
 
+// `dotnet Kombin.Api.dll migrate`: applies the pending migrations and exits (outside Development the API never migrates at start-up).
+if (MigrateCommand.IsRequested(args))
+{
+    return await MigrateCommand.RunAsync(args, Console.Out, Console.Error);
+}
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Host.UseSerilog((context, services, logger) => logger
@@ -35,6 +44,8 @@ builder.Host.UseSerilog((context, services, logger) => logger
     .Enrich.FromLogContext());
 
 builder.Services.AddSingleton<IClock, SystemClock>();
+builder.AddKombinHosting();
+builder.Services.AddKombinRateLimiting();
 builder.Services.AddKombinProblemDetails();
 builder.Services.AddKombinAuth();
 builder.Services.AddValidatorsFromAssembly(typeof(Program).Assembly);
@@ -54,19 +65,36 @@ builder.Services.AddWardrobeFeature();
 builder.Services.AddRecommendationFeature();
 builder.Services.AddSocialFeature();
 builder.Services.AddAdminFeature();
+builder.Services.AddLegalFeature();
 
 var app = builder.Build();
+
+// Production refuses to start with a development default, a placeholder or a missing secret, and says everything that is wrong at once.
+// Checked before anything touches the database; the same check also runs when the host starts (ValidateOnStart), which is what tests see.
+if (!app.HasValidProductionSettings(Console.Error))
+{
+    return 1;
+}
+
+// First: the real client address and scheme from the proxy, then the HTTPS redirect and HSTS when TLS ends at the proxy.
+app.UseKombinForwardedHeaders();
+app.UseKombinTransportSecurity();
 
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseAdminSecurityHeaders();
 app.UseSerilogRequestLogging(options => options.GetLevel = RequestLogLevel);
 app.UseExceptionHandler();
 app.UseStatusCodePages();
+app.UseMiddleware<RequestBodyLimitMiddleware>();
 
 app.UseAuthentication();
+
+// After authentication: the limiter keys on the user when there is one. CORS is deliberately absent: the mobile app needs none.
+app.UseRateLimiter();
 app.UseAuthorization();
 
-if (app.Environment.IsDevelopment())
+// OpenAPI (and the Hangfire dashboard, mapped by UseNotificationJobs) only in Development or with Diagnostics:Expose=true.
+if (app.ExposesDiagnostics())
 {
     app.MapOpenApi();
 }
@@ -85,6 +113,7 @@ app.MapRecommendationEndpoints();
 app.MapSocialEndpoints();
 app.MapLensEndpoints();
 app.MapAdminEndpoints();
+app.MapLegalEndpoints();
 
 await app.MigrateDatabaseOnStartupAsync();
 await app.SeedStyleCardsOnStartupAsync();
@@ -96,6 +125,7 @@ app.UseCatalogJobs();
 app.UseAnalyticsJobs();
 app.UseWardrobeJobs();
 app.UseSocialJobs();
+app.UseIdentityJobs();
 await app.RunAsync();
 return 0;
 

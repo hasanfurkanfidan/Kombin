@@ -1,0 +1,88 @@
+@page "/legal/privacy"
+@model Kombin.Api.Features.Legal.PrivacyModel
+@{
+    ViewData["Title"] = "Gizlilik Politikası ve KVKK Aydınlatma Metni";
+}
+<h1>Gizlilik Politikası ve KVKK Aydınlatma Metni</h1>
+<p class="meta">Sürüm @Model.Legal.Version</p>
+
+<p>Kombin; tarzını öğrenen, dolabını yöneten, kombin önerileri sunan ve ürünlerin fiyatlarını Türkiye'deki satıcılarda karşılaştıran bir mobil uygulamadır. Bu metin, uygulamayı kullanırken hangi kişisel verilerini neden işlediğimizi, nerede sakladığımızı, kimlerle paylaştığımızı ve haklarını nasıl kullanabileceğini anlatır. 6698 sayılı Kişisel Verilerin Korunması Kanunu'nun (KVKK) 10. maddesi kapsamındaki aydınlatma yükümlülüğümüzü de yerine getirir.</p>
+
+<h2 id="veri-sorumlusu">1. Veri sorumlusu</h2>
+<p>Kişisel verilerin işlenmesinde veri sorumlusu: <strong>@Model.Legal.ControllerNameOrPlaceholder</strong><br>Adres: @Model.Legal.AddressOrPlaceholder<br>E-posta: <a href="mailto:@Model.Legal.ContactEmailOrPlaceholder">@Model.Legal.ContactEmailOrPlaceholder</a></p>
+<!-- LAWYER -->
+<p>Gizlilik ve veri talepleri için tek iletişim adresimiz yukarıdaki e-postadır.</p>
+
+<h2 id="islenen-veriler">2. Hangi verileri işliyoruz ve neden?</h2>
+<div class="tablewrap"><table>
+    <thead><tr><th>Veri</th><th>Ne için</th></tr></thead>
+    <tbody>
+    <tr><td><strong>Hesap:</strong> e-posta adresi, görünen ad, şifren (yalnızca geri döndürülemez bir özet olarak, şifrenin kendisi değil), son giriş zamanı. Google veya Apple ile giriş yaparsan sağlayıcının doğruladığı kimlik numarası ve e-posta adresi.</td><td>Hesabını oluşturmak ve giriş yapmanı sağlamak. Görünen adın, gönderilerinde ve profilinde başkalarına gösterilir. Google/Apple'dan erişim ya da yenileme anahtarı almayız ve saklamayız.</td></tr>
+    <tr><td><strong>Stil bilgileri:</strong> kaydırma (beğendim/beğenmedim) yanıtların, oluşturduğun stil profilleri ("personalar") ve tercihlerin (renk, kalıp, bütçe), hedef kitle seçimi, bedenlerin ve isteğe bağlı ölçülerin, şehrin.</td><td>Sana uygun ürün ve kombin önermek. Şehrin yalnızca hava durumuna göre öneri yapmak için kullanılır; hava durumu servisine kullanıcı kimliğin gönderilmez.</td></tr>
+    <tr><td><strong>Dolap:</strong> eklediğin kıyafet fotoğrafları (orijinal, arka planı temizlenmiş görsel ve küçük resim), kıyafetin kategori, renk, desen gibi özellikleri, giyildiği günler, isteğe bağlı satın alma bilgileri.</td><td>Dolabını göstermek, kombin önermek, eksiklerini bulmak. Fotoğraf; kıyafetin türünü, rengini ve desenini bulmak için kendi sunucumuzdaki analiz servisine gönderilir; servis fotoğrafı saklamaz.</td></tr>
+    <tr><td><strong>Gönderiler:</strong> paylaştığın fotoğraflar, açıklamalar, onayladığın ürün etiketleri; beğeniler, takip ettiklerin, engellediklerin, yaptığın şikâyetler; paylaşım onayının sürümü ve zamanı.</td><td>Kombin akışında paylaşım yapmanı sağlamak. Gönderilerin sen "Takipçilerime" veya "Herkese açık" seçene kadar yalnızca sana görünür. Yüklenen fotoğraftaki konum ve cihaz bilgileri (EXIF) silinir. Her fotoğraf yayından önce otomatik bir güvenlik kontrolünden geçer; şüpheli olanlar bir kişi tarafından incelenir. Otomatik kontrol yüz tanıma, kimlik belirleme veya yaş ve cinsiyet tahmini yapmaz.</td></tr>
+    <tr><td><strong>"Görselden ürün bul":</strong> aradığın fotoğraf.</td><td>Fotoğraftaki kıyafetleri bulup benzer ürünleri göstermek. Fotoğraf <strong>saklanmaz</strong> ve kaydedilmez; yalnızca isteğin süresince bellekte tutulur. Fotoğrafı dolabına eklemeyi seçersen dolap fotoğrafı olarak yukarıdaki kurallarla saklanır.</td></tr>
+    <tr><td><strong>Satın alma tıklamaları:</strong> hangi ürüne, hangi satıcıya, uygulamanın hangi bölümünden tıkladığın; cihazının tarayıcı bilgisi (user agent); IP adresinin tuzlu bir özeti (IP adresinin kendisini saklamayız).</td><td>Satıcılara yönlendirme, komisyon takibi, kötüye kullanımın önlenmesi ve içerik üreticilerine ait payın hesaplanması.</td></tr>
+    <tr><td><strong>Bildirimler:</strong> cihazının bildirim adresi (Expo push anahtarı), bildirim tercihlerin, sessiz saatlerin, aldığın bildirimlerin kaydı.</td><td>Fiyat düşüşü, stok ve haftalık öneri bildirimleri göndermek.</td></tr>
+    <tr><td><strong>Kullanım istatistikleri:</strong> uygulama olayları (ekran açma, ürün görüntüleme gibi), cihazın rastgele anonim kimliği, uygulama sürümü, platform.</td><td>Ürünü geliştirmek. Olay listesi önceden belirlidir; serbest metin (arama sözcükleri, açıklamalar, ad, e-posta) bu kayıtlara <strong>yazılmaz</strong>. Giriş yaptığında önceki anonim olaylar hesabınla ilişkilendirilir.</td></tr>
+    <tr><td><strong>Teknik kayıtlar:</strong> hata ve istek kayıtları (adres yolu, durum kodu, süre, istek numarası).</td><td>Hataları bulmak ve hizmeti güvende tutmak.</td></tr>
+    </tbody>
+</table></div>
+<!-- LAWYER -->
+<p>Dolap fotoğraflarının arka planı temizlenmiş görseli ve küçük resmi, tahmin edilemeyen bir adresle yayımlanır; adresi bilen herkes görebilir. Orijinal fotoğraf ise gizlidir ve yalnızca sana kısa süreli bir bağlantıyla gösterilir.</p>
+
+<h2 id="hukuki-sebepler">3. İşleme amaçları ve hukuki sebepler</h2>
+<!-- LAWYER -->
+<p>Verilerini; hesabını kurmak ve hizmeti sunmak için (sözleşmenin kurulması ve ifası), uygulamayı güvende tutmak, hileyi önlemek ve ürünü geliştirmek için (meşru menfaatimiz), kanundan doğan yükümlülüklerimizi yerine getirmek için (hukuki yükümlülük) ve gönderi paylaşımı için verdiğin <strong>açık rızaya</strong> dayanarak işleriz (KVKK m. 5 ve m. 6). Paylaşım rızasını gönderi paylaşmadan önce uygulamada ayrıca onaylarsın; onayın sürümü ve zamanı kaydedilir. Bir gönderiyi istediğin an silerek rızanı geri çekebilirsin.</p>
+
+<h2 id="aktarimlar">4. Verilerin aktarıldığı taraflar</h2>
+<div class="tablewrap"><table>
+    <thead><tr><th>Kime</th><th>Ne</th><th>Nerede</th></tr></thead>
+    <tbody>
+    <tr><td>Barındırma ve nesne depolama sağlayıcımız</td><td>Hesap verileri, veritabanı, fotoğraflar</td><td>Avrupa Birliği içindeki sunucular</td></tr>
+    <tr><td>Expo (bildirim servisi)</td><td>Bildirim adresin ve bildirim metni</td><td>Amerika Birleşik Devletleri</td></tr>
+    <tr><td>Google ve Apple</td><td>Yalnızca onlarla giriş yaparsan: giriş jetonunun doğrulanması. Bize yalnızca kimlik numaran, e-postan ve (verirlerse) adın ulaşır.</td><td>Sağlayıcıya göre</td></tr>
+    <tr><td>Open-Meteo (hava durumu)</td><td>Yalnızca profilindeki şehir; kullanıcı kimliği yok</td><td>Avrupa Birliği</td></tr>
+    <tr><td>Satıcılar ve ortak ağlar (Trendyol, Hepsiburada, marka siteleri)</td><td>Bir ürüne tıkladığında yönlendirilirsin; bağlantıya Kombin'in tıklama kimliği eklenir. Adın, e-postan veya kullanıcı kimliğin eklenmez.</td><td>Satıcının sitesi</td></tr>
+    <tr><td>Yapay zekâ servisi (yalnızca etkinleştirilirse)</td><td>Kombin cümlelerini güzelleştirmek için kıyafet kategorileri ve renkleri; fotoğraf ve kullanıcı bilgisi gönderilmez</td><td>Amerika Birleşik Devletleri</td></tr>
+    </tbody>
+</table></div>
+<!-- LAWYER -->
+<p>Gönderi fotoğrafların ve "Görselden ürün bul" fotoğrafların hiçbir üçüncü tarafa gönderilmez. Yurt dışındaki alıcılara (Expo, ve etkinleştirilirse yapay zekâ servisi) aktarım, KVKK m. 9 kapsamında yapılır.</p>
+<!-- LAWYER -->
+<p>Verilerini satmayız ve reklam amaçlı üçüncü taraflarla paylaşmayız.</p>
+
+<h2 id="saklama">5. Ne kadar saklıyoruz?</h2>
+<ul>
+    <li><strong>Hesap silme:</strong> Hesabını silmeyi istersen hesabın hemen kapanır ve gönderilerin herkesten gizlenir. 7 gün boyunca fikrini değiştirip silmeyi iptal edebilirsin; sonrasında hesabın ve verilerin kalıcı olarak silinir. Ayrıntılar: <a href="/legal/delete-account">hesabı silme sayfası</a>.</li>
+    <li><!-- LAWYER -->Yedekler: Düzenli veritabanı yedekleri en fazla 7 gün saklanır; silinen veriler bu sürenin sonunda yedeklerden de kaybolur.</li>
+    <li>Silinen gönderiler ve fotoğrafları en geç 24 saat içinde kalıcı olarak silinir. Arşivlediğin dolap öğelerinin görselleri 30 gün sonra, tamamlanmamış yüklemeler 1 gün sonra silinir.</li>
+    <li>Satın alma tıklamaları ve kullanım istatistikleri hesabın silindiğinde <strong>anonimleştirilir</strong> (kullanıcı kimliğin kaldırılır) ve ürün ile gelir kaydı olarak tutulur. İçerik üreticilerine ait komisyon kayıtları, kişi bağlantısı kaldırılarak tutarlarıyla saklanır.</li>
+    <li><!-- LAWYER -->Güvenlik nedeniyle engellenen gönderiler 30 gün saklanır. Yöneticilerin işlem kayıtları (kim, ne zaman, hangi kayıt için) kişisel veri içermeyecek biçimde tutulur; saklama süresi belirlenmemiştir.</li>
+    <li><!-- LAWYER -->Kanundan doğan saklama yükümlülüklerimiz varsa ilgili veriler bu sürelerin sonuna kadar saklanır.</li>
+</ul>
+
+<h2 id="haklar">6. Haklarını nasıl kullanırsın?</h2>
+<!-- LAWYER -->
+<p>KVKK'nın 11. maddesine göre; verilerinin işlenip işlenmediğini öğrenme, işlenmişse bilgi isteme, işleme amacını ve amacına uygun kullanılıp kullanılmadığını öğrenme, yurt içinde veya yurt dışında aktarıldığı tarafları bilme, eksik veya yanlış işlenmişse düzeltilmesini isteme, silinmesini veya yok edilmesini isteme, bu işlemlerin aktarıldığı üçüncü kişilere bildirilmesini isteme, otomatik sistemlerle analiz sonucu aleyhine bir sonuç çıkmasına itiraz etme ve kanuna aykırı işlenmesi nedeniyle zarara uğrarsan zararın giderilmesini talep etme haklarına sahipsin.</p>
+<p>Bu haklarını <a href="mailto:@Model.Legal.ContactEmailOrPlaceholder">@Model.Legal.ContactEmailOrPlaceholder</a> adresine yazarak kullanabilirsin. Hesabını ve verilerini silmek için ayrıca uygulamadaki "Hesabı sil" seçeneğini kullanabilirsin.</p>
+<!-- LAWYER -->
+<p>Başvurunu, talebin niteliğine göre en kısa sürede ve en geç 30 gün içinde yanıtlarız. Kimliğini doğrulamak için seni hesabındaki e-posta adresinden yazmaya veya ek bilgi vermeye çağırabiliriz. Yanıtımızdan memnun kalmazsan Kişisel Verileri Koruma Kurumu'na şikâyet etme hakkın saklıdır.</p>
+
+<h2 id="guvenlik">7. Verilerini nasıl koruyoruz?</h2>
+<!-- LAWYER -->
+<p>Şifren yalnızca geri döndürülemez bir özet olarak saklanır. Uygulama ile sunucumuz arasındaki trafik şifrelidir (HTTPS). Özel fotoğraflar herkese açık olmayan depolamada tutulur ve yalnızca kısa süreli bağlantılarla gösterilir. Yönetim paneline yalnızca yetkili kişiler girebilir ve yaptıkları işlemler kaydedilir. Hiçbir güvenlik önlemi mutlak değildir; bir ihlal olursa mevzuatın gerektirdiği bildirimleri yaparız.</p>
+
+<h2 id="cocuklar">8. Çocuklar</h2>
+<!-- LAWYER -->
+<p>Kombin 13 yaşından küçük çocuklara yönelik değildir ve onlardan bilerek kişisel veri toplamayız. 13 yaşından küçük birinin hesap açtığını fark edersek hesabı ve verilerini sileriz. Velisi olduğun çocuğun hesap açtığını düşünüyorsan bize yaz.</p>
+
+<h2 id="komisyon">9. Satış ve komisyon bilgilendirmesi</h2>
+<!-- LAWYER -->
+<p><strong>Kombin satış yapmaz; bağlantılardan komisyon kazanabilir.</strong> Uygulamadaki satın alma bağlantıları seni satıcının sitesine götürür; alışverişi satıcıdan yaparsın. Bu bağlantılardan yapılan alışverişlerde Kombin (ve bir kreatör gönderisinden gelindiyse kreatör) satıcıdan komisyon alabilir; bu sana ek bir maliyet getirmez. Kreatör gönderilerinde bu durum "Bu içerikten komisyon kazanabilir" ifadesiyle belirtilir.</p>
+
+<h2 id="degisiklikler">10. Bu metindeki değişiklikler</h2>
+<p>Bu metni zaman zaman güncelleyebiliriz. Güncel sürüm numarası sayfanın başında ve altında yer alır. Önemli bir değişiklik olursa uygulama içinden haber veririz.</p>
+
+<h2 id="iletisim">11. İletişim</h2>
+<p>@Model.Legal.ControllerNameOrPlaceholder · @Model.Legal.AddressOrPlaceholder · <a href="mailto:@Model.Legal.ContactEmailOrPlaceholder">@Model.Legal.ContactEmailOrPlaceholder</a></p>

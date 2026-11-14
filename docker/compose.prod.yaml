@@ -1,0 +1,116 @@
+# Production override: the same stack as compose.yaml, shut tight.
+#
+#   docker compose --env-file docker/.env.prod --file docker/compose.yaml --file docker/compose.prod.yaml up --build --detach --wait
+#
+# (Docker Compose 2.24 or newer: it uses `!reset`.) What changes:
+#   - nothing is published to the host except the reverse proxy's 80 and 443; db, minio, vision and api are reachable inside the network only;
+#   - the API runs as Production: it refuses to start with development defaults, hides OpenAPI and /hangfire, trusts forwarded headers only
+#     from the pinned backend network, redirects HTTP and sends HSTS, and keeps its data-protection keys on a volume (/keys);
+#   - every secret the app needs is required (`:?`), so a missing one stops `up` instead of falling back to a development value;
+#   - containers restart on failure, have memory limits and rotated logs.
+# See docs/deploy.md and docker/.env.prod.example.
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:?DOMAIN is required, e.g. example.com}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL is required}
+      ADMIN_ALLOWED_IPS: "${ADMIN_ALLOWED_IPS:?ADMIN_ALLOWED_IPS is required (the addresses that may open /admin)}"
+      INTERNAL_ALLOWED_IPS: ${INTERNAL_ALLOWED_IPS:-127.0.0.1}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - kombin-caddy-data:/data
+      - kombin-caddy-config:/config
+    networks:
+      - backend
+    mem_limit: 256m
+    logging: *logging
+    healthcheck:
+      # Caddy's admin API listens on loopback inside the container; it answers once the configuration is loaded.
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:2019/config/"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  db:
+    ports: !reset []
+    mem_limit: 1g
+    logging: *logging
+
+  minio:
+    ports: !reset []
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+    mem_limit: 1g
+    logging: *logging
+
+  minio-init:
+    environment:
+      MC_HOST_local: http://${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}:${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}@minio:9000
+
+  vision:
+    ports: !reset []
+    environment:
+      VISION_INTERNAL_KEY: ${VISION_INTERNAL_KEY:?VISION_INTERNAL_KEY is required}
+    mem_limit: 4g
+    logging: *logging
+
+  api:
+    ports: !reset []
+    volumes:
+      # The data-protection keys: without them a restart signs the founder out of /admin.
+      - kombin-keys:/keys
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      # Production never migrates or seeds at start-up: `docker compose ... run --rm --no-deps api migrate` does it when you update.
+      Database__MigrateOnStartup: "false"
+      Database__SeedOnStartup: "false"
+      RateLimits__Enabled: "true"
+      Proxy__TlsTerminated: "true"
+      Proxy__KnownNetworks__0: ${BACKEND_SUBNET:-172.30.0.0/24}
+      DataProtection__KeysPath: /keys
+      Outbound__IpSalt: ${OUTBOUND_IP_SALT:?OUTBOUND_IP_SALT is required}
+      Vision__InternalKey: ${VISION_INTERNAL_KEY:?VISION_INTERNAL_KEY is required}
+      Storage__AccessKey: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
+      Storage__SecretKey: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+      Storage__PresignEndpoint: ${STORAGE_PUBLIC_URL:?STORAGE_PUBLIC_URL is required, e.g. https://storage.example.com}
+      Storage__PublicBaseUrl: ${STORAGE_PUBLIC_URL:?STORAGE_PUBLIC_URL is required}/kombin
+      Legal__ControllerName: ${LEGAL_CONTROLLER_NAME:?LEGAL_CONTROLLER_NAME is required}
+      Legal__ContactEmail: ${LEGAL_CONTACT_EMAIL:?LEGAL_CONTACT_EMAIL is required}
+      Legal__Address: ${LEGAL_ADDRESS:?LEGAL_ADDRESS is required}
+      Legal__PublicBaseUrl: https://api.${DOMAIN:?DOMAIN is required}
+      CatalogEmbeddings__BotContact: ${BOT_CONTACT:?BOT_CONTACT is required}
+      Admin__Users__0__Email: ${ADMIN_EMAIL:?ADMIN_EMAIL is required}
+      Admin__Users__0__PasswordHash: ${ADMIN_PASSWORD_HASH:?ADMIN_PASSWORD_HASH is required}
+    mem_limit: 1g
+    logging: *logging
+    # The image's own HEALTHCHECK (GET /health/live) is what caddy waits for.
+
+networks:
+  backend:
+    # Pinned, so Proxy__KnownNetworks above is exactly this network and nothing a client can claim.
+    ipam:
+      config:
+        - subnet: ${BACKEND_SUBNET:-172.30.0.0/24}
+
+volumes:
+  kombin-keys:
+  kombin-caddy-data:
+  kombin-caddy-config:

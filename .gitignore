@@ -11,6 +11,8 @@ TestResults/
 
 ## Secrets and local environment
 docker/.env
+docker/.env.prod
+backups/
 .env
 appsettings.*.local.json
 

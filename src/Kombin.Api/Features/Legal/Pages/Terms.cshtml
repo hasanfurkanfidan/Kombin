@@ -1,0 +1,60 @@
+@page "/legal/terms"
+@model Kombin.Api.Features.Legal.TermsModel
+@{
+    ViewData["Title"] = "Kullanım Koşulları";
+}
+<h1>Kullanım Koşulları</h1>
+<p class="meta">Sürüm @Model.Legal.Version</p>
+
+<p>Bu koşullar, @Model.Legal.ControllerNameOrPlaceholder ("Kombin", "biz") tarafından sunulan Kombin mobil uygulamasını ve ona bağlı hizmetleri kullanımını düzenler. Uygulamayı kullanarak bu koşulları kabul etmiş olursun. Kişisel verilerin nasıl işlendiği <a href="/legal/privacy">Gizlilik Politikası</a>'nda anlatılır.</p>
+
+<h2 id="hizmet">1. Kombin nedir, ne değildir?</h2>
+<p>Kombin; tarzını öğrenir, dolabını yönetmene yardım eder, kombin önerir, ürünlerin fiyatlarını Türkiye'deki satıcılarda karşılaştırır ve seni satın alabileceğin satıcıya yönlendirir. <strong>Kombin satış yapmaz</strong>; ürünlerin satıcısı, fiyat ve teslimatın sorumlusu ilgili satıcıdır. Alışverişin satıcıyla senin aranda kurulur.</p>
+<!-- LAWYER -->
+<p>Gösterilen fiyat, stok ve ürün bilgileri satıcıların sitelerinden derlenir ve bilgi amaçlıdır; az önce gösterdiğimiz fiyat satıcıda artık geçerli olmayabilir. Satın almadan önce satıcının sitesindeki güncel bilgiyi kontrol etmelisin. Önerilerimiz kural ve skorlara dayanır; her öneri sana uygun olmayabilir.</p>
+<!-- LAWYER -->
+<p><strong>Komisyon bilgisi:</strong> Kombin satış yapmaz; bağlantılardan komisyon kazanabilir. Satın alma bağlantıları üzerinden yapılan alışverişlerde satıcı veya ortak ağ bize komisyon ödeyebilir; bu sana ek bir maliyet getirmez ve fiyatları etkilemez.</p>
+
+<h2 id="hesap">2. Hesabın</h2>
+<!-- LAWYER -->
+<p>Kombin'i kullanmak için en az 13 yaşında olmalısın. Hesap bilgilerinin doğru olmasından ve şifrenin gizliliğinden sen sorumlusun; hesabında izinsiz bir işlem fark edersen bize hemen bildir. Hesabını istediğin zaman uygulamadan silebilirsin (<a href="/legal/delete-account">nasıl?</a>).</p>
+
+<h2 id="icerik">3. Paylaştığın içerik</h2>
+<p>Kombin'de fotoğraf ve kombin paylaşabilirsin. Paylaşmadan önce uygulamada gösterilen <strong>paylaşım onayını</strong> kabul edersin; o metin ile bu bölüm birbirini tamamlar. Paylaşırken şunları kabul edersin:</p>
+<ul>
+    <li>Fotoğrafta görünen herkesin paylaşıma izni olduğunu onaylarsın. Başkasının fotoğrafını izinsiz paylaşmazsın.</li>
+    <li>Gönderilerin, sen "Takipçilerime" veya "Herkese açık" seçene kadar yalnızca sana görünür.</li>
+    <li>Çıplaklık ve cinsel içerik, şiddet, nefret söylemi, taciz, yasa dışı veya başkalarının haklarını ihlal eden, konuyla ilgisiz ya da yanıltıcı içerik paylaşmazsın. Başkalarına ait telif hakkıyla korunan görselleri izinsiz kullanmazsın.</li>
+    <li>Her fotoğraf yayından önce otomatik bir güvenlik kontrolünden geçer; şüpheli olanlar bir kişi tarafından incelenir. Kurallara aykırı gönderiler yayından kaldırılabilir, tekrarında hesabın kapatılabilir.</li>
+    <li>Bir gönderiyi istediğin an silebilirsin; fotoğraf ve türetilmiş kopyaları en geç 24 saat içinde kalıcı olarak silinir.</li>
+    <li>Kreatör gönderilerinden yapılan alışverişlerde Kombin ve kreatör komisyon kazanabilir; bu durum gönderide belirtilir.</li>
+</ul>
+<!-- LAWYER -->
+<p>İçeriğin sana ait kalır. Gönderini yayınladığın sürece, Kombin'in onu uygulama içinde göstermesi, küçültmesi ve yeniden işlenmiş kopyalarını üretmesi için bize sınırlı, münhasır olmayan, ücretsiz bir kullanım izni vermiş olursun. Gönderini sildiğinde bu izin sona erer.</p>
+<!-- LAWYER -->
+<p>Şikâyet edilen veya kurallara aykırı olduğundan şüphelenilen içeriği önceden haber vermeden gizleyebilir, inceleyebilir ve kaldırabiliriz. Üç farklı kullanıcı bir gönderiyi şikâyet ederse gönderi incelenene kadar gizlenir.</p>
+
+<h2 id="yasaklar">4. Yapmayacağın şeyler</h2>
+<p>Uygulamayı ve hizmetlerimizi kötüye kullanmazsın: yetkisiz erişim denemez, güvenlik önlemlerini aşmaya çalışmaz, otomatik araçlarla (kazıma, kitlesel istek) veri toplamaz, hizmeti aksatacak yük oluşturmaz, başkası gibi davranmaz ve komisyon sistemini hileli tıklamalarla manipüle etmezsin.</p>
+
+<h2 id="fikri-haklar">5. Fikri haklar</h2>
+<!-- LAWYER -->
+<p>Uygulamanın yazılımı, tasarımı, adı ve logosu bize veya lisans verenlere aittir. Ürün görselleri, markalar ve satıcı adları ilgili sahiplerine aittir; Kombin bunlarla bir ortaklık iddia etmez.</p>
+
+<h2 id="sorumluluk">6. Sorumluluğumuz</h2>
+<!-- LAWYER -->
+<p>Kombin'i "olduğu gibi" sunarız ve kesintisiz ya da hatasız çalışacağını garanti etmeyiz. Satıcıların ürünlerinden, fiyatlarından, teslimat ve iadelerinden, kullanıcıların paylaştığı içeriklerden biz sorumlu değiliz. Kanunun izin verdiği ölçüde, hizmetin kullanımından doğan dolaylı zararlardan sorumlu olmayız. Bu madde, kanunen sınırlandırılamayacak sorumluluklarımızı ve tüketici haklarını etkilemez.</p>
+
+<h2 id="fesih">7. Hesabın sona ermesi</h2>
+<p>Hesabını istediğin zaman silebilirsin; silme, <a href="/legal/delete-account">hesabı silme sayfasında</a> anlatıldığı gibi işler. Bu koşulları veya güvenliği ihlal eden hesapları askıya alabilir veya kapatabiliriz.</p>
+
+<h2 id="degisiklik">8. Koşullardaki değişiklikler</h2>
+<!-- LAWYER -->
+<p>Bu koşulları zaman zaman güncelleyebiliriz. Güncel sürüm numarası sayfanın başında ve altında yer alır. Önemli değişiklikleri uygulama içinden duyururuz; değişiklikten sonra uygulamayı kullanmaya devam etmen güncel koşulları kabul ettiğin anlamına gelir.</p>
+
+<h2 id="hukuk">9. Uygulanacak hukuk ve uyuşmazlıklar</h2>
+<!-- LAWYER -->
+<p>Bu koşullara Türkiye Cumhuriyeti hukuku uygulanır. Uyuşmazlıklarda, tüketici mevzuatından doğan yetki ve başvuru yolları saklı kalmak üzere, yetkili mahkemeler ve icra daireleri: @Model.Legal.AddressOrPlaceholder adresinin bulunduğu yerdeki mahkemelerdir.</p>
+
+<h2 id="iletisim">10. İletişim</h2>
+<p>@Model.Legal.ControllerNameOrPlaceholder · @Model.Legal.AddressOrPlaceholder · <a href="mailto:@Model.Legal.ContactEmailOrPlaceholder">@Model.Legal.ContactEmailOrPlaceholder</a></p>

@@ -21,6 +21,9 @@ internal sealed class Post : BaseEntity
 
     public PostStatus Status { get; set; } = PostStatus.Processing;
 
+    /// <summary>The status to restore when <see cref="Status"/> is <see cref="PostStatus.AccountPending"/> and the author cancels the deletion.</summary>
+    public PostStatus? StatusBeforeDeletion { get; set; }
+
     /// <summary>The author's audience when the post was created (the for-you feed matches it against the viewer's).</summary>
     public Audience Audience { get; set; } = Audience.Unisex;
 

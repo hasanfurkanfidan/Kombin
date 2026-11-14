@@ -1,3 +1,4 @@
+using Kombin.Api.Common.RateLimiting;
 using Kombin.Api.Features.Engagement.CreateAlert;
 using Kombin.Api.Features.Engagement.DeleteAlert;
 using Kombin.Api.Features.Engagement.ListAlerts;
@@ -48,7 +49,7 @@ internal static class EngagementModule
         ListClicksEndpoint.Map(me.MapGroup("/clicks").WithTags("Clicks"));
 
         // Public on purpose: a buy click works signed out. The handler reads the user from the token when there is one.
-        RedirectEndpoint.Map(app.MapGroup("/api/v1/go").WithTags("Outbound"));
+        RedirectEndpoint.Map(app.MapGroup("/api/v1/go").WithTags("Outbound").RequireRateLimiting(RateLimitPolicies.Go));
 
         return app;
     }

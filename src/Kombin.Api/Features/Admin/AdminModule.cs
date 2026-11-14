@@ -89,10 +89,11 @@ internal static class AdminModule
 
         services.AddRazorPages(options =>
         {
-            // The pages live in Features/Admin/Pages (a feature folder, like everything else) and name their own /admin routes.
-            options.RootDirectory = "/Features/Admin/Pages";
-            options.Conventions.AuthorizeFolder("/", AdminAuth.Policy);
-            options.Conventions.AllowAnonymousToPage("/Login");
+            // Pages live in their feature folder (Features/Admin/Pages, Features/Legal/Pages) and name their own routes, so the root is Features.
+            // Only the admin folder asks for the admin sign-in; the legal pages are public.
+            options.RootDirectory = "/Features";
+            options.Conventions.AuthorizeFolder("/Admin/Pages", AdminAuth.Policy);
+            options.Conventions.AllowAnonymousToPage("/Admin/Pages/Login");
         });
 
         return services;
