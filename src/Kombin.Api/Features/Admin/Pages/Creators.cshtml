@@ -1,0 +1,68 @@
+@page "/admin/creators"
+@model Kombin.Api.Features.Admin.Pages.CreatorsModel
+@{
+    ViewData["Title"] = "Creators";
+}
+<h1>Creators</h1>
+<p class="muted">Clicks and earnings cover the last @CreatorsModel.Days days. Earnings are an <strong>estimate</strong> (clicks × conversion rate × average order × commission × the creator's share; no real conversions are imported yet).</p>
+
+<div class="tablewrap"><table>
+    <thead><tr><th>Handle</th><th>Status</th><th class="num">Posts (live / all)</th><th class="num">Clicks</th><th class="num">Est. earnings</th><th></th></tr></thead>
+    <tbody>
+    @foreach (var creator in Model.Creators)
+    {
+        <tr>
+            <td>@@@creator.Handle<div class="muted">@creator.DisplayName · @creator.UserId</div></td>
+            <td class="@(creator.IsActive ? "ok" : "muted")">@(creator.IsActive ? "active" : "revoked")</td>
+            <td class="num">@creator.LivePosts / @creator.Posts</td>
+            <td class="num">@creator.Clicks</td>
+            <td class="num">@AdminFormat.Money(creator.EstimatedEarnings)</td>
+            <td>
+                @if (creator.IsActive)
+                {
+                    <form method="post" asp-page-handler="Revoke" data-confirm="@($"Revoke @{creator.Handle}? Clicks stop earning them a share; their posts stay.")">
+                        <input type="hidden" name="userId" value="@creator.UserId">
+                        <button class="danger" type="submit">Revoke</button>
+                    </form>
+                }
+            </td>
+        </tr>
+    }
+    @if (Model.Creators.Count == 0)
+    {
+        <tr><td colspan="6" class="muted">No creators yet.</td></tr>
+    }
+    </tbody>
+</table></div>
+
+<h2>Invite a creator</h2>
+<form method="get" class="card">
+    <label for="q">Find the user by e-mail (part of it is enough), creator handle or user ID</label>
+    <input id="q" type="text" name="q" value="@Model.Query" autocomplete="off">
+    <div class="actions"><button type="submit">Search</button></div>
+</form>
+
+@foreach (var match in Model.Matches)
+{
+    <div class="card">
+        <strong>@match.DisplayName</strong> <span class="muted">· @AdminFormat.MaskEmail(match.Email) · @match.UserId</span>
+        @if (match.CurrentHandle is { } current)
+        {
+            <div class="muted">Already a creator: @@@current (@(match.IsActive ? "active" : "revoked")). Submitting updates the page and makes it active.</div>
+        }
+        <form method="post" asp-page-handler="Invite">
+            <input type="hidden" name="userId" value="@match.UserId">
+            <label>Handle (3-30 of a-z, 0-9, . and _)</label>
+            <input type="text" name="handle" value="@match.CurrentHandle" required maxlength="31" autocomplete="off">
+            <label>Bio (optional, up to 160)</label>
+            <input type="text" name="bio" value="@match.Bio" maxlength="160">
+            <label>Link (optional, https://…)</label>
+            <input type="text" name="link" value="@match.Link" maxlength="200">
+            <div class="actions"><button class="primary" type="submit">@(match.CurrentHandle is null ? "Invite" : "Update and activate")</button></div>
+        </form>
+    </div>
+}
+@if (Model.Query is not null && Model.Matches.Count == 0)
+{
+    <p class="muted">No user matches.</p>
+}

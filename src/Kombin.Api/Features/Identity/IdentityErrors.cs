@@ -28,6 +28,10 @@ internal static class IdentityErrors
     public static readonly Error ExternalProviderUnavailable =
         Error.Unavailable("Identity.ExternalProviderUnavailable", "The provider could not be reached to check the sign-in token. Try again.");
 
+    // Said only once the caller proved who they are (right password, valid ID token, live refresh token), so it reveals nothing to a guesser.
+    public static readonly Error AccountDisabled =
+        Error.Forbidden("Identity.AccountDisabled", "This account has been disabled. Contact support if you think this is a mistake.");
+
     public static readonly Error UserNotFound =
         Error.Unauthorized("Identity.UserNotFound", "The authenticated user no longer exists.");
 }

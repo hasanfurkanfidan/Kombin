@@ -1,3 +1,6 @@
+using Kombin.Api.Common.Auth;
+using Kombin.Api.Features.Identity.DisableAccount;
+using Kombin.Api.Features.Identity.EnableAccount;
 using Kombin.Api.Features.Identity.ExternalSignIn;
 using Kombin.Api.Features.Identity.ExternalTokens;
 using Kombin.Api.Features.Identity.GetMe;
@@ -17,6 +20,7 @@ internal static class IdentityModule
         // PBKDF2 hashing from the framework; no ASP.NET Identity tables or UserManager involved.
         services.AddSingleton<IPasswordHasher<User>, PasswordHasher<User>>();
         services.AddScoped<AuthTokenIssuer>();
+        services.AddScoped<AccountAccess>();
 
         // Sign in with Google / Apple: the app sends the provider's ID token, we check it against the provider's published keys.
         // Singletons because each verifier caches its provider's JWKS for a day.
@@ -40,6 +44,11 @@ internal static class IdentityModule
 
         var me = app.MapGroup("/api/v1/me").WithTags("Me").RequireAuthorization();
         GetMeEndpoint.Map(me);
+
+        // Internal: the founder's account switch (also used by the admin panel), with X-Internal-Key.
+        var internalIdentity = app.MapGroup("/api/v1/internal/identity").WithTags("Identity (internal)").RequireInternalKey();
+        DisableAccountEndpoint.Map(internalIdentity);
+        EnableAccountEndpoint.Map(internalIdentity);
 
         return app;
     }

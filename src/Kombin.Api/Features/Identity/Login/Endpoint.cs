@@ -25,7 +25,8 @@ internal static class LoginEndpoint
             .WithValidation<LoginRequest>()
             .Produces<AuthTokensResponse>()
             .ProducesProblem(StatusCodes.Status400BadRequest)
-            .ProducesProblem(StatusCodes.Status401Unauthorized);
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
 
     private static async Task<IResult> Handle(
         LoginRequest request,
@@ -51,6 +52,11 @@ internal static class LoginEndpoint
         if (verification == PasswordVerificationResult.Failed)
         {
             return IdentityErrors.InvalidCredentials.ToHttpResult();
+        }
+
+        if (user.DisabledAt is not null)
+        {
+            return IdentityErrors.AccountDisabled.ToHttpResult();
         }
 
         if (verification == PasswordVerificationResult.SuccessRehashNeeded)

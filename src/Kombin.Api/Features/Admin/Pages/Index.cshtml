@@ -1,0 +1,107 @@
+@page "/admin"
+@model Kombin.Api.Features.Admin.Pages.IndexModel
+@{
+    ViewData["Title"] = "Dashboard";
+    var data = Model.Data;
+    var now = Model.Now;
+}
+<h1>Dashboard</h1>
+
+@if (Model.PendingReview > 0)
+{
+    <div class="card"><a href="/admin/review"><strong>@Model.PendingReview</strong> post(s) waiting for review</a></div>
+}
+
+<h2>Health</h2>
+<div class="grid">
+    <div class="card">
+        <div class="muted">Vision service</div>
+        <div class="big @(data.Health.Vision.IsHealthy ? "ok" : "bad")">@(data.Health.Vision.IsHealthy ? "up" : "down")</div>
+        <div class="muted">@data.Health.Vision.Detail@(data.Health.Vision.ClipModel is { } model ? " · " + model : "")</div>
+    </div>
+    <div class="card">
+        <div class="muted">Database size</div>
+        <div class="big">@AdminFormat.Bytes(data.Health.DatabaseBytes)</div>
+    </div>
+    <div class="card">
+        <div class="muted">Object storage</div>
+        <div class="muted">Bucket object counts are not shown: the storage client cannot list cheaply.</div>
+    </div>
+</div>
+
+<h2>Recurring jobs</h2>
+@if (!data.Health.HangfireEnabled)
+{
+    <div class="card warn">Hangfire is switched off in this environment (<code>Hangfire:Enabled</code> is false): no job runs.</div>
+}
+else if (data.Health.HangfireError is { } hangfireError)
+{
+    <div class="card bad">The job storage could not be read: @hangfireError</div>
+}
+else
+{
+    <div class="tablewrap"><table>
+        <thead><tr><th>Job</th><th>Schedule</th><th>Last run</th><th>Result</th><th>Next run</th></tr></thead>
+        <tbody>
+        @foreach (var job in data.Health.Jobs)
+        {
+            <tr>
+                <td>@job.Id</td>
+                <td><code>@job.Cron</code></td>
+                <td>@AdminFormat.Time(job.LastRun) <span class="muted">(@AdminFormat.Ago(job.LastRun, now))</span></td>
+                <td class="@(job.LastState == "Succeeded" ? "ok" : job.LastState == "Failed" ? "bad" : "muted")">@(job.LastState ?? "not yet")</td>
+                <td>@AdminFormat.Time(job.NextRun)</td>
+            </tr>
+        }
+        </tbody>
+    </table></div>
+}
+
+<h2>Numbers</h2>
+<p class="muted">Today = since midnight in Istanbul (@AdminFormat.Time(data.TodayStart)); 7 days = the last 168 hours. Open "SQL" to see exactly what is counted.</p>
+<div class="tablewrap"><table>
+    <thead><tr><th>Number</th><th class="num">Today</th><th class="num">7 days</th></tr></thead>
+    <tbody>
+    @foreach (var figure in data.Figures)
+    {
+        <tr>
+            <td class="wrap">
+                <strong>@figure.Metric.Title</strong>
+                <div class="muted">@figure.Metric.Meaning</div>
+                <details><summary>SQL</summary><pre>@figure.Metric.Sql@(figure.Metric.Windowed ? "\n-- @since = start of the period" : "")</pre></details>
+            </td>
+            @if (figure.Metric.Windowed)
+            {
+                <td class="num big">@figure.Today</td>
+                <td class="num big">@figure.Week</td>
+            }
+            else
+            {
+                <td class="num big" colspan="2">@figure.Now <span class="muted" style="font-size:13px">now</span></td>
+            }
+        </tr>
+    }
+    </tbody>
+</table></div>
+
+@foreach (var breakdown in data.Breakdowns)
+{
+    var sources = breakdown.Today.Keys.Union(breakdown.Week.Keys).OrderByDescending(key => breakdown.Week.GetValueOrDefault(key)).ThenBy(key => key, StringComparer.Ordinal).ToList();
+    <h2>@breakdown.Breakdown.Title</h2>
+    <p class="muted">@breakdown.Breakdown.Meaning</p>
+    <div class="tablewrap"><table>
+        <thead><tr><th>Source</th><th class="num">Today</th><th class="num">7 days</th></tr></thead>
+        <tbody>
+        @foreach (var source in sources)
+        {
+            <tr><td>@source</td><td class="num">@breakdown.Today.GetValueOrDefault(source)</td><td class="num">@breakdown.Week.GetValueOrDefault(source)</td></tr>
+        }
+        @if (sources.Count == 0)
+        {
+            <tr><td colspan="3" class="muted">No clicks in the last 7 days.</td></tr>
+        }
+        </tbody>
+    </table></div>
+    <details><summary>SQL</summary><pre>@breakdown.Breakdown.Sql
+-- @@since = start of the period</pre></details>
+}

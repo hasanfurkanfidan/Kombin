@@ -42,8 +42,9 @@ Internal endpoints (called by workers, not the app) live under `/api/v1/internal
 exist: `POST /internal/catalog/offers/upsert`, `POST /internal/catalog/offers/sweep`, `GET /internal/catalog/sellers/{sellerSlug}/offers`,
 `PUT /internal/catalog/sellers/{slug}` (see Catalog ingestion rules), `POST /internal/catalog/embeddings/run` (see Visual search rules),
 `POST /internal/notifications/test`,
-`GET /internal/analytics/weekly` (see Analytics rules), and `PUT /internal/social/creators/{userId}`, `GET /internal/social/review-queue`
-and `POST /internal/social/posts/{id}/review` (see Social rules).
+`GET /internal/analytics/weekly` (see Analytics rules), `PUT` and `DELETE /internal/social/creators/{userId}`, `GET /internal/social/review-queue`
+and `POST /internal/social/posts/{id}/review` (see Social rules), and `POST /internal/identity/users/{userId}/disable` and `/enable` (see
+Identity rules).
 
 ## How to add a new use case
 
@@ -98,6 +99,11 @@ and `POST /internal/social/posts/{id}/review` (see Social rules).
 - **Errors:** `Identity.ExternalTokenInvalid` (401, every token defect, deliberately one code), `Identity.ExternalEmailMissing` (400),
   `Identity.ExternalProviderDisabled` (503, no client ID configured for that provider), `Identity.ExternalProviderUnavailable` (503, the
   provider's keys could never be fetched).
+- **Accounts can be disabled** (`users.disabled_at`, `AccountAccess`, the founder's switch: the internal endpoints above and the admin panel call
+  it). Disabling revokes every refresh token and sets the flag; `POST /auth/login`, `/auth/external` and `/auth/refresh` then answer 403
+  `Identity.AccountDisabled`, **after** the password, ID token or refresh token proved who is asking, so it never reveals anything to a guesser
+  (the refresh tokens being revoked, a refresh normally answers the usual 401). Nothing else is touched, enabling restores the account. An access
+  token already issued works until it expires (15 min): there is no per-request check, on purpose.
 - **Config:** `Authentication:Google:ClientIds` (Android, iOS and web client IDs) and `Authentication:Apple:ClientIds` (the iOS bundle ID,
   later the Services ID), env `Authentication__Google__ClientIds__0`, ...; compose maps `GOOGLE_CLIENT_ID_ANDROID/_IOS/_WEB`,
   `APPLE_CLIENT_ID_IOS` and `APPLE_SERVICES_ID`. Blank entries are ignored. Never commit real IDs. Integration tests replace the verifier with
@@ -410,6 +416,11 @@ External Python workers (a separate repo) push the catalog through the internal 
   `ProcessingAttempts`, 4th failure → `Failed`) maps `/v1/moderate`'s verdict with `PostRules.StatusAfterModeration`: allow → `Draft`,
   review → `NeedsReview`, block → `Blocked` + `SocialCopy.Blocked`. It never publishes; an unknown verdict counts as review. Detection
   failures only mean no proposals. Outfit posts moderate each wardrobe cutout; the strictest verdict wins. Thresholds live in `kombin-vision`.
+- **Review decisions have one home, `PostReviewer`** (`Features/Social/Review`): `Approve`, `Remove` (with an optional `reason`, at most 200
+  characters, which the author reads; the standard copy otherwise) and `Keep` (no status change; only `UpdatedAt` moves, so the post goes to the
+  back of the queue. `ReviewedAt` and the report count stay: reports are counted since `ReviewedAt`). The internal endpoint and the admin panel
+  both call it. Likewise `CreatorInvites` (put and revoke: `DELETE /internal/social/creators/{userId}` sets `IsActive = false`, the handle stays
+  reserved) and `AccountAccess` (Identity); a new admin capability is first an internal use-case, never page code.
 - **Reports:** one per user and post; the 3rd distinct reporter since the last review hides a live post (`PostRules.HideAtReports`). Reviews go
   through the internal endpoints (no admin UI); approval restarts the count.
 - **Feed:** `FeedRanking` is pure and documented at the top of the file; its SQL twin is `FeedRanking.BaseSql`. Change a constant in both
@@ -451,6 +462,9 @@ External Python workers (a separate repo) push the catalog through the internal 
   the model). Each search runs in a transaction with `SET LOCAL hnsw.ef_search = 100` and `hnsw.iterative_scan = relaxed_order` (pgvector
   0.8: filters never starve the candidate list) and asks for `Candidates` (48) neighbours of the current vision model only. Budget: one region
   ≤ 400 ms p95 at 50k products excluding the vision call, `LensPerformanceTests` (`KOMBIN_PERF=1`, own container, CI's perf step).
+- **On-demand backfill:** `ProductEmbeddingJob.BackfillAsync(limit)` (fire-and-forget, `[AutomaticRetry(Attempts = 0)]`) is what the admin panel's
+  "Run backfill now" enqueues; it calls the same `EmbedAsync` as the endpoint and the nightly run, with the nightly time budget, so a click never holds
+  a web request.
 - **`product-embeddings`** (`Features/Catalog/Jobs/ProductEmbeddingJob.cs`, daily 03:00 `Europe/Istanbul`, `[DisableConcurrentExecution(60)]`,
   `[AutomaticRetry(Attempts = 0)]`, time budget `CatalogEmbeddings:MaxRunDuration` 3 h; tests call `EmbedAsync(productIds, limit, budget, ct)`
   with their own product IDs). Which product is due is the pure `ProductEmbeddingRules.IsDue`: no row; a `Ready` row whose image URL or model
@@ -470,6 +484,35 @@ External Python workers (a separate repo) push the catalog through the internal 
   `FakeVisionClient.LensPhoto(text, regions...)` is a query photo whose regions embed as that text. `FakeCatalogImageHandler` 404s `missing`,
   503s `busy` and counts requests per URL. The search is global: give each test its own look key.
 
+## Admin rules
+
+- **What exists:** the founder's panel, server-rendered Razor Pages under `/admin` in the API project (`Features/Admin`, pages in
+  `Features/Admin/Pages`, which is Razor's root: every page names its own `@page "/admin/..."` route), schema `admin` (`audit_log`). Pages:
+  dashboard, review, creators, catalog, users, audit; login and logout. No SPA, no JS framework (one inline script for `data-confirm` dialogs).
+  README, "Admin panel", lists them.
+- **Separate from the app's auth.** Accounts are `Admin:Users` (`{ Email, PasswordHash }`, config, never `identity.users`), checked by
+  `AdminCredentials` with the Identity hasher (PBKDF2; `dotnet run --project src/Kombin.Api -- hash-password` or `scripts/admin-hash.sh|.ps1`
+  makes one; compose maps `ADMIN_EMAIL` / `ADMIN_PASSWORD_HASH`). A second authentication scheme (`KombinAdmin`, a cookie) sits beside the JWT
+  one, which stays the default: `[Authorize]` on the API never sees the cookie, and the pages ask for the `KombinAdmin` policy (`AuthorizeFolder("/")`,
+  only `/Login` is anonymous). The cookie is `HttpOnly`, `SameSite=Strict`, `Secure` outside Development, 8 h sliding. Razor Pages validate the
+  anti-forgery token on every POST (cookie `kombin_admin_af`, field `__AdminRequestVerificationToken`). Every `/admin` response is `no-store`,
+  `X-Frame-Options: DENY` and carries a CSP (`UseAdminSecurityHeaders`).
+- **The login brake** is `AdminLoginThrottle` (5 failures per address per 15 minutes, in memory, 429): the one rate limit in the codebase, because the
+  panel is the one thing that must not be guessable. It does **not** reopen "rate limiting" elsewhere. Behind a reverse proxy it keys on the proxy's
+  address until forwarded headers are configured.
+- **Admin never bypasses a domain rule.** Pages call `PostReviewer`, `CreatorInvites` (after `PutCreatorValidator`), `AccountAccess` and the
+  embedding job; they read with `KombinDbContext` like any handler. Every successful action calls `AdminAuditLog.RecordAsync` (actor, `post.approve`
+  style action, target type and ID, a short summary with no personal data of app users). A page never changes a state itself.
+- **Personal data is minimal:** e-mail addresses only on `/admin/users` (masked on the creator search), feed-size images only, no measurements,
+  no originals (`docs/privacy-notes.md`, 5a). Raw seller URLs are shown (founder-only) on the catalog page and marked as such.
+- **Dashboard numbers** come from `DashboardQueries` (each has its SQL printed on the page; a test runs them all against PostgreSQL). Change a
+  number there. The health strip reads Hangfire's recurring jobs only when `Hangfire:Enabled` is true (the storage schema may not exist otherwise).
+- **Deploy (Task 16):** `/admin` must be reachable **only** from the founder's IP or behind Cloudflare Access, plus forwarded headers (so the
+  throttle sees the real address) and persisted data-protection keys (so a restart does not sign the founder out). Until then the pages are served
+  on the API's own port.
+- **Tests:** `AdminBrowser` (integration) is a cookie-jar client with its own fake address (`X-Test-Remote-Ip`, set by a startup filter in
+  `ApiFactory`), so one test's lockout never touches another; `Admin:Users` in `ApiFactory` has one founder.
+
 ## Commands
 
 ```bash
@@ -486,6 +529,9 @@ dotnet run --project src/Kombin.Api
 
 # Whole stack: db (pgvector/pgvector:pg18), minio + minio-init (bucket and policy), vision (built from ../kombin-vision), api
 docker compose --file docker/compose.yaml up --build --detach --wait
+
+# Password hash for the admin panel (Admin:Users / ADMIN_PASSWORD_HASH): asks for the password, prints the hash
+scripts/admin-hash.sh        # or scripts\admin-hash.ps1
 
 # Migrations (local tool, version pinned in .config/dotnet-tools.json)
 dotnet tool restore
@@ -515,8 +561,8 @@ the shared test database stays independent of the seed. `ApiFactory` switches se
 
 ## Explicitly out of scope (do not add)
 
-Rate limiting (including on `/go`, `/events` and the auth endpoints), email verification, password reset, social login beyond Google and
-Apple ID tokens (no OAuth redirect flow, no other providers), admin UI, MediatR/CQRS, generic
+Rate limiting (including on `/go`, `/events` and the auth endpoints; the admin panel's login brake is the one exception), email verification, password reset, social login beyond Google and
+Apple ID tokens (no OAuth redirect flow, no other providers), an admin UI beyond the Razor panel under `/admin` (no SPA, no second frontend repo), MediatR/CQRS, generic
 repositories, AutoMapper, email/SMS/marketing notifications, A/B testing, scraping workers, affiliate conversion import, a free-form
 analytics event stream (Analytics accepts only its allow-list), and in Social: comments, DMs, stories or video, hashtags or search over
 posts, follow requests, creator payouts and public web pages for posts, and in Lens: text search, multi-photo or video search, storing
@@ -529,5 +575,6 @@ metrics and the operators' Metabase) and Wardrobe (photo items analysed by kombi
 analysis, pairings) and Recommendation (the rule-based outfit engine: daily, how-to-wear, saved outfits, feedback, weather, narration) and
 Social (versioned posting consent, photo and outfit posts with moderation, metadata stripping and confirmed shoppable tags, likes, follows,
 blocks, reports and review, the feed, try-with-wardrobe, creators with click attribution and earnings estimates) and Lens (visual search:
-catalog embeddings and their job, photo search with family, floor and audience guardrails, wardrobe matches). Learning from
+catalog embeddings and their job, photo search with family, floor and audience guardrails, wardrobe matches) and Admin (the founder's
+panel: review queue, creators, catalog and backfill, user disable, audit log, dashboard). Learning from
 clicks, saves and outfit feedback is still to come, and not Profile's job. Add other features only when a task asks for them.

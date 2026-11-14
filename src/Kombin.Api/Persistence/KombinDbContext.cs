@@ -1,3 +1,4 @@
+using Kombin.Api.Persistence.Entities.Admin;
 using Kombin.Api.Persistence.Entities.Analytics;
 using Kombin.Api.Persistence.Entities.Catalog;
 using Kombin.Api.Persistence.Entities.Engagement;
@@ -93,6 +94,8 @@ internal sealed class KombinDbContext(DbContextOptions<KombinDbContext> options)
     public DbSet<CreatorProfile> CreatorProfiles => Set<CreatorProfile>();
 
     public DbSet<ReferralEvent> ReferralEvents => Set<ReferralEvent>();
+
+    public DbSet<AdminAuditEntry> AdminAuditLog => Set<AdminAuditEntry>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -147,6 +147,8 @@ public sealed class LensPerformanceTests(LensPerformanceTests.LensPerformanceFac
 
         public Task<string?> GetEmbeddingModelAsync(CancellationToken cancellationToken) => Task.FromResult<string?>(Model);
 
+        public Task<VisionHealth> CheckHealthAsync(CancellationToken cancellationToken) => Task.FromResult(new VisionHealth(true, Model, "HTTP 200"));
+
         public Task<VisionResult> AnalyzeAsync(byte[] image, string contentType, CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public Task<VisionCall<VisionModeration>> ModerateAsync(byte[] image, string contentType, bool renditions, CancellationToken cancellationToken) =>

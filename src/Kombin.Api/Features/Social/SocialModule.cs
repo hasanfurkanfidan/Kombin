@@ -12,6 +12,7 @@ using Kombin.Api.Features.Social.ProcessPost;
 using Kombin.Api.Features.Social.PublishPost;
 using Kombin.Api.Features.Social.ReportPost;
 using Kombin.Api.Features.Social.Review;
+using Kombin.Api.Features.Social.RevokeCreator;
 using Kombin.Api.Features.Social.TryWithWardrobe;
 using Kombin.Api.Features.Social.Users;
 using Microsoft.Extensions.Options;
@@ -24,6 +25,10 @@ internal static class SocialModule
     {
         services.AddOptions<CreatorOptions>().BindConfiguration(CreatorOptions.SectionName).ValidateOnStart();
         services.AddSingleton<IValidateOptions<CreatorOptions>, CreatorOptionsValidator>();
+
+        // The use-cases the internal endpoints and the admin panel share.
+        services.AddScoped<PostReviewer>();
+        services.AddScoped<CreatorInvites>();
 
         // Plain classes with constructor injection, like the other jobs: Hangfire activates them from a scope, the tests resolve them directly.
         services.AddScoped<PostProcessJob>();
@@ -56,6 +61,7 @@ internal static class SocialModule
 
         var internalSocial = app.MapGroup("/api/v1/internal/social").WithTags("Social (internal)").RequireInternalKey();
         CreatorsEndpoint.Map(app.MapGroup("/api/v1/creators").WithTags("Social"), me, internalSocial);
+        RevokeCreatorEndpoint.Map(internalSocial);
         ReviewEndpoint.Map(internalSocial);
 
         return app;

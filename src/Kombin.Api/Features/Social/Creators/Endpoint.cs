@@ -134,32 +134,10 @@ internal static class CreatorsEndpoint
     }
 
     /// <summary>The founder's invitation (internal key): makes a user a creator or updates their page. No self-signup in v1.</summary>
-    private static async Task<IResult> PutAsync(Guid userId, PutCreatorRequest request, KombinDbContext db, CancellationToken cancellationToken)
+    private static async Task<IResult> PutAsync(Guid userId, PutCreatorRequest request, CreatorInvites invites, CancellationToken cancellationToken)
     {
-        if (!await db.Users.AnyAsync(user => user.Id == userId, cancellationToken))
-        {
-            return SocialErrors.UserNotFound.ToHttpResult();
-        }
+        var result = await invites.PutAsync(userId, request, cancellationToken);
 
-        var handle = request.Handle!.Trim().TrimStart('@').ToLowerInvariant();
-        if (await db.CreatorProfiles.AnyAsync(creator => creator.Handle == handle && creator.UserId != userId, cancellationToken))
-        {
-            return SocialErrors.HandleTaken.ToHttpResult();
-        }
-
-        var creator = await db.CreatorProfiles.SingleOrDefaultAsync(candidate => candidate.UserId == userId, cancellationToken);
-        if (creator is null)
-        {
-            creator = new CreatorProfile { UserId = userId };
-            db.CreatorProfiles.Add(creator);
-        }
-
-        creator.Handle = handle;
-        creator.Bio = string.IsNullOrWhiteSpace(request.Bio) ? null : request.Bio.Trim();
-        creator.Link = string.IsNullOrWhiteSpace(request.Link) ? null : request.Link.Trim();
-        creator.IsActive = request.IsActive ?? true;
-        await db.SaveChangesAsync(cancellationToken);
-
-        return TypedResults.Ok(new CreatorProfileResponse(creator.UserId, creator.Handle, creator.Bio, creator.Link, creator.IsActive, creator.UpdatedAt));
+        return result.Match<IResult>(profile => TypedResults.Ok(profile), error => error.ToHttpResult());
     }
 }

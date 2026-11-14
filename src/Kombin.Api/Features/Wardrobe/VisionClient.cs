@@ -103,6 +103,9 @@ internal sealed record VisionCall<T>(T? Value, string? Error, bool IsTransient)
     public static VisionCall<T> Transient(string error) => new(null, error, true);
 }
 
+/// <summary>What <c>GET /health</c> of the vision service said, for the admin panel: <c>Detail</c> is the HTTP status or why it could not be asked.</summary>
+internal sealed record VisionHealth(bool IsHealthy, string? ClipModel, string Detail);
+
 /// <summary>Never throws for a failed call (only when the caller cancels); the job decides what a failure means.</summary>
 internal interface IVisionClient
 {
@@ -122,6 +125,9 @@ internal interface IVisionClient
 
     /// <summary>The CLIP model behind the embeddings (<c>/health</c>'s <c>clipModel</c>), or null when the service cannot be asked.</summary>
     Task<string?> GetEmbeddingModelAsync(CancellationToken cancellationToken);
+
+    /// <summary>A live <c>GET /health</c> (never cached, unlike the model name), for the admin panel's health strip.</summary>
+    Task<VisionHealth> CheckHealthAsync(CancellationToken cancellationToken);
 }
 
 internal sealed partial class VisionClient(HttpClient http, ILogger<VisionClient> logger) : IVisionClient
@@ -240,6 +246,48 @@ internal sealed partial class VisionClient(HttpClient http, ILogger<VisionClient
             }
 
             return null;
+        }
+    }
+
+    public async Task<VisionHealth> CheckHealthAsync(CancellationToken cancellationToken)
+    {
+        if (http.BaseAddress is null)
+        {
+            return new VisionHealth(false, null, "Vision:BaseUrl is not set");
+        }
+
+        try
+        {
+            using var response = await http.GetAsync(new Uri("health", UriKind.Relative), cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                return new VisionHealth(false, null, $"HTTP {(int)response.StatusCode}");
+            }
+
+            string? model = null;
+            try
+            {
+                using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+                if (document.RootElement.TryGetProperty("clipModel", out var clip) && clip.ValueKind == JsonValueKind.String)
+                {
+                    model = clip.GetString();
+                }
+            }
+            catch (JsonException)
+            {
+                // A healthy answer whose body is not the JSON we know is still a live service.
+            }
+
+            return new VisionHealth(true, model, "HTTP 200");
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or IOException)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+
+            return new VisionHealth(false, null, $"unreachable: {exception.Message}");
         }
     }
 

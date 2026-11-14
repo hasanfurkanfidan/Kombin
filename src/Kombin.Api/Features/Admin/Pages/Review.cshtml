@@ -1,0 +1,86 @@
+@page "/admin/review"
+@model Kombin.Api.Features.Admin.Pages.ReviewModel
+@{
+    ViewData["Title"] = "Review";
+}
+<h1>Review</h1>
+<p class="muted">Posts waiting for a decision, oldest first: <strong>NeedsReview</strong> (the safety filter was unsure) and <strong>Hidden</strong> (hidden by three reports). Images are the feed size, signed for one hour.</p>
+
+@if (Model.Posts.Count == 0)
+{
+    <div class="card">Nothing to review.</div>
+}
+
+@foreach (var post in Model.Posts)
+{
+    <div class="card">
+        <div class="post">
+            <div>
+                @if (post.FeedImageUrl is { } url)
+                {
+                    <a href="@url" target="_blank" rel="noreferrer noopener"><img src="@url" alt="Post photo" loading="lazy"></a>
+                }
+                else
+                {
+                    <div class="muted">@(post.Kind == "Outfit" ? "Outfit post (collage, no photo of its own)" : "No image")</div>
+                }
+            </div>
+            <div>
+                <div>
+                    <span class="pill">@post.Status</span> <span class="pill">@post.Kind</span> <span class="pill">@post.Visibility</span>
+                    <span class="muted">· updated @AdminFormat.Time(post.UpdatedAt)</span>
+                </div>
+                <div style="margin-top:6px">Author: <strong>@post.AuthorName</strong> <span class="muted">(@post.AuthorId)</span></div>
+                <div class="muted">Post <code>@post.Id</code></div>
+                @if (!string.IsNullOrWhiteSpace(post.Caption))
+                {
+                    <p>“@post.Caption”</p>
+                }
+                @if (post.ReportCount > 0 || post.ReportReasons.Count > 0)
+                {
+                    <div>Reports: <strong>@post.ReportCount</strong> since the last review —
+                        @string.Join(", ", post.ReportReasons.Select(reason => $"{reason.Key} ×{reason.Value}"))</div>
+                }
+                @if (post.Moderation.Count > 0)
+                {
+                    <div style="margin-top:6px">Safety filter:</div>
+                    <ul style="margin:2px 0; padding-left:18px">
+                    @foreach (var line in post.Moderation)
+                    {
+                        <li>@line.Subject: <strong>@line.Verdict</strong>@(line.Labels.Count > 0 ? " · labels: " + string.Join(", ", line.Labels) : "")
+                            <span class="muted">· @string.Join(", ", line.Scores.Select(score => $"{score.Key} {score.Value.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)}"))</span></li>
+                    }
+                    </ul>
+                }
+                @if (post.ModerationJson is { } json)
+                {
+                    <details><summary>Raw moderation answer</summary><pre>@json</pre></details>
+                }
+
+                <div class="actions">
+                    <form method="post" asp-page-handler="Approve" data-confirm="Publish this post?">
+                        <input type="hidden" name="id" value="@post.Id">
+                        <button class="primary" type="submit">Yayınla</button>
+                    </form>
+                    <form method="post" asp-page-handler="Keep">
+                        <input type="hidden" name="id" value="@post.Id">
+                        <button type="submit">Gizli tut</button>
+                    </form>
+                </div>
+                <form method="post" asp-page-handler="Block" data-confirm="Block this post? The author is told the reason." style="margin-top:10px">
+                    <input type="hidden" name="id" value="@post.Id">
+                    <label for="reason-@post.Id">Block reason (the author reads it)</label>
+                    <select id="reason-@post.Id" name="reasonKey">
+                        @foreach (var reason in BlockReasons.All)
+                        {
+                            <option value="@reason.Key">@reason.Value</option>
+                        }
+                    </select>
+                    <label for="custom-@post.Id">Add your own words (optional)</label>
+                    <input id="custom-@post.Id" type="text" name="custom" maxlength="120" autocomplete="off">
+                    <div class="actions"><button class="danger" type="submit">Engelle</button></div>
+                </form>
+            </div>
+        </div>
+    </div>
+}

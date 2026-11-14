@@ -32,6 +32,7 @@ internal static class ExternalSignInEndpoint
             .Produces<AuthTokensResponse>()
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
     private static async Task<IResult> Handle(
@@ -124,6 +125,12 @@ internal static class ExternalSignInEndpoint
                 db.Users.Add(user);
                 db.ExternalLogins.Add(NewLink(user, identity));
                 break;
+        }
+
+        if (user.DisabledAt is not null)
+        {
+            // Nothing was saved yet: a link made just now by email is dropped with the unsaved context.
+            return IdentityErrors.AccountDisabled;
         }
 
         var isNewUser = step.Value == ExternalSignInStep.CreateUser;

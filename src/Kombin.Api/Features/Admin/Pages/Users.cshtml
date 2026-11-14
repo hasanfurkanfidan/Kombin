@@ -1,0 +1,79 @@
+@page "/admin/users"
+@model Kombin.Api.Features.Admin.Pages.UsersModel
+@{
+    ViewData["Title"] = "Users";
+}
+<h1>Users</h1>
+<form method="get" class="card">
+    <label for="q">E-mail (part of it is enough) or user ID</label>
+    <input id="q" type="text" name="q" value="@Model.Query" autocomplete="off">
+    <div class="actions"><button type="submit">Search</button></div>
+    <div class="muted" style="margin-top:6px">E-mail addresses are shown on this page only. There is no password reset and no impersonation.</div>
+</form>
+
+@if (Model.Query is not null && Model.Matches.Count == 0 && Model.Detail is null)
+{
+    <p class="muted">No user matches.</p>
+}
+
+@if (Model.Matches.Count > 0)
+{
+    <div class="tablewrap"><table>
+        <thead><tr><th>E-mail</th><th>Name</th><th>Created</th><th>Last sign-in</th><th>Status</th></tr></thead>
+        <tbody>
+        @foreach (var match in Model.Matches)
+        {
+            <tr>
+                <td><a href="/admin/users?id=@match.Id">@match.Email</a></td>
+                <td>@match.DisplayName</td>
+                <td>@AdminFormat.Time(match.CreatedAt)</td>
+                <td>@AdminFormat.Time(match.LastLoginAt)</td>
+                <td class="@(match.DisabledAt is null ? "ok" : "bad")">@(match.DisabledAt is null ? "active" : "disabled")</td>
+            </tr>
+        }
+        </tbody>
+    </table></div>
+}
+
+@if (Model.Detail is { } user)
+{
+    <div class="card">
+        <h2 style="margin-top:0">@user.DisplayName</h2>
+        <div>@user.Email</div>
+        <div class="muted">@user.Id</div>
+        <p class="@(user.DisabledAt is null ? "ok" : "bad")">
+            @(user.DisabledAt is null ? "Account is active." : $"Disabled since {AdminFormat.Time(user.DisabledAt)}: sign-in is refused and the refresh tokens are revoked.")
+        </p>
+        <div class="tablewrap"><table>
+            <tbody>
+                <tr><th>Created</th><td>@AdminFormat.Time(user.CreatedAt)</td></tr>
+                <tr><th>Last sign-in</th><td>@AdminFormat.Time(user.LastLoginAt)</td></tr>
+                <tr><th>Signs in with</th><td>@(user.HasPassword ? "password" : "") @(user.Providers.Count > 0 ? string.Join(", ", user.Providers) : "")</td></tr>
+                <tr><th>Audience</th><td>@(user.Audience ?? "no profile yet")</td></tr>
+                <tr><th>Onboarding</th><td>@(user.OnboardingDone ? "done" : "not finished")</td></tr>
+                <tr><th>Personas</th><td>@user.Personas active, @user.ArchivedPersonas archived</td></tr>
+                <tr><th>Wardrobe items</th><td>@user.WardrobeItems</td></tr>
+                <tr><th>Posts</th><td>@user.Posts (@user.LivePosts live)</td></tr>
+                <tr><th>Blocks</th><td>blocks @user.BlocksMade user(s), blocked by @user.BlockedBy</td></tr>
+                <tr><th>Creator</th><td>@(user.CreatorHandle is { } handle ? "@" + handle : "no")</td></tr>
+                <tr><th>Active refresh tokens</th><td>@user.ActiveTokens</td></tr>
+            </tbody>
+        </table></div>
+        <div class="actions">
+            @if (user.DisabledAt is null)
+            {
+                <form method="post" asp-page-handler="Disable" data-confirm="Disable this account? Sign-in is refused and every session ends.">
+                    <input type="hidden" name="id" value="@user.Id">
+                    <button class="danger" type="submit">Disable account</button>
+                </form>
+            }
+            else
+            {
+                <form method="post" asp-page-handler="Enable" data-confirm="Re-enable this account?">
+                    <input type="hidden" name="id" value="@user.Id">
+                    <button class="primary" type="submit">Re-enable</button>
+                </form>
+            }
+        </div>
+    </div>
+}

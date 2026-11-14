@@ -10,6 +10,9 @@ internal enum ReviewDecision
 {
     Approve,
     Remove,
+
+    /// <summary>Not a transition: the post stays hidden or under review and moves to the back of the queue.</summary>
+    Keep,
 }
 
 /// <summary>The social feature's rules, pure (unit-tested in <c>SocialRulesTests</c>).</summary>
@@ -63,7 +66,8 @@ internal static class PostRules
     public static PostStatus StatusAfterReview(ReviewDecision decision, bool confirmed) => decision switch
     {
         ReviewDecision.Approve => confirmed ? PostStatus.Live : PostStatus.Draft,
-        _ => PostStatus.Blocked,
+        ReviewDecision.Remove => PostStatus.Blocked,
+        _ => throw new ArgumentOutOfRangeException(nameof(decision), decision, "Only approving or removing moves a post to another status."),
     };
 
     /// <summary>Statuses a reviewer can act on.</summary>

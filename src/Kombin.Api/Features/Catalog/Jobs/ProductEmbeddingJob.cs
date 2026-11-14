@@ -42,6 +42,9 @@ internal sealed partial class ProductEmbeddingJob(
     /// <summary>The named client that downloads catalog images (user agent and timeout); tests swap its handler.</summary>
     public const string ImageClient = "catalog-embedding-images";
 
+    /// <summary>The most products one on-demand backfill works on (the internal endpoint's <c>MaxLimit</c>).</summary>
+    public const int MaxBackfillLimit = 1000;
+
     private enum Outcome
     {
         Embedded,
@@ -58,6 +61,20 @@ internal sealed partial class ProductEmbeddingJob(
     public async Task RunAsync(CancellationToken cancellationToken)
     {
         var summary = await EmbedAsync(null, int.MaxValue, options.Value.MaxRunDuration, cancellationToken);
+
+        LogRun(logger, summary.Due, summary.Embedded, summary.Reused, summary.Unusable, summary.Failed, summary.Remaining, summary.Aborted);
+    }
+
+    /// <summary>
+    /// A backfill on demand (the admin panel's "Run backfill now", fire-and-forget): the nightly run's work, capped at <paramref name="limit"/>
+    /// due products and at the same time budget. The same <see cref="EmbedAsync"/> as <c>POST /internal/catalog/embeddings/run</c>, but it runs
+    /// in the Hangfire server, so a click never holds a web request for minutes at one request per host per second.
+    /// </summary>
+    [AutomaticRetry(Attempts = 0)]
+    [DisableConcurrentExecution(60)]
+    public async Task BackfillAsync(int limit, CancellationToken cancellationToken)
+    {
+        var summary = await EmbedAsync(null, Math.Clamp(limit, 1, MaxBackfillLimit), options.Value.MaxRunDuration, cancellationToken);
 
         LogRun(logger, summary.Due, summary.Embedded, summary.Reused, summary.Unusable, summary.Failed, summary.Remaining, summary.Aborted);
     }

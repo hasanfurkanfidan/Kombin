@@ -1,6 +1,5 @@
 using Kombin.Api.Common.Results;
 using Kombin.Api.Common.Storage;
-using Kombin.Api.Common.Time;
 using Kombin.Api.Common.Validation;
 using Kombin.Api.Features.Catalog;
 using Kombin.Api.Persistence;
@@ -21,8 +20,11 @@ internal sealed record ReviewItem(
     string? Caption,
     DateTimeOffset UpdatedAt);
 
-/// <summary><c>Decision</c>: <c>Approve</c> or <c>Remove</c>.</summary>
-internal sealed record ReviewPostRequest(string? Decision);
+/// <summary>
+/// <c>Decision</c>: <c>Approve</c>, <c>Remove</c> or <c>Keep</c> (leave it as it is, at the back of the queue). <c>Reason</c> is what the
+/// author reads when the post is removed (at most 200 characters; the standard copy when left out).
+/// </summary>
+internal sealed record ReviewPostRequest(string? Decision, string? Reason = null);
 
 internal sealed record ReviewPostResponse(Guid PostId, PostStatus Status);
 
@@ -77,37 +79,11 @@ internal static class ReviewEndpoint
             post.UpdatedAt)).ToList());
     }
 
-    /// <summary>
-    /// Approve: live again (or back to draft if the author never confirmed it); the report count restarts, so three new reporters are needed
-    /// to hide it again. Remove: blocked, with the reason the author sees.
-    /// </summary>
-    private static async Task<IResult> ReviewAsync(Guid id, ReviewPostRequest request, KombinDbContext db, IClock clock, CancellationToken cancellationToken)
+    private static async Task<IResult> ReviewAsync(Guid id, ReviewPostRequest request, PostReviewer reviewer, CancellationToken cancellationToken)
     {
-        var post = await db.Posts.SingleOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
-        if (post is null || post.Status == PostStatus.Deleted)
-        {
-            return SocialErrors.PostNotFound.ToHttpResult();
-        }
-
-        if (!PostRules.IsReviewable(post.Status))
-        {
-            return SocialErrors.NotReviewable.ToHttpResult();
-        }
-
-        var now = clock.UtcNow;
         var decision = EnumNames.TryParse<ReviewDecision>(request.Decision, out var parsed) ? parsed : ReviewDecision.Remove;
-        post.Status = PostRules.StatusAfterReview(decision, post.ConfirmedAt is not null);
-        post.ReviewedAt = now;
-        post.ReportCount = 0;
-        post.HiddenAt = null;
-        post.ModerationReason = decision == ReviewDecision.Remove ? SocialCopy.RemovedAfterReview : null;
-        if (post.Status == PostStatus.Live)
-        {
-            post.PublishedAt ??= now;
-        }
+        var result = await reviewer.ReviewAsync(id, decision, request.Reason, cancellationToken);
 
-        await db.SaveChangesAsync(cancellationToken);
-
-        return TypedResults.Ok(new ReviewPostResponse(post.Id, post.Status));
+        return result.Match<IResult>(response => TypedResults.Ok(response), error => error.ToHttpResult());
     }
 }

@@ -13,7 +13,8 @@ internal static class RefreshTokenEndpoint
         group.MapPost("/refresh", Handle)
             .WithName("RefreshToken")
             .Produces<AuthTokensResponse>()
-            .ProducesProblem(StatusCodes.Status401Unauthorized);
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
 
     private static async Task<IResult> Handle(
         RefreshRequest request,
@@ -54,6 +55,11 @@ internal static class RefreshTokenEndpoint
         if (user is null)
         {
             return IdentityErrors.InvalidRefreshToken.ToHttpResult();
+        }
+
+        if (user.DisabledAt is not null)
+        {
+            return IdentityErrors.AccountDisabled.ToHttpResult();
         }
 
         var issued = tokens.Issue(user, current.DeviceName);
