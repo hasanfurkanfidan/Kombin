@@ -97,7 +97,7 @@ Sorted by severity. Status: **Fixed** (in this branch, with the test that proves
 | M1 | Medium | Creator click inflation: every repeat click earned a referral | `Features/Engagement/Redirect/Endpoint.cs:72`, `Features/Social/CreatorAttribution.cs` | Fixed |
 | M2 | Medium | Presigned PUT has no size cap: storage fill | `Common/Storage/S3ObjectStorage.cs:87` | Partly fixed, rest planned |
 | M3 | Medium | Wardrobe-tag thumbnails bypass moderation | `Features/Social/PostResponses.cs:203` | Fixed |
-| M4 | Medium | Three throwaway accounts hide any live post | `Features/Social/ReportPost/Endpoint.cs:63` | Planned |
+| M4 | Medium | Three throwaway accounts hide any live post | `Features/Social/ReportPost/Endpoint.cs` | Fixed |
 | M5 | Medium | "Followers" visibility is not a privacy boundary | `Features/Social/PostRules.cs:44` | Accepted (copy change planned) |
 | M6 | Medium | Analytics intake as an anonymous storage-fill vector | `Features/Analytics/RecordEvents/Endpoint.cs:33` | Planned |
 | L1 | Low | `/go` stored any persona ID | `Features/Engagement/Redirect/Endpoint.cs` | Fixed |
@@ -173,11 +173,15 @@ the feed and `try`, an allowed piece shared, the retry, catalog pieces); three o
 *Left:* the cutout and thumbnail objects stay readable by URL (public bucket policy); the URL of an unallowed piece is never handed to anyone
 but its owner, and keys are unguessable.
 
-**M4 · Report brigading with throwaway accounts (Planned).** The third distinct reporter hides a live post (`PostRules.HideAtReports`).
-Accounts are free and unverified; `auth` allows 10 registrations per 5 minutes per address. Three accounts silence any post until a review.
-*Plan:* count a reporter toward the automatic hide only when their account is at least 24 h old and has some activity of its own (a persona or a
-wardrobe item); every report still lands in the queue. Not done here because it is a product trade-off (abusive posts would stay up longer when
-reported only by new users) and changes the social tests' setup; the founder decides.
+**M4 · Report brigading with throwaway accounts (Fixed).** The third distinct reporter hid a live post, accounts are free and unverified, and
+`auth` allows 10 registrations per 5 minutes per address: three accounts silenced any post until a review. *Fix (CEO decision, 2026-11-15):*
+every report reaches the review queue (`ReportRules.InReviewQueue` now holds live posts with a report since their last review; the internal
+queue, `/admin/review` and the dashboard share it, and `PostReviewer` acts on such posts), but only a trusted reporter's report counts toward
+the automatic hide: account at least 72 h old, at least one persona (onboarding confirmed), and once per author per 24 h
+(`ReportRules.Counts`, `Reports:*` in configuration, stored per report as `reports.counts_toward_hide`, migration `TrustedReporters`).
+*Proof:* `SecurityReviewTests.ThreeThrowawayAccountsCannotHideAPostButTheirReportsReachTheQueue` and
+`…ATrustedReporterCountsOncePerAuthorADayAndThreeOfThemHideThePost` (both fail when every report counts again), `SocialRulesTests`.
+*Left:* someone patient enough to age three accounts for 72 h and onboard them can still hide a post until a review; the queue sees it at once.
 
 **M5 · "Followers" is not a privacy boundary (Accepted, copy change planned).** `Followers` posts are visible to followers, and following is one
 tap with no approval (follow requests are out of scope), so any signed-in account sees them. Blocking removes a follower. Users choosing

@@ -2541,6 +2541,10 @@ namespace Kombin.Api.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<bool>("CountsTowardHide")
+                        .HasColumnType("boolean")
+                        .HasColumnName("counts_toward_hide");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");

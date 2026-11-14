@@ -193,6 +193,20 @@ public class PostRulesTests
         Assert.False(PostRules.ShouldHide(PostStatus.Live, 2));
         Assert.True(PostRules.ShouldHide(PostStatus.Live, 3));
         Assert.False(PostRules.ShouldHide(PostStatus.Draft, 5));
+        Assert.False(PostRules.ShouldHide(PostStatus.Live, 4, hideAt: 5));
+    }
+
+    [Theory]
+    [InlineData(80, 1, false, true)]
+    [InlineData(72, 1, false, true)]
+    [InlineData(71, 1, false, false)]
+    [InlineData(500, 0, false, false)]
+    [InlineData(500, 2, true, false)]
+    public void OnlyATrustedReporterCountsTowardTheHide(int accountAgeHours, int personas, bool countedForAuthorRecently, bool counts)
+    {
+        var now = new DateTimeOffset(2026, 11, 15, 12, 0, 0, TimeSpan.Zero);
+
+        Assert.Equal(counts, ReportRules.Counts(now.AddHours(-accountAgeHours), personas, countedForAuthorRecently, now, new ReportOptions()));
     }
 
     [Fact]
@@ -203,6 +217,8 @@ public class PostRulesTests
         Assert.Equal(PostStatus.Blocked, PostRules.StatusAfterReview(ReviewDecision.Remove, confirmed: true));
         Assert.True(PostRules.IsReviewable(PostStatus.Hidden));
         Assert.False(PostRules.IsReviewable(PostStatus.Live));
+        Assert.True(PostRules.IsReviewable(PostStatus.Live, reportCount: 1));
+        Assert.False(PostRules.IsReviewable(PostStatus.Blocked, reportCount: 3));
     }
 
     [Fact]

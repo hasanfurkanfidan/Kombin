@@ -5,6 +5,7 @@ using Kombin.Api.Common.Validation;
 using Kombin.Api.Features.Catalog;
 using Kombin.Api.Persistence;
 using Kombin.Api.Persistence.Entities.Social;
+using Microsoft.Extensions.Options;
 using Npgsql;
 
 namespace Kombin.Api.Features.Social.ReportPost;
@@ -27,11 +28,19 @@ internal static class ReportPostEndpoint
             .ProducesProblem(StatusCodes.Status409Conflict);
 
     /// <summary>
-    /// One report per user and post (409 <c>Social.AlreadyReported</c> after that); not on one's own post. The count is of distinct reporters,
-    /// and the <see cref="PostRules.HideAtReports"/>th hides a live post until a reviewer decides. The reporter learns nothing about that.
+    /// One report per user and post (409 <c>Social.AlreadyReported</c> after that); not on one's own post. Every report puts the post in the
+    /// review queue (its <c>ReportCount</c> since the last review). Only a trusted reporter's report counts toward the automatic hide
+    /// (<see cref="ReportRules.Counts"/>: account old enough, onboarding done, once per author a day), and <c>Reports:HideAt</c> counting reports
+    /// hide a live post until a reviewer decides (security review M4). The reporter learns nothing about either.
     /// </summary>
     private static async Task<IResult> Handle(
-        Guid id, ReportPostRequest request, ICurrentUser currentUser, KombinDbContext db, IClock clock, CancellationToken cancellationToken)
+        Guid id,
+        ReportPostRequest request,
+        ICurrentUser currentUser,
+        KombinDbContext db,
+        IClock clock,
+        IOptions<ReportOptions> options,
+        CancellationToken cancellationToken)
     {
         var userId = currentUser.UserId;
         var post = await PostAccess.FindVisibleAsync(db, id, userId, tracking: true, cancellationToken);
@@ -46,7 +55,23 @@ internal static class ReportPostEndpoint
         }
 
         var now = clock.UtcNow;
-        db.PostReports.Add(new PostReport { PostId = id, ReporterId = userId, Reason = EnumNames.TryParse<ReportReason>(request.Reason, out var reason) ? reason : ReportReason.Other, CreatedAt = now });
+        var rules = options.Value;
+        var accountCreatedAt = await db.Users.Where(user => user.Id == userId).Select(user => user.CreatedAt).SingleAsync(cancellationToken);
+        var personas = await db.Personas.CountAsync(persona => persona.UserId == userId && !persona.IsArchived, cancellationToken);
+        var authorId = post.AuthorId;
+        var windowStart = now - rules.PerAuthorWindow;
+        var countedForAuthor = await db.PostReports.AnyAsync(
+            report => report.ReporterId == userId && report.CountsTowardHide && report.CreatedAt > windowStart && db.Posts.Any(other => other.Id == report.PostId && other.AuthorId == authorId),
+            cancellationToken);
+
+        db.PostReports.Add(new PostReport
+        {
+            PostId = id,
+            ReporterId = userId,
+            Reason = EnumNames.TryParse<ReportReason>(request.Reason, out var reason) ? reason : ReportReason.Other,
+            CreatedAt = now,
+            CountsTowardHide = ReportRules.Counts(accountCreatedAt, personas, countedForAuthor, now, rules),
+        });
 
         try
         {
@@ -57,10 +82,11 @@ internal static class ReportPostEndpoint
             return SocialErrors.AlreadyReported.ToHttpResult();
         }
 
-        // Reports since the last review: an approved post needs three new reporters to be hidden again.
+        // Reports since the last review: all of them for the queue, the counting ones for the hide (an approved post starts again from zero).
         var reviewedAt = post.ReviewedAt;
-        post.ReportCount = await db.PostReports.CountAsync(report => report.PostId == id && (reviewedAt == null || report.CreatedAt > reviewedAt), cancellationToken);
-        if (PostRules.ShouldHide(post.Status, post.ReportCount))
+        var sinceReview = db.PostReports.Where(report => report.PostId == id && (reviewedAt == null || report.CreatedAt > reviewedAt));
+        post.ReportCount = await sinceReview.CountAsync(cancellationToken);
+        if (PostRules.ShouldHide(post.Status, await sinceReview.CountAsync(report => report.CountsTowardHide, cancellationToken), rules.HideAt))
         {
             post.Status = PostStatus.Hidden;
             post.HiddenAt = now;

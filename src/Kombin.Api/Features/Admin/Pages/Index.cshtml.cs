@@ -1,6 +1,6 @@
 using Kombin.Api.Common.Time;
+using Kombin.Api.Features.Social;
 using Kombin.Api.Persistence;
-using Kombin.Api.Persistence.Entities.Social;
 
 namespace Kombin.Api.Features.Admin.Pages;
 
@@ -15,6 +15,6 @@ internal sealed class IndexModel(AdminDashboard dashboard, KombinDbContext db, I
     public async Task OnGetAsync(CancellationToken cancellationToken)
     {
         Data = await dashboard.LoadAsync(cancellationToken);
-        PendingReview = await db.Posts.CountAsync(post => post.Status == PostStatus.NeedsReview || post.Status == PostStatus.Hidden, cancellationToken);
+        PendingReview = await db.Posts.CountAsync(ReportRules.InReviewQueue, cancellationToken);
     }
 }

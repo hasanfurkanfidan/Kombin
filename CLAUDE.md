@@ -451,8 +451,12 @@ External Python workers (a separate repo) push the catalog through the internal 
   back of the queue. `ReviewedAt` and the report count stay: reports are counted since `ReviewedAt`). The internal endpoint and the admin panel
   both call it. Likewise `CreatorInvites` (put and revoke: `DELETE /internal/social/creators/{userId}` sets `IsActive = false`, the handle stays
   reserved) and `AccountAccess` (Identity); a new admin capability is first an internal use-case, never page code.
-- **Reports:** one per user and post; the 3rd distinct reporter since the last review hides a live post (`PostRules.HideAtReports`). Reviews go
-  through the internal endpoints (no admin UI); approval restarts the count.
+- **Reports:** one per user and post. **Every report reaches the review queue** (`ReportRules.InReviewQueue`: hidden, borderline, and live posts
+  with a report since their last review; the internal queue, `/admin/review` and the dashboard count share it, and a reviewer can approve, remove
+  or keep a reported live post). **Only a trusted reporter counts toward the automatic hide** (security review M4): `ReportRules.Counts`, decided
+  when the report is made and stored as `reports.counts_toward_hide`: account at least `Reports:MinAccountAge` (72 h) old, at least
+  `Reports:MinPersonas` (1) persona, and once per author per `Reports:PerAuthorWindow` (24 h). `Reports:HideAt` (3) counting reports since the
+  last review hide a live post; approval restarts the count. Tests that need a hide use `CreateTrustedReporterAsync`.
 - **Feed:** `FeedRanking` is pure and documented at the top of the file; its SQL twin is `FeedRanking.BaseSql`. Change a constant in both
   and in `docs/design/social.md`. SQL picks ≤ 200 candidates (14-day window, partial index `ix_posts_feed_window`), the rest is in memory;
   the persona "≥ 60" filter applies once the persona has learned (confidence > 0, `ViewerPersona.Learned`). `SeparateAuthors` keeps one author

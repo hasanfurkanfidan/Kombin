@@ -25,7 +25,7 @@ internal sealed class PostReviewer(KombinDbContext db, IClock clock)
             return SocialErrors.PostNotFound;
         }
 
-        if (!PostRules.IsReviewable(post.Status))
+        if (!PostRules.IsReviewable(post.Status, post.ReportCount))
         {
             return SocialErrors.NotReviewable;
         }

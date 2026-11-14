@@ -18,7 +18,7 @@ internal enum ReviewDecision
 /// <summary>The social feature's rules, pure (unit-tested in <c>SocialRulesTests</c>).</summary>
 internal static class PostRules
 {
-    /// <summary>The third distinct reporter hides a live post until a reviewer decides.</summary>
+    /// <summary>The default of <c>Reports:HideAt</c>: the third counting report (a trusted reporter, <see cref="ReportRules"/>) hides a live post.</summary>
     public const int HideAtReports = 3;
 
     /// <summary>
@@ -61,7 +61,8 @@ internal static class PostRules
     /// <summary>The author's confirmation: a draft goes live; a post under review stays there (confirmed) until a reviewer approves it.</summary>
     public static PostStatus StatusAfterConfirmation(PostStatus status) => status == PostStatus.Draft ? PostStatus.Live : status;
 
-    public static bool ShouldHide(PostStatus status, int reportCount) => status == PostStatus.Live && reportCount >= HideAtReports;
+    /// <summary><paramref name="countingReports"/>: reports since the last review that count toward the hide (<see cref="ReportRules.Counts"/>).</summary>
+    public static bool ShouldHide(PostStatus status, int countingReports, int hideAt = HideAtReports) => status == PostStatus.Live && countingReports >= hideAt;
 
     /// <summary>A reviewer's decision on a hidden or borderline post: approved posts go live if the author confirmed them (else back to draft).</summary>
     public static PostStatus StatusAfterReview(ReviewDecision decision, bool confirmed) => decision switch
@@ -71,8 +72,9 @@ internal static class PostRules
         _ => throw new ArgumentOutOfRangeException(nameof(decision), decision, "Only approving or removing moves a post to another status."),
     };
 
-    /// <summary>Statuses a reviewer can act on.</summary>
-    public static bool IsReviewable(PostStatus status) => status is PostStatus.Hidden or PostStatus.NeedsReview;
+    /// <summary>What a reviewer can act on: a hidden or borderline post, or a live one reported since its last review (every report reaches the queue).</summary>
+    public static bool IsReviewable(PostStatus status, int reportCount = 0) =>
+        status is PostStatus.Hidden or PostStatus.NeedsReview || (status == PostStatus.Live && reportCount > 0);
 
     /// <summary>Whether the author may still publish (or re-publish with new tags) the post.</summary>
     public static bool CanPublish(PostStatus status) => status is PostStatus.Draft or PostStatus.NeedsReview or PostStatus.Live;

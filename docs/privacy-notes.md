@@ -103,13 +103,13 @@ No face recognition, no biometric templates, no person identification, no age or
 |---|---|---|---|
 | Follows (who follows whom, when) | `social.follows` | follower/following counts are public; the lists are not exposed by the API | until unfollow, block or account deletion |
 | Likes | `social.likes` | the like count is public; who liked is not exposed (only "liked by me") | deleted with the post |
-| Reports (reporter, reason, time) | `social.reports` | the operator (review queue shows reasons and counts, not reporters); never the author | deleted with the post |
+| Reports (reporter, reason, time, whether it counts toward hiding: decided from the reporter's account age and persona count, which are not stored with it) | `social.reports` | the operator (review queue shows reasons and counts, not reporters); never the author | deleted with the post |
 | Blocks | `social.blocks` | the blocker (their own list) | until unblock or account deletion |
 | Captions (≤ 300 chars), unknown-tag labels (≤ 60 chars) | `social.posts`, `social.post_tags` | as the post | deleted with the post. Free text: may contain personal data the user types; it is never sent to analytics. |
 
 ### 3.5 Moderation by people
 
-Borderline photos and posts with 3 reports wait in `GET /internal/social/review-queue` (operator only, internal key; a 1-hour preview link,
+Borderline photos, hidden posts and live posts with any report since their last review wait in `GET /internal/social/review-queue` (operator only, internal key; a 1-hour preview link,
 the moderation scores, report reasons). The reviewer approves or removes; the author sees a fixed reason, not who decided. There is no admin
 UI: reviewers are the founder/operators with the internal key.
 

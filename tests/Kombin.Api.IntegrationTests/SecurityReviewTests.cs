@@ -164,6 +164,88 @@ public sealed class SecurityReviewTests(ApiFactory factory)
         Assert.Equal(PostStatus.Processing, (await factory.PostRowAsync(postId, Ct)).Status);
     }
 
+    // M4. Report brigading: the third distinct reporter hid any live post, and accounts are free. Now only trusted reporters (account older
+    // than 72 h, at least one persona) count toward the hide, once per author a day; every report still reaches the review queue.
+    [Fact]
+    public async Task ThreeThrowawayAccountsCannotHideAPostButTheirReportsReachTheQueue()
+    {
+        using var author = await factory.CreateUserAsync(Ct);
+        using var anonymous = factory.CreateAnonymousClient();
+        var postId = await factory.CreateLivePostAsync(author.Client, cancellationToken: Ct);
+
+        for (var index = 0; index < 3; index++)
+        {
+            using var throwaway = await factory.CreateUserAsync(Ct);
+            if (index == 0)
+            {
+                // A persona alone is not enough while the account is new.
+                await throwaway.Client.CreatePersonaAsync("Ofis", cancellationToken: Ct);
+            }
+
+            using var report = await throwaway.Client.ReportAsync(postId, cancellationToken: Ct);
+            Assert.Equal(HttpStatusCode.Accepted, report.StatusCode);
+        }
+
+        // An old account that never finished onboarding does not count either.
+        using (var dormant = await factory.CreateUserAsync(Ct))
+        {
+            await factory.WithDbAsync(db => db.Users.Where(user => user.Id == dormant.Id).ExecuteUpdateAsync(setters => setters.SetProperty(user => user.CreatedAt, DateTimeOffset.UtcNow.AddDays(-30)), Ct));
+            using var report = await dormant.Client.ReportAsync(postId, cancellationToken: Ct);
+            Assert.Equal(HttpStatusCode.Accepted, report.StatusCode);
+        }
+
+        var row = await factory.PostRowAsync(postId, Ct);
+        Assert.Equal((PostStatus.Live, 4), (row.Status, row.ReportCount));
+        Assert.Equal(HttpStatusCode.OK, await anonymous.StatusOfAsync(postId, Ct));
+        Assert.False(await factory.WithDbAsync(db => db.PostReports.AnyAsync(report => report.PostId == postId && report.CountsTowardHide, Ct)));
+
+        // The post is in the queue, and a reviewer can clear it (approve: live, the count starts again) or remove it.
+        // (Checked through the queue's own filter: the endpoint lists only the 50 oldest of the shared database.)
+        Assert.True(await factory.WithDbAsync(db => db.Posts.Where(Kombin.Api.Features.Social.ReportRules.InReviewQueue).AnyAsync(post => post.Id == postId, Ct)));
+        using var approve = await anonymous.SendInternalAsync(HttpMethod.Post, $"/api/v1/internal/social/posts/{postId}/review", new { decision = "Approve" }, cancellationToken: Ct);
+        Assert.Equal(HttpStatusCode.OK, approve.StatusCode);
+        row = await factory.PostRowAsync(postId, Ct);
+        Assert.Equal((PostStatus.Live, 0), (row.Status, row.ReportCount));
+        using var again = await anonymous.SendInternalAsync(HttpMethod.Post, $"/api/v1/internal/social/posts/{postId}/review", new { decision = "Approve" }, cancellationToken: Ct);
+        Assert.Equal(HttpStatusCode.Conflict, again.StatusCode);
+    }
+
+    [Fact]
+    public async Task ATrustedReporterCountsOncePerAuthorADayAndThreeOfThemHideThePost()
+    {
+        using var author = await factory.CreateUserAsync(Ct);
+        using var anonymous = factory.CreateAnonymousClient();
+        var first = await factory.CreateLivePostAsync(author.Client, cancellationToken: Ct);
+        var second = await factory.CreateLivePostAsync(author.Client, cancellationToken: Ct);
+        var third = await factory.CreateLivePostAsync(author.Client, cancellationToken: Ct);
+        using var zealot = await factory.CreateTrustedReporterAsync(Ct);
+
+        // One trusted user reporting every post of an author counts once (the first), so they alone hide nothing.
+        foreach (var postId in new[] { first, second, third })
+        {
+            using var report = await zealot.Client.ReportAsync(postId, cancellationToken: Ct);
+            Assert.Equal(HttpStatusCode.Accepted, report.StatusCode);
+        }
+
+        var counting = await factory.WithDbAsync(db => db.PostReports.Where(report => report.ReporterId == zealot.Id).OrderBy(report => report.CreatedAt).Select(report => report.CountsTowardHide).ToListAsync(Ct));
+        Assert.Equal([true, false, false], counting);
+
+        // Two more trusted reporters on the first post make three counting reports: hidden until review.
+        for (var index = 0; index < 2; index++)
+        {
+            using var reporter = await factory.CreateTrustedReporterAsync(Ct);
+            using var report = await reporter.Client.ReportAsync(first, cancellationToken: Ct);
+            Assert.Equal(HttpStatusCode.Accepted, report.StatusCode);
+        }
+
+        Assert.Equal(PostStatus.Hidden, (await factory.PostRowAsync(first, Ct)).Status);
+        Assert.Equal(PostStatus.Live, (await factory.PostRowAsync(second, Ct)).Status);
+
+        // A reported live post can also be removed straight from the queue.
+        using var remove = await anonymous.SendInternalAsync(HttpMethod.Post, $"/api/v1/internal/social/posts/{second}/review", new { decision = "Remove" }, cancellationToken: Ct);
+        Assert.Equal(PostStatus.Blocked, (await factory.PostRowAsync(second, Ct)).Status);
+    }
+
     private async Task<Click> ClickAsync(HttpClient client, string goPath)
     {
         using var response = await client.GetAsync(goPath, Ct);

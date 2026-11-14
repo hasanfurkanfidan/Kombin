@@ -25,6 +25,8 @@ internal static class SocialModule
     {
         services.AddOptions<CreatorOptions>().BindConfiguration(CreatorOptions.SectionName).ValidateOnStart();
         services.AddSingleton<IValidateOptions<CreatorOptions>, CreatorOptionsValidator>();
+        services.AddOptions<ReportOptions>().BindConfiguration(ReportOptions.SectionName).ValidateOnStart();
+        services.AddSingleton<IValidateOptions<ReportOptions>, ReportOptionsValidator>();
 
         // The use-cases the internal endpoints and the admin panel share.
         services.AddScoped<PostReviewer>();

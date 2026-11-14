@@ -36,7 +36,7 @@ controller is (a person, a company in formation?) is the first thing to settle.
 | T2 | §1, "Komisyon bilgisi" | The commission disclosure again (see P13) and that it does not raise the user's price. |
 | T3 | §2 Hesap | The minimum age (13, see P11) and the user's duties for the account. |
 | T4 | §3, license | The licence the user gives for their posts: limited, non-exclusive, free, for showing, resizing and reprocessing, ending at deletion. Scope, duration and whether it must be explicit about creators' posts earning commission. |
-| T5 | §3, removal | Hiding and removing content without notice, and the "three reports hide a post" rule. Notice-and-action duties for a platform (Law 5651) and the rights of the author. |
+| T5 | §3, removal | Hiding and removing content without notice, and the "three reports hide a post" rule (only reporters whose account is at least 3 days old and who have a style count; every report is reviewed). Notice-and-action duties for a platform (Law 5651) and the rights of the author. |
 | T6 | §5 Fikri haklar | The ownership statement and the brand/seller disclaimer. |
 | T7 | §6 Sorumluluk | The limitation of liability ("as is", no liability for sellers, user content, indirect damage) against the consumer law's limits (unfair terms). |
 | T8 | §8 Değişiklikler | Changes take effect on continued use: whether that is valid consent to changed terms for consumers. |
