@@ -35,7 +35,7 @@ public class NotificationCopyTests
     {
         var text = Copy.ForAlert(AlertKind.PriceDrop, Blazer(2999m, 2149m));
 
-        Assert.Equal("Takip ettiğin blazer 850 ₺ düştü", text.Title);
+        Assert.Equal("İzlediğin blazer 850 ₺ düştü", text.Title);
         Assert.Equal("Mavi Yün Karışımlı Blazer artık 2.149 ₺ — hedef fiyatının altında.", text.Body);
     }
 
@@ -44,7 +44,7 @@ public class NotificationCopyTests
     {
         var text = Copy.ForAlert(AlertKind.PriceDrop, Blazer(2149m, 2149m));
 
-        Assert.Equal("Takip ettiğin blazer hedef fiyatına indi", text.Title);
+        Assert.Equal("İzlediğin blazer hedef fiyatına indi", text.Title);
         Assert.Equal("Mavi Yün Karışımlı Blazer artık 2.149 ₺ — hedef fiyatının altında.", text.Body);
     }
 
@@ -57,7 +57,7 @@ public class NotificationCopyTests
     {
         var text = Copy.ForAlert(AlertKind.BackInStock, Blazer(2149m, 2149.5m, "M", "L"));
 
-        Assert.Equal("Takip ettiğin blazer tekrar stokta", text.Title);
+        Assert.Equal("İzlediğin blazer tekrar stokta", text.Title);
         Assert.Equal("Mavi Yün Karışımlı Blazer yeniden satışta — M, L bedenleri mevcut, fiyatı 2.149,50 ₺.", text.Body);
     }
 
@@ -75,9 +75,9 @@ public class NotificationCopyTests
         var fell = Copy.ForAlert(AlertKind.AnyChange, Blazer(1000m, 900m));
         var rose = Copy.ForAlert(AlertKind.AnyChange, Blazer(1000m, 1100m));
 
-        Assert.Equal("Takip ettiğin blazer 100 ₺ düştü", fell.Title);
+        Assert.Equal("İzlediğin blazer 100 ₺ düştü", fell.Title);
         Assert.Equal("Mavi Yün Karışımlı Blazer artık 900 ₺ (önceki fiyat 1.000 ₺).", fell.Body);
-        Assert.Equal("Takip ettiğin blazer 100 ₺ zamlandı", rose.Title);
+        Assert.Equal("İzlediğin blazer 100 ₺ zamlandı", rose.Title);
         Assert.Equal("Mavi Yün Karışımlı Blazer şimdi 1.100 ₺ (önceki fiyat 1.000 ₺).", rose.Body);
     }
 
@@ -86,14 +86,14 @@ public class NotificationCopyTests
     {
         var text = Copy.ForAlert(AlertKind.AnyChange, Blazer(1000m, 1000m));
 
-        Assert.Equal("Takip ettiğin blazer için stok durumu değişti", text.Title);
+        Assert.Equal("İzlediğin blazer için stok durumu değişti", text.Title);
         Assert.Equal("Mavi Yün Karışımlı Blazer için stok bilgisi güncellendi.", text.Body);
     }
 
     [Theory]
-    [InlineData(93, 3, "\"Hafta sonu\" tarzına %90 üzeri uyumlu 3 yeni parça")]
-    [InlineData(70, 1, "\"Hafta sonu\" tarzına %70 üzeri uyumlu 1 yeni parça")]
-    [InlineData(100, 2, "\"Hafta sonu\" tarzına %100 üzeri uyumlu 2 yeni parça")]
+    [InlineData(93, 3, "\"Hafta sonu\" için 3 yeni parça: sana uygun %90 ve üzeri")]
+    [InlineData(70, 1, "\"Hafta sonu\" için 1 yeni parça: sana uygun %70 ve üzeri")]
+    [InlineData(100, 2, "\"Hafta sonu\" için 2 yeni parça: sana uygun %100 ve üzeri")]
     public void TheWeeklyDigestTitleRoundsTheLowestScoreDownToTens(int lowestScore, int count, string expected) =>
         Assert.Equal(expected, Copy.ForNewMatches("Hafta sonu", count, lowestScore, ["A", "B"]).Title);
 

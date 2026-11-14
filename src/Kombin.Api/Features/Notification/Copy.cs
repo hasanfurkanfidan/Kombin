@@ -80,7 +80,7 @@ internal static class Copy
 
     public static NotificationText ForNewMatches(string personaName, int count, int lowestScore, IEnumerable<string> productNames) =>
         new(
-            Clip($"\"{personaName}\" tarzına %{lowestScore / 10 * 10} üzeri uyumlu {count} yeni parça", MaxTitleLength),
+            Clip($"\"{personaName}\" için {count} yeni parça: sana uygun %{lowestScore / 10 * 10} ve üzeri", MaxTitleLength),
             Clip(string.Join(", ", productNames), MaxBodyLength));
 
     public static string Clip(string text, int maxLength) =>
@@ -92,8 +92,8 @@ internal static class Copy
         var category = TurkishLower(input.CategoryName);
 
         var title = input is { PriceBefore: { } before, PriceAfter: { } after } && before > after
-            ? $"Takip ettiğin {category} {Money(before - after)} düştü"
-            : $"Takip ettiğin {category} hedef fiyatına indi";
+            ? $"İzlediğin {category} {Money(before - after)} düştü"
+            : $"İzlediğin {category} hedef fiyatına indi";
 
         var body = input.PriceAfter is { } price
             ? $"{name} artık {Money(price)} — hedef fiyatının altında."
@@ -109,7 +109,7 @@ internal static class Copy
         var price = input.PriceAfter is { } after ? $", fiyatı {Money(after)}." : ".";
 
         return new NotificationText(
-            $"Takip ettiğin {TurkishLower(input.CategoryName)} tekrar stokta",
+            $"İzlediğin {TurkishLower(input.CategoryName)} tekrar stokta",
             $"{name} yeniden satışta{sizes}{price}");
     }
 
@@ -123,10 +123,10 @@ internal static class Copy
             var previous = $"(önceki fiyat {Money(before)})";
 
             return after < before
-                ? new NotificationText($"Takip ettiğin {category} {Money(before - after)} düştü", $"{name} artık {Money(after)} {previous}.")
-                : new NotificationText($"Takip ettiğin {category} {Money(after - before)} zamlandı", $"{name} şimdi {Money(after)} {previous}.");
+                ? new NotificationText($"İzlediğin {category} {Money(before - after)} düştü", $"{name} artık {Money(after)} {previous}.")
+                : new NotificationText($"İzlediğin {category} {Money(after - before)} zamlandı", $"{name} şimdi {Money(after)} {previous}.");
         }
 
-        return new NotificationText($"Takip ettiğin {category} için stok durumu değişti", $"{name} için stok bilgisi güncellendi.");
+        return new NotificationText($"İzlediğin {category} için stok durumu değişti", $"{name} için stok bilgisi güncellendi.");
     }
 }

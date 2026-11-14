@@ -269,6 +269,12 @@ External Python workers (a separate repo) push the catalog through the internal 
   the app reports `notification_open` for exactly that row. Keep both keys when changing the payload.
 - **Copy is Turkish and lives in `Features/Notification/Copy.cs`** (money as `2.149 ₺` / `849,90 ₺`, formatted by hand because the runtime
   image may run with invariant globalization). Clients read `Notification.Data.deepLink`; do not change its shape without the app team.
+- **All Turkish copy the backend writes follows the app glossary** (`../kombin-frontend/docs/design/glossary.md`; `Common/Text/CopyGlossary`):
+  notifications, narration, status messages, recommendation and gap messages, problem details. A match is "sana uygun %N", a persona a "tarz",
+  a watched price "izlenir" ("takip" is only for people), colours in everyday words; banned: persona, uyum (alone), komşu, vurgu, nötr, tonal,
+  eşleş-, akış in a sentence. `CopyGlossaryTests` scans the string literals of those sources (add a new copy file to its lists); the LLM
+  narrator's system prompt is built from `CopyGlossary.Banned` and a line that breaks it falls back to the template. Legal pages and the
+  versioned posting consent are outside the scan (the consent's next version should drop "akışta").
 
 ## Analytics rules
 
