@@ -30,6 +30,7 @@ internal static class WardrobeModule
         services.AddHttpClient(CatalogImageClient, client => client.Timeout = TimeSpan.FromSeconds(10)).AddPublicOnlyGuard();
 
         // Plain classes with constructor injection, like the other jobs: Hangfire activates them from a scope, the tests resolve them directly.
+        services.AddScoped<WardrobeModerator>();
         services.AddScoped<WardrobeAnalyzeJob>();
         services.AddScoped<WardrobeCleanupJob>();
 

@@ -60,10 +60,10 @@ cancelling inside the window, the admin buttons).
 | Data | Why | Where | Visible to | Retention |
 |---|---|---|---|---|
 | Audience (women/men/unisex), measurements, city, personas, swipes, sizes per brand | recommendations; the city fetches the weather | `profile.*` | the user only; the audience is copied onto posts for feed matching (never shown) | until account deletion (section 1a) |
-| Wardrobe photos: private original, public cutout and thumbnail, garment attributes, a CLIP embedding | the wardrobe and outfits | object storage `wardrobe/{user}/{item}/…`, `wardrobe.items` | the original: the user (15-minute presigned link); cutout/thumbnail: **anyone with the URL** (unguessable keys, public bucket policy) and anyone who sees an outfit post using that piece | archived items' images deleted after 30 days; abandoned uploads after 1 day |
+| Wardrobe photos: private original, public cutout and thumbnail, garment attributes, a CLIP embedding | the wardrobe and outfits | object storage `wardrobe/{user}/{item}/…`, `wardrobe.items` | the original: the user (15-minute presigned link); cutout/thumbnail: **anyone with the URL** (unguessable keys, public bucket policy); the URL is given to other users (a post's wardrobe tag, an outfit post) only after the safety filter allowed the cutout (`wardrobe.items.moderation_verdict`, security review M3) | archived items' images deleted after 30 days; abandoned uploads after 1 day |
 | Wear dates | wear tracking | `wardrobe.wears` | the user | until account deletion (section 1a) |
 
-The original wardrobe photo is sent to `kombin-vision`, which processes it in memory and stores nothing. Wardrobe originals are **not**
+The original wardrobe photo is sent to `kombin-vision`, which processes it in memory and stores nothing; the cutout then goes to its `/v1/moderate` (allow / review / block, only the verdict and its time are stored). Wardrobe originals are **not**
 metadata-stripped (they are private and never shown); see open questions.
 
 ## 3. Social posts (Task 14)

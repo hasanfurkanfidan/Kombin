@@ -96,7 +96,7 @@ Sorted by severity. Status: **Fixed** (in this branch, with the test that proves
 | H2 | High | SSRF in catalog image downloads (embedding job, "Dolabıma ekle"), readable through a public object | `Features/Catalog/CatalogModule.cs:36`, `Features/Wardrobe/WardrobeModule.cs:30`, `Common/Http/OutboundGuard.cs` | Fixed |
 | M1 | Medium | Creator click inflation: every repeat click earned a referral | `Features/Engagement/Redirect/Endpoint.cs:72`, `Features/Social/CreatorAttribution.cs` | Fixed |
 | M2 | Medium | Presigned PUT has no size cap: storage fill | `Common/Storage/S3ObjectStorage.cs:87` | Partly fixed, rest planned |
-| M3 | Medium | Wardrobe-tag thumbnails bypass moderation | `Features/Social/PostResponses.cs:203` | Planned |
+| M3 | Medium | Wardrobe-tag thumbnails bypass moderation | `Features/Social/PostResponses.cs:203` | Fixed |
 | M4 | Medium | Three throwaway accounts hide any live post | `Features/Social/ReportPost/Endpoint.cs:63` | Planned |
 | M5 | Medium | "Followers" visibility is not a privacy boundary | `Features/Social/PostRules.cs:44` | Accepted (copy change planned) |
 | M6 | Medium | Analytics intake as an anonymous storage-fill vector | `Features/Analytics/RecordEvents/Endpoint.cs:33` | Planned |
@@ -159,12 +159,19 @@ upload to a presigned **POST** policy with `content-length-range 1..8 MB` (S3, R
 request), and set a MinIO bucket quota in `minio-init` as the backstop. Not done here: it changes the mobile upload contract (multipart form
 instead of a raw PUT) and can only be verified against real MinIO.
 
-**M3 · Wardrobe-tag thumbnails bypass moderation (Planned).** A photo post is moderated, and so are an outfit post's cutouts, but a wardrobe
-tag added at publish shows that item's public thumbnail (`PostResponses`, `image = summary?.ThumbUrl`) and wardrobe photos are never moderated
-(`isGarment = false` is still `Ready`). *Exploit:* add an explicit photo to your wardrobe, tag it on a harmless public post: the tag sheet shows
-it to everyone. *Plan (> 50 lines, a migration):* `wardrobe-analyze` also calls `/v1/moderate` on the cutout and stores the verdict on the item;
-`PUT /posts/{id}/publish` refuses wardrobe tags whose item is not `Allow` (or sends the post back to `NeedsReview`), and `PostResponses` shows no
-thumbnail to anyone but the author for such an item. Until then, reports and the review queue are the safety net.
+**M3 · Wardrobe-tag thumbnails bypass moderation (Fixed).** A photo post was moderated, and so were an outfit post's cutouts, but a wardrobe
+tag added at publish showed that item's public thumbnail (`PostResponses`, `image = summary?.ThumbUrl`) and wardrobe photos were never
+moderated (`isGarment = false` is still `Ready`). *Exploit:* add an explicit photo to your wardrobe, tag it on a harmless public post: the tag
+sheet showed it to everyone. *Fix (CEO decision, 2026-11-15):* `WardrobeModerator` sends the cutout to `/v1/moderate` right after
+`wardrobe-analyze` made the item `Ready` (the owner never waits for it) and stores `wardrobe.items.moderation_verdict` and `moderated_at`
+(migration `WardrobeModeration`; catalog items are `Allow`, backfilled). Only `Allow` is shareable: for a blocked, borderline or not yet
+moderated piece, everyone but its owner gets the tag without `imageUrl`; the owner keeps using the piece everywhere. A call that fails leaves
+the verdict empty and `wardrobe-cleanup` asks again daily (`RetryMissingAsync`). The other surfaces never show another user's wardrobe images:
+"Dolabımla dene" builds from the viewer's own wardrobe and the post's catalog products, lens matches are the caller's own pieces, profiles show
+no wardrobe. *Proof:* `WardrobeModerationTests` (verdicts stored, tag without image for viewers and anonymous on the post, the author's list,
+the feed and `try`, an allowed piece shared, the retry, catalog pieces); three of them fail when the gate in `PostResponses` is removed.
+*Left:* the cutout and thumbnail objects stay readable by URL (public bucket policy); the URL of an unallowed piece is never handed to anyone
+but its owner, and keys are unguessable.
 
 **M4 · Report brigading with throwaway accounts (Planned).** The third distinct reporter hides a live post (`PostRules.HideAtReports`).
 Accounts are free and unverified; `auth` allows 10 registrations per 5 minutes per address. Three accounts silence any post until a review.

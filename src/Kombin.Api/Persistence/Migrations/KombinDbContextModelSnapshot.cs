@@ -2954,6 +2954,15 @@ namespace Kombin.Api.Persistence.Migrations
                         .HasColumnType("date")
                         .HasColumnName("last_worn_at");
 
+                    b.Property<DateTimeOffset?>("ModeratedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("moderated_at");
+
+                    b.Property<string>("ModerationVerdict")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("moderation_verdict");
+
                     b.Property<string>("Name")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)")

@@ -21,6 +21,7 @@ internal sealed class WardrobeItemConfiguration : IEntityTypeConfiguration<Wardr
         builder.Property(item => item.Pattern).HasConversion<string>().HasMaxLength(20);
         builder.Property(item => item.Fit).HasConversion<string>().HasMaxLength(20);
         builder.Property(item => item.Status).HasConversion<string>().HasMaxLength(20);
+        builder.Property(item => item.ModerationVerdict).HasConversion<string>().HasMaxLength(20);
         builder.Property(item => item.Size).HasMaxLength(WardrobeItem.MaxSizeLength);
         builder.Property(item => item.PurchasePrice).HasPrecision(12, 2);
         builder.Property(item => item.FailureReason).HasMaxLength(300);

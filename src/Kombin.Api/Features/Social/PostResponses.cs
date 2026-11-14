@@ -24,7 +24,8 @@ internal sealed record TagOfferResponse(Guid OfferId, SellerRef? Seller, decimal
 
 /// <summary>
 /// A confirmed tag. <c>InWardrobe</c> is the viewer's: <c>exact</c> (they own that product, or it is their own piece), <c>similar</c> (they own a
-/// ready piece of the same category and colour), null otherwise or when signed out.
+/// ready piece of the same category and colour), null otherwise or when signed out. <c>ImageUrl</c> of a wardrobe tag is null for anyone but
+/// the piece's owner until the safety filter allowed that photo.
 /// </summary>
 internal sealed record PostTagResponse(
     Guid Id,
@@ -200,7 +201,8 @@ internal static class PostResponses
                     slug = summary?.CategorySlug;
                     color = item.PrimaryColor;
                     name = item.Name ?? (product is not null ? Copy.ProductDisplayName(product.BrandName, product.Name) : Describe(item.PrimaryColor, slug));
-                    image = summary?.ThumbUrl;
+                    // A wardrobe photo the safety filter has not allowed is the owner's alone: others get the tag without the image (review M3).
+                    image = viewerId == item.UserId || WardrobeModerator.IsShareable(item) ? summary?.ThumbUrl : null;
                     break;
                 default:
                     slug = tag.CategoryId is { } categoryId ? categorySlugs.GetValueOrDefault(categoryId) : null;

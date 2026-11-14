@@ -1,4 +1,5 @@
 using Kombin.Api.Persistence.Entities.Catalog;
+using Kombin.Api.Persistence.Entities.Social;
 using Pgvector;
 
 namespace Kombin.Api.Persistence.Entities.Wardrobe;
@@ -103,4 +104,12 @@ internal sealed class WardrobeItem : BaseEntity
     public DateTimeOffset? ArchivedAt { get; set; }
 
     public int SortOrder { get; set; }
+
+    /// <summary>
+    /// The safety filter's verdict on the cutout (<c>WardrobeModerator</c>); null until it answered. Only <c>Allow</c> lets another user see the
+    /// item's image (a post's wardrobe tag); anything else keeps the image to its owner (security review M3). Catalog items are <c>Allow</c>.
+    /// </summary>
+    public ModerationVerdict? ModerationVerdict { get; set; }
+
+    public DateTimeOffset? ModeratedAt { get; set; }
 }

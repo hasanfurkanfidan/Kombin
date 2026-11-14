@@ -6,14 +6,16 @@ using Kombin.Api.Persistence.Entities.Wardrobe;
 
 namespace Kombin.Api.Features.Wardrobe.Jobs;
 
-internal readonly record struct CleanupSummary(int ArchivedItemsCleaned, int AbandonedUploadsDeleted);
+internal readonly record struct CleanupSummary(int ArchivedItemsCleaned, int AbandonedUploadsDeleted, int VerdictsRetried = 0);
 
 /// <summary>
 /// Daily: deletes the stored images of items archived more than <see cref="Retention"/> ago (the row stays, without image keys, so wear
-/// history survives), and deletes uploads that were started but never processed within <see cref="AbandonedAfter"/>, row and object.
+/// history survives), deletes uploads that were started but never processed within <see cref="AbandonedAfter"/>, row and object, and asks
+/// the safety filter again for ready items whose verdict is missing (<see cref="WardrobeModerator.RetryMissingAsync"/>).
 /// Idempotent: cleaned items no longer match.
 /// </summary>
-internal sealed partial class WardrobeCleanupJob(KombinDbContext db, IObjectStorage storage, IClock clock, ILogger<WardrobeCleanupJob> logger)
+internal sealed partial class WardrobeCleanupJob(
+    KombinDbContext db, IObjectStorage storage, WardrobeModerator moderator, IClock clock, ILogger<WardrobeCleanupJob> logger)
 {
     public const string JobId = "wardrobe-cleanup";
 
@@ -32,7 +34,7 @@ internal sealed partial class WardrobeCleanupJob(KombinDbContext db, IObjectStor
     {
         var summary = await CleanupAsync(null, cancellationToken);
 
-        LogRun(logger, summary.ArchivedItemsCleaned, summary.AbandonedUploadsDeleted);
+        LogRun(logger, summary.ArchivedItemsCleaned, summary.AbandonedUploadsDeleted, summary.VerdictsRetried);
     }
 
     /// <summary><paramref name="userId"/> restricts the run to one user's items (tests share a database).</summary>
@@ -42,7 +44,8 @@ internal sealed partial class WardrobeCleanupJob(KombinDbContext db, IObjectStor
 
         return new CleanupSummary(
             await CleanArchivedAsync(userId, now - Retention, cancellationToken),
-            await DeleteAbandonedAsync(userId, now - AbandonedAfter, cancellationToken));
+            await DeleteAbandonedAsync(userId, now - AbandonedAfter, cancellationToken),
+            await moderator.RetryMissingAsync(userId, cancellationToken));
     }
 
     private async Task<int> CleanArchivedAsync(Guid? userId, DateTimeOffset archivedBefore, CancellationToken cancellationToken)
@@ -115,6 +118,6 @@ internal sealed partial class WardrobeCleanupJob(KombinDbContext db, IObjectStor
     private static IEnumerable<string> KeysOf(WardrobeItem item) =>
         new[] { item.ImageOriginalKey, item.ImageCutoutKey, item.ImageThumbKey }.OfType<string>();
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Wardrobe cleanup: images of {Archived} archived item(s) deleted, {Abandoned} abandoned upload(s) deleted.")]
-    private static partial void LogRun(ILogger logger, int archived, int abandoned);
+    [LoggerMessage(Level = LogLevel.Information, Message = "Wardrobe cleanup: images of {Archived} archived item(s) deleted, {Abandoned} abandoned upload(s) deleted, {Verdicts} missing moderation verdict(s) obtained.")]
+    private static partial void LogRun(ILogger logger, int archived, int abandoned, int verdicts);
 }

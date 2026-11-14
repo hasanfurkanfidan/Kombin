@@ -329,9 +329,14 @@ External Python workers (a separate repo) push the catalog through the internal 
   `not_garment` warning. A permanent error fails the item at once; transient errors are counted on the item (`AnalysisAttempts`) and the
   4th makes it `Failed` (the count is ours, not Hangfire's, so tests drive it by calling `AnalyzeAsync`). `AnalysisJson` is the answer
   without images and embedding. A failed item can be filled in by hand (any PATCH makes it `Ready`) or processed again.
+- **Wardrobe photos are moderated** (`WardrobeModerator`, security review M3): right after the item is `Ready`, the cutout goes to `/v1/moderate`
+  and `moderation_verdict`/`moderated_at` are stored (catalog items: `Allow`). **Only `Allow` lets another user see the image** (`IsShareable`):
+  for anything else, or no verdict yet, viewers get a post's wardrobe tag without `imageUrl`; the owner keeps the piece everywhere. A failed
+  call leaves the verdict empty. A new surface that shows a wardrobe image to someone other than its owner must check `IsShareable`. Tests:
+  `FakeVisionClient.CutoutFor` (photo flavours `nsfw`, `borderline`, `moderation-down`).
 - **`wardrobe-cleanup`** (daily 05:00 `Europe/Istanbul`, `[DisableConcurrentExecution(60)]`, `[AutomaticRetry(Attempts = 0)]`, tests call
   `CleanupAsync(userId, ct)`): deletes the objects of items archived more than 30 days ago (rows and wear history stay, keys set to null)
-  and the abandoned uploads above.
+  and the abandoned uploads above, and asks the safety filter again for ready items without a verdict (`RetryMissingAsync`, 200 per run).
 - **From the catalog:** `POST /items/from-product` makes a `Ready`, already confirmed item (`FromCatalog`) and copies the product's primary
   image into storage as both cutout and thumbnail, unchanged (no background removal, no resizing: there is no image library here). A failed
   copy still creates the item, which then shows the catalog image. The same product twice returns the existing item.
