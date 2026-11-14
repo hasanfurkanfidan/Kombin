@@ -23,6 +23,11 @@ internal sealed class AnalyticsEventConfiguration : IEntityTypeConfiguration<Ana
         builder.HasIndex(analyticsEvent => new { analyticsEvent.Name, analyticsEvent.OccurredAt });
         builder.HasIndex(analyticsEvent => new { analyticsEvent.UserId, analyticsEvent.OccurredAt });
 
+        // The intake's daily cap counts an actor's rows received today; the retention job deletes by receipt time (security review M6).
+        builder.HasIndex(analyticsEvent => new { analyticsEvent.UserId, analyticsEvent.ReceivedAt });
+        builder.HasIndex(analyticsEvent => new { analyticsEvent.AnonymousId, analyticsEvent.ReceivedAt });
+        builder.HasIndex(analyticsEvent => analyticsEvent.ReceivedAt);
+
         // What the identity linker looks up when a device signs in: only the rows still waiting for their user.
         builder.HasIndex(analyticsEvent => analyticsEvent.AnonymousId)
             .HasFilter("user_id is null and anonymous_id is not null");

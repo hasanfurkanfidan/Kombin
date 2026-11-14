@@ -2,7 +2,7 @@
 
 The public pages (`/legal/privacy`, `/legal/terms`, `/legal/delete-account`; `src/Kombin.Api/Features/Legal/Pages`) are **drafts** written by an engineer
 from `docs/privacy-notes.md`. They are in Turkish, in plain language, and they say what the code does today. Every sentence or paragraph that needs a
-lawyer's eye is preceded by an HTML comment `<!-- LAWYER -->` in the source (25 of them; they are also in the served HTML, so remove them when the texts are
+lawyer's eye is preceded by an HTML comment `<!-- LAWYER -->` in the source (26 of them; they are also in the served HTML, so remove them when the texts are
 approved). Find them with `grep -rn "LAWYER" src/Kombin.Api/Features/Legal/Pages`. Nothing below is a legal opinion.
 
 When a text changes: edit the page, update `docs/privacy-notes.md` if a fact changed, and raise `Legal:Version` (`LEGAL_VERSION`) so the app can tell users.
@@ -27,6 +27,7 @@ controller is (a person, a company in formation?) is the first thing to settle.
 | P11 | §8 Çocuklar | 13+ and "not directed at children": there is no age gate in the app. Turkish law (age of majority 18, consent of a parent below), KVKK's position on minors, and the stores' rules (Apple, Google Play "Families") decide the real number and whether a gate is required. |
 | P12 | §7 Güvenlik | The breach notification promise (KVKK m. 12: to the Kurul and to the people within 72 hours) and the security claims. |
 | P13 | §9 Komisyon | The affiliate disclosure "Kombin satış yapmaz; bağlantılardan komisyon kazanabilir" and the creator wording "Bu içerikten komisyon kazanabilir": is it enough under the advertising rules (Ticari Reklam ve Haksız Ticari Uygulamalar Yönetmeliği, the Reklam Kurulu's guidance on promotions and influencers)? Where must it appear in the app? |
+| P14 | §5, usage statistics | Raw usage events are deleted 180 days after receipt; only weekly aggregate counts (no personal data) stay. Is 180 days a proportionate period for product analytics under KVKK m. 4 (data minimisation, retention only as long as needed)? |
 
 ## Terms of use (`Terms.cshtml`)
 

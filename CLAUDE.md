@@ -259,7 +259,7 @@ External Python workers (a separate repo) push the catalog through the internal 
   (`QuietHours.Zone`). The Docker runtime image installs `tzdata` for it. Stored instants are always UTC (`timestamptz`).
 - **Hangfire wiring:** `AddNotificationFeature` registers storage lazily; `UseNotificationJobs` (called in `Program.cs` after the EF
   migrations and the seeds) is what first creates the `hangfire` schema, registers the recurring jobs (`UseCatalogJobs` adds the
-  Catalog's `offer-sweep`, `UseAnalyticsJobs` the Analytics' `weekly-metrics`, `UseWardrobeJobs` the Wardrobe's `wardrobe-cleanup` and
+  Catalog's `offer-sweep`, `UseAnalyticsJobs` the Analytics' `weekly-metrics` and `analytics-retention`, `UseWardrobeJobs` the Wardrobe's `wardrobe-cleanup` and
   `UseSocialJobs` the Social's `social-purge` and `UseIdentityJobs` the Identity's `account-deletion` right after it, behind the same flag; `UseCatalogJobs` also registers `product-embeddings`; `outfit-narrate` and `post-process` are fire-and-forget,
   not recurring) and, **in Development only**
   (or wherever `Diagnostics:Expose` is true, then behind the `/admin` sign-in), maps the dashboard at `/hangfire` (open in Development, unmapped otherwise). Nothing happens unless `Hangfire:Enabled` is
@@ -285,6 +285,12 @@ External Python workers (a separate repo) push the catalog through the internal 
   deduplicated). A rejected event does not use up a duplicate slot. 400 `Validation.Failed` is only for a malformed body (the validator
   checks the envelope: 1-50 events, no null event, `sessionId`, `platform`, `appVersion`, `occurredAt`, `anonymousId`); never move the
   name or property rules back into the request validator.
+- **The intake is capped and the raw table expires** (security review M6). `Analytics:DailyEventCapPerActor` (5,000) events per actor (the user, else
+  the `anonymousId`) per calendar day in `Europe/Istanbul`, counted on `received_at`; the excess is rejected as `daily_cap` in a 202 and counted by the
+  `kombin.analytics.events_capped` meter counter (`AnalyticsMetrics`). **`analytics-retention`** (`AnalyticsRetentionJob`, daily 03:30 `Europe/Istanbul`,
+  `[DisableConcurrentExecution(60)]`, `[AutomaticRetry(Attempts = 0)]`, registered by `UseAnalyticsJobs`) deletes events received more than
+  `Analytics:RetentionDays` (180, at least 60) ago in batches of 5,000; `weekly_metrics` stays. Tests call `PurgeAsync(anonymousIds, ct)` with their own
+  IDs only (the 2020 metric cohorts live in the shared database).
 - **Clock skew is clamped, not rejected** (`EventTiming`): `occurredAt` more than 7 days old or 5 minutes ahead becomes `ReceivedAt`.
   `OccurredAt`/`ReceivedAt` are always UTC.
 - **Identity is linked after the commit and never breaks a sign-in.** Login and Register take an optional `anonymousId` and call

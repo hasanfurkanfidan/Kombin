@@ -99,7 +99,7 @@ Sorted by severity. Status: **Fixed** (in this branch, with the test that proves
 | M3 | Medium | Wardrobe-tag thumbnails bypass moderation | `Features/Social/PostResponses.cs:203` | Fixed |
 | M4 | Medium | Three throwaway accounts hide any live post | `Features/Social/ReportPost/Endpoint.cs` | Fixed |
 | M5 | Medium | "Followers" visibility is not a privacy boundary | `Features/Social/PostRules.cs:44` | Accepted (copy change planned) |
-| M6 | Medium | Analytics intake as an anonymous storage-fill vector | `Features/Analytics/RecordEvents/Endpoint.cs:33` | Planned |
+| M6 | Medium | Analytics intake as an anonymous storage-fill vector | `Features/Analytics/RecordEvents/Endpoint.cs` | Fixed |
 | L1 | Low | `/go` stored any persona ID | `Features/Engagement/Redirect/Endpoint.cs` | Fixed |
 | L2 | Low | Registration reveals whether an e-mail has an account | `Features/Identity/Register/Endpoint.cs:40` | Accepted |
 | L3 | Low | A replayed rotated refresh token signs the user out everywhere, repeatedly | `Features/Identity/RefreshToken/Endpoint.cs:46` | Planned |
@@ -188,10 +188,15 @@ tap with no approval (follow requests are out of scope), so any signed-in accoun
 "Takipçiler" will expect more. *Plan:* the app labels it "Takipçilerim (herkes takip edebilir)" and the privacy notes say so; real
 restriction needs follow requests, a product decision.
 
-**M6 · Analytics intake as a storage-fill vector (Planned).** `POST /api/v1/events` is anonymous, takes 50 events of up to 2 KB, and `events`
-allows 600 requests per 5 minutes per address: about 17 GB a day per address into `analytics.events`, which has no retention. *Plan:* a daily
-cap per actor (`anonymousId` or user) in the handler, a retention job (e.g. raw events 13 months, `weekly_metrics` kept), and a lower anonymous
-`events` limit once real traffic is known.
+**M6 · Analytics intake as a storage-fill vector (Fixed).** `POST /api/v1/events` is anonymous, takes 50 events of up to 2 KB, and `events`
+allows 600 requests per 5 minutes per address: about 17 GB a day per address into `analytics.events`, which had no retention. *Fix (CEO
+decision, 2026-11-15):* a daily cap per actor (the user, else the `anonymousId`; `Analytics:DailyEventCapPerActor`, 5,000 per calendar day in
+Europe/Istanbul, counted on `received_at`): the excess is rejected as `daily_cap` in the usual 202 and counted by the meter counter
+`kombin.analytics.events_capped`. The nightly `analytics-retention` job deletes events received more than `Analytics:RetentionDays` (180) ago;
+`weekly_metrics` keeps the aggregates. Indexes on `(user_id, received_at)`, `(anonymous_id, received_at)` and `received_at` (migration
+`AnalyticsCapAndRetention`). The privacy notes and the public privacy page state the 180 days (with a lawyer marker, P14). *Proof:*
+`AnalyticsLimitsTests` (the two cap tests fail without the cap), `EventCapTests`. *Left:* a script rotating `anonymousId`s is held only by
+the `events` rate limit per address (600 per 5 minutes), so one address can still write up to about 17 GB a day; the retention now bounds the total, and a lower anonymous `events` limit is the next step once real traffic is known.
 
 ### 3.3 Low
 

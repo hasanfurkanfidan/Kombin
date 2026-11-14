@@ -17,4 +17,7 @@ internal static class RejectionReasons
 
     /// <summary>The event repeats one earlier in the same batch with the same session, name and time.</summary>
     public const string Duplicate = "duplicate";
+
+    /// <summary>The actor (the user, else the <c>anonymousId</c>) already stored <c>Analytics:DailyEventCapPerActor</c> events today (Europe/Istanbul).</summary>
+    public const string DailyCap = "daily_cap";
 }

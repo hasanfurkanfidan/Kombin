@@ -137,11 +137,20 @@ namespace Kombin.Api.Persistence.Migrations
                         .HasDatabaseName("ix_events_anonymous_id")
                         .HasFilter("user_id is null and anonymous_id is not null");
 
+                    b.HasIndex("ReceivedAt")
+                        .HasDatabaseName("ix_events_received_at");
+
+                    b.HasIndex("AnonymousId", "ReceivedAt")
+                        .HasDatabaseName("ix_events_anonymous_id_received_at");
+
                     b.HasIndex("Name", "OccurredAt")
                         .HasDatabaseName("ix_events_name_occurred_at");
 
                     b.HasIndex("UserId", "OccurredAt")
                         .HasDatabaseName("ix_events_user_id_occurred_at");
+
+                    b.HasIndex("UserId", "ReceivedAt")
+                        .HasDatabaseName("ix_events_user_id_received_at");
 
                     b.ToTable("events", "analytics");
                 });

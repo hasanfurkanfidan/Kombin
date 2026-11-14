@@ -277,6 +277,7 @@ or a bad `sessionId`, `platform`, `appVersion`, `occurredAt` or `anonymousId`.
 | `invalid_properties` | has a property that is not listed for it, is missing, has the wrong type or value, or is nested; has properties over 2 KB in total; or has a key named like personal data (`email`, `name`, `phone`, `address`, `token`) |
 | `missing_identity` | was sent by an anonymous caller without `anonymousId` |
 | `duplicate` | repeats an earlier event of the same batch (same `sessionId`, `name` and `occurredAt`) |
+| `daily_cap` | its actor (the signed-in user, else the `anonymousId`) already stored `Analytics:DailyEventCapPerActor` (5,000) events today, Europe/Istanbul; the batch still answers 202 |
 
 - **Names and properties come from an allow-list** (`AnalyticsEventCatalog`), so a client that is newer than the backend only loses the
   events it invented, and the rest of its batch still counts.

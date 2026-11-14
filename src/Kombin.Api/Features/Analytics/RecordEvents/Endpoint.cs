@@ -3,8 +3,10 @@ using Kombin.Api.Common.Auth;
 using Kombin.Api.Common.Time;
 using Kombin.Api.Common.Validation;
 using Kombin.Api.Features.Catalog;
+using Kombin.Api.Features.Notification;
 using Kombin.Api.Persistence;
 using Kombin.Api.Persistence.Entities.Analytics;
+using Microsoft.Extensions.Options;
 
 namespace Kombin.Api.Features.Analytics.RecordEvents;
 
@@ -27,7 +29,7 @@ internal sealed record RejectedEvent(int Index, string Reason);
 
 internal sealed record RecordEventsResponse(int Accepted, IReadOnlyList<RejectedEvent> Rejected);
 
-internal static class RecordEventsEndpoint
+internal static partial class RecordEventsEndpoint
 {
     public static void Map(RouteGroupBuilder group) =>
         group.MapPost("/", Handle)
@@ -38,16 +40,23 @@ internal static class RecordEventsEndpoint
 
     /// <summary>
     /// Public: the app reports before login. A valid bearer token adds the user to every event. A bad clock is clamped, not rejected.
-    /// Events are judged one by one: what is not stored (an unknown name, bad properties, no identity, a repeat within the batch) is listed
-    /// in <c>rejected</c> with its index and a <see cref="RejectionReasons"/> value, and the rest of the batch is stored. Only a malformed
-    /// body is a 400.
+    /// Events are judged one by one: what is not stored (an unknown name, bad properties, no identity, a repeat within the batch, or an actor
+    /// over its daily cap) is listed in <c>rejected</c> with its index and a <see cref="RejectionReasons"/> value, and the rest of the batch is
+    /// stored. Only a malformed body is a 400.
     /// </summary>
-    private static async Task<IResult> Handle(RecordEventsRequest request, ICurrentUser currentUser, KombinDbContext db, IClock clock, CancellationToken cancellationToken)
+    private static async Task<IResult> Handle(
+        RecordEventsRequest request,
+        ICurrentUser currentUser,
+        KombinDbContext db,
+        IClock clock,
+        IOptions<AnalyticsOptions> options,
+        ILoggerFactory loggers,
+        CancellationToken cancellationToken)
     {
         var receivedAt = clock.UtcNow;
         var userId = currentUser.UserIdOrNull;
 
-        var stored = new List<AnalyticsEvent>(request.Events.Count);
+        var candidates = new List<(int Index, AnalyticsEvent Event)>(request.Events.Count);
         var rejected = new List<RejectedEvent>();
         var seen = new HashSet<(string SessionId, string Name, DateTimeOffset OccurredAt)>();
 
@@ -76,7 +85,7 @@ internal static class RecordEventsEndpoint
 
             _ = EnumNames.TryParse<AnalyticsPlatform>(item.Platform, out var platform);
 
-            stored.Add(new AnalyticsEvent
+            candidates.Add((index, new AnalyticsEvent
             {
                 UserId = userId,
                 AnonymousId = item.AnonymousId,
@@ -87,7 +96,30 @@ internal static class RecordEventsEndpoint
                 AppVersion = item.AppVersion,
                 OccurredAt = EventTiming.Clamp(item.OccurredAt.Value, receivedAt),
                 ReceivedAt = receivedAt,
-            });
+            }));
+        }
+
+        // The daily cap per actor (security review M6): the signed-in user, else the device's anonymous ID. What is over it is dropped.
+        var stored = new List<AnalyticsEvent>(candidates.Count);
+        var dayStart = EventCap.DayStart(receivedAt, QuietHours.Zone);
+        var cap = options.Value.DailyEventCapPerActor;
+
+        foreach (var actor in candidates.GroupBy(candidate => candidate.Event.UserId is { } user ? $"u:{user:N}" : $"a:{candidate.Event.AnonymousId}"))
+        {
+            var first = actor.First().Event;
+            var storedToday = first.UserId is { } actorUser
+                ? await db.AnalyticsEvents.CountAsync(row => row.UserId == actorUser && row.ReceivedAt >= dayStart, cancellationToken)
+                : await db.AnalyticsEvents.CountAsync(row => row.UserId == null && row.AnonymousId == first.AnonymousId && row.ReceivedAt >= dayStart, cancellationToken);
+            var remaining = EventCap.Remaining(storedToday, cap);
+
+            stored.AddRange(actor.Take(remaining).Select(candidate => candidate.Event));
+            var over = actor.Skip(remaining).ToList();
+            if (over.Count > 0)
+            {
+                rejected.AddRange(over.Select(candidate => new RejectedEvent(candidate.Index, RejectionReasons.DailyCap)));
+                AnalyticsMetrics.EventsCapped.Add(over.Count);
+                LogCapped(loggers.CreateLogger(typeof(RecordEventsEndpoint)), over.Count, first.UserId is null ? "anonymous" : "user", cap);
+            }
         }
 
         if (stored.Count > 0)
@@ -96,6 +128,9 @@ internal static class RecordEventsEndpoint
             await db.SaveChangesAsync(cancellationToken);
         }
 
-        return Results.Json(new RecordEventsResponse(stored.Count, rejected), statusCode: StatusCodes.Status202Accepted);
+        return Results.Json(new RecordEventsResponse(stored.Count, [.. rejected.OrderBy(entry => entry.Index)]), statusCode: StatusCodes.Status202Accepted);
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Analytics: {Count} event(s) of one {ActorKind} actor dropped by the daily cap of {Cap}.")]
+    private static partial void LogCapped(ILogger logger, int count, string actorKind, int cap);
 }

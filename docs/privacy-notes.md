@@ -176,7 +176,7 @@ their `user_id` (section 1a). Social events: `post_view`,
 `post_tag_tap`, `post_like`, `post_create_start/done`, `post_report`, `creator_profile_view`, `try_with_wardrobe` — post and creator IDs,
 counts and enums; **no captions, handles or labels**. Visual-search events: counts, durations, result positions and match levels, **no
 image data**. Keys named like personal data are refused on every event. Anonymous events are linked to
-the account after sign-in (`IAnalyticsIdentityLinker`).
+the account after sign-in (`IAnalyticsIdentityLinker`). **Retention:** raw events are deleted 180 days after they were received (`analytics-retention`, nightly, `Analytics:RetentionDays`); the weekly aggregates (`analytics.weekly_metrics`, no personal data) stay. At most 5,000 events per user or device a day are stored (security review M6).
 
 ## 6a. Rate limiting and server logs (Task 16-A)
 
