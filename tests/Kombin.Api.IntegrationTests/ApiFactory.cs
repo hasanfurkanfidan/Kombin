@@ -109,6 +109,12 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
             ["Hangfire:Enabled"] = "false",
             // The embedding job's one-request-per-host-per-second pace would make every test wait; PoliteScheduleTests pin the rule.
             ["CatalogEmbeddings:HostInterval"] = "00:00:00",
+            // The limits (and the global fallback) are off: the shared host serves hundreds of requests from one in-memory address. The
+            // rate-limit tests build their own host with them on and tiny limits.
+            ["RateLimits:Enabled"] = "false",
+            ["Legal:ControllerName"] = "Kombin Test A.Ş.",
+            ["Legal:ContactEmail"] = "privacy@kombin.test",
+            ["Legal:Address"] = "Test Mah. 1. Sk. No:1 İstanbul",
             ["Admin:Users:0:Email"] = AdminEmail,
             ["Admin:Users:0:PasswordHash"] = AdminPasswordHash,
         }));

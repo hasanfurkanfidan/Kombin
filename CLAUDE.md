@@ -104,6 +104,28 @@ Identity rules).
   `Identity.AccountDisabled`, **after** the password, ID token or refresh token proved who is asking, so it never reveals anything to a guesser
   (the refresh tokens being revoked, a refresh normally answers the usual 401). Nothing else is touched, enabling restores the account. An access
   token already issued works until it expires (15 min): there is no per-request check, on purpose.
+- **Account deletion** (store requirement; `AccountDeletion`, `AccountPurger`, `AccountDeletionJob`, `AccountDeletionRules`, all in `Features/Identity`).
+  `DELETE /me { password?, confirm }` (`confirm` is "SİL", any casing, folded by hand because the runtime may lack Turkish casing; `password` is required
+  for a password account and answers 400 `Identity.PasswordRequired` / 403 `Identity.PasswordIncorrect`, a Google/Apple-only account sends none) sets
+  `users.deletion_requested_at` and answers 202 `{ deletionRequestedAt, deletionScheduledFor }` (7 days later; asking again keeps the first date).
+  The request, all of it idempotent: revokes every refresh token, deactivates every device through `IDeviceDeactivator.DeactivateAllAsync` (reason
+  `AccountDeletion`), and hides the posts that are or could become visible (`Live`, `NeedsReview`, `Hidden`, `Draft`) by moving them to
+  `PostStatus.AccountPending`, remembering the old status in `Post.StatusBeforeDeletion` (`PostRules.CanView` treats `AccountPending` as gone, the author
+  included). While pending, `POST /auth/login`, `/auth/external` and `/auth/refresh` answer 403 `Identity.AccountPendingDeletion` **after** the
+  credentials proved who is asking, with `deletionScheduledFor` in the problem document (`Error.WithExtension`). `POST /auth/cancel-deletion` takes
+  `{ email, password }` or `{ provider, idToken, nonce? }` (the sign-in credentials), restores the posts and the account and **signs the user in**
+  (200 `AuthTokensResponse`, isNewUser false); it is 409 `Identity.DeletionNotPending` or `Identity.DeletionWindowClosed` (7 days over, the job has
+  not run yet) only after the credentials were right. Devices stay deactivated (the app registers again). An access token already issued works until it
+  expires, as with disabling. **`account-deletion`** (hourly at :43 `Europe/Istanbul`, `[DisableConcurrentExecution(60)]`, `[AutomaticRetry(Attempts = 0)]`,
+  tests call `DeleteDueAsync(userIds, ct)`, registered by `UseIdentityJobs` after `UseSocialJobs`) runs `AccountPurger` for every account whose window is
+  over, one by one: **objects first** (the keys are read from the user's wardrobe items and posts; a storage failure leaves the account and its rows
+  untouched, so the next run retries and one failing account never stops the others), then one transaction that decrements the like counters of other
+  posts, anonymises clicks (`user_id`, `persona_id`, `creator_id`), analytics events (`user_id`) and referral rows (`creator_id`, `viewer_user_id`; amounts stay)
+  and deletes the user row, whose foreign keys cascade the rest. `docs/privacy-notes.md` section 1a lists every table and what happens to it: **a new
+  table that holds a user's data must be added there and given a cascade (or an explicit step in `AccountPurger`) and a line in
+  `AccountDeletionTests`' matrix.** The admin panel's `/admin/users` shows the state and offers "Delete now" (`AccountPurger`, any account, audited
+  `user.delete`) and "Cancel deletion" (`user.cancel-deletion`). Not anonymised away: `analytics.events.anonymous_id`, a click's user agent and IP hash
+  (open questions in the privacy notes).
 - **Config:** `Authentication:Google:ClientIds` (Android, iOS and web client IDs) and `Authentication:Apple:ClientIds` (the iOS bundle ID,
   later the Services ID), env `Authentication__Google__ClientIds__0`, ...; compose maps `GOOGLE_CLIENT_ID_ANDROID/_IOS/_WEB`,
   `APPLE_CLIENT_ID_IOS` and `APPLE_SERVICES_ID`. Blank entries are ignored. Never commit real IDs. Integration tests replace the verifier with
@@ -237,9 +259,9 @@ External Python workers (a separate repo) push the catalog through the internal 
 - **Hangfire wiring:** `AddNotificationFeature` registers storage lazily; `UseNotificationJobs` (called in `Program.cs` after the EF
   migrations and the seeds) is what first creates the `hangfire` schema, registers the recurring jobs (`UseCatalogJobs` adds the
   Catalog's `offer-sweep`, `UseAnalyticsJobs` the Analytics' `weekly-metrics`, `UseWardrobeJobs` the Wardrobe's `wardrobe-cleanup` and
-  `UseSocialJobs` the Social's `social-purge` right after it, behind the same flag; `UseCatalogJobs` also registers `product-embeddings`; `outfit-narrate` and `post-process` are fire-and-forget,
-  not recurring) and, **in Development only**,
-  maps the dashboard at `/hangfire` (open, no auth, unmapped in every other environment). Nothing happens unless `Hangfire:Enabled` is
+  `UseSocialJobs` the Social's `social-purge` and `UseIdentityJobs` the Identity's `account-deletion` right after it, behind the same flag; `UseCatalogJobs` also registers `product-embeddings`; `outfit-narrate` and `post-process` are fire-and-forget,
+  not recurring) and, **in Development only**
+  (or wherever `Diagnostics:Expose` is true, then behind the `/admin` sign-in), maps the dashboard at `/hangfire` (open in Development, unmapped otherwise). Nothing happens unless `Hangfire:Enabled` is
   true (compose sets it; tests set it to false; `Development` defaults to true). The storage uses `EnableLongPolling`
   (LISTEN/NOTIFY), so an enqueued fire-and-forget job (`wardrobe-analyze`) starts at once instead of on the next 15-second queue poll.
 - **Push payload:** the message `data` is the stored `Notification.Data` plus `notificationId` and `kind` (`NotificationData.ForPush`), so
@@ -487,19 +509,19 @@ External Python workers (a separate repo) push the catalog through the internal 
 ## Admin rules
 
 - **What exists:** the founder's panel, server-rendered Razor Pages under `/admin` in the API project (`Features/Admin`, pages in
-  `Features/Admin/Pages`, which is Razor's root: every page names its own `@page "/admin/..."` route), schema `admin` (`audit_log`). Pages:
+  `Features/Admin/Pages`; Razor's root is `/Features`, so every page names its own `@page "/admin/..."` route, and `Features/Legal/Pages` shares the root), schema `admin` (`audit_log`). Pages:
   dashboard, review, creators, catalog, users, audit; login and logout. No SPA, no JS framework (one inline script for `data-confirm` dialogs).
   README, "Admin panel", lists them.
 - **Separate from the app's auth.** Accounts are `Admin:Users` (`{ Email, PasswordHash }`, config, never `identity.users`), checked by
   `AdminCredentials` with the Identity hasher (PBKDF2; `dotnet run --project src/Kombin.Api -- hash-password` or `scripts/admin-hash.sh|.ps1`
   makes one; compose maps `ADMIN_EMAIL` / `ADMIN_PASSWORD_HASH`). A second authentication scheme (`KombinAdmin`, a cookie) sits beside the JWT
-  one, which stays the default: `[Authorize]` on the API never sees the cookie, and the pages ask for the `KombinAdmin` policy (`AuthorizeFolder("/")`,
-  only `/Login` is anonymous). The cookie is `HttpOnly`, `SameSite=Strict`, `Secure` outside Development, 8 h sliding. Razor Pages validate the
+  one, which stays the default: `[Authorize]` on the API never sees the cookie, and the pages ask for the `KombinAdmin` policy (`AuthorizeFolder("/Admin/Pages")`,
+  only `/Admin/Pages/Login` is anonymous; the legal pages are public). The cookie is `HttpOnly`, `SameSite=Strict`, `Secure` outside Development, 8 h sliding. Razor Pages validate the
   anti-forgery token on every POST (cookie `kombin_admin_af`, field `__AdminRequestVerificationToken`). Every `/admin` response is `no-store`,
   `X-Frame-Options: DENY` and carries a CSP (`UseAdminSecurityHeaders`).
-- **The login brake** is `AdminLoginThrottle` (5 failures per address per 15 minutes, in memory, 429): the one rate limit in the codebase, because the
-  panel is the one thing that must not be guessable. It does **not** reopen "rate limiting" elsewhere. Behind a reverse proxy it keys on the proxy's
-  address until forwarded headers are configured.
+- **The login brake** is `AdminLoginThrottle` (5 failures per address per 15 minutes, in memory, 429), separate from the general rate limiter
+  (Launch readiness rules) because the panel is the one thing that must not be guessable. Behind the proxy it keys on the **forwarded** client address
+  (`UseForwardedHeaders` runs first, from `Proxy:KnownNetworks` only).
 - **Admin never bypasses a domain rule.** Pages call `PostReviewer`, `CreatorInvites` (after `PutCreatorValidator`), `AccountAccess` and the
   embedding job; they read with `KombinDbContext` like any handler. Every successful action calls `AdminAuditLog.RecordAsync` (actor, `post.approve`
   style action, target type and ID, a short summary with no personal data of app users). A page never changes a state itself.
@@ -507,11 +529,48 @@ External Python workers (a separate repo) push the catalog through the internal 
   no originals (`docs/privacy-notes.md`, 5a). Raw seller URLs are shown (founder-only) on the catalog page and marked as such.
 - **Dashboard numbers** come from `DashboardQueries` (each has its SQL printed on the page; a test runs them all against PostgreSQL). Change a
   number there. The health strip reads Hangfire's recurring jobs only when `Hangfire:Enabled` is true (the storage schema may not exist otherwise).
-- **Deploy (Task 16):** `/admin` must be reachable **only** from the founder's IP or behind Cloudflare Access, plus forwarded headers (so the
-  throttle sees the real address) and persisted data-protection keys (so a restart does not sign the founder out). Until then the pages are served
-  on the API's own port.
+- **Deploy:** `/admin` is reachable **only** from `ADMIN_ALLOWED_IPS` in production (the Caddyfile answers everyone else 404; behind Cloudflare Access
+  switch it to `client_ip`), the throttle sees the real address through the forwarded headers and the data-protection keys are persisted to `/keys`
+  (a volume), so a restart does not sign the founder out. The compose stack of development still serves the pages on the API's own port.
+- **User deletion is a use case first:** the "Delete now" and "Cancel deletion" buttons call `AccountPurger` and `AccountDeletion` (Identity rules).
 - **Tests:** `AdminBrowser` (integration) is a cookie-jar client with its own fake address (`X-Test-Remote-Ip`, set by a startup filter in
   `ApiFactory`), so one test's lockout never touches another; `Admin:Users` in `ApiFactory` has one founder.
+
+## Launch readiness rules
+
+- **Rate limiting** is ASP.NET Core's built-in `RateLimiter` (fixed windows, **in memory: per instance**, a second API instance would double every limit),
+  set up in `Common/RateLimiting`. Policies (`RateLimitPolicies`, limits in `RateLimits:*`, defaults pinned by `RateLimitTests`): `auth` 10 per 5 min per IP
+  (login, register, external, refresh, cancel-deletion and `DELETE /me`: one shared bucket); `lens` 20 per hour per IP when anonymous, 60 per hour per user
+  when signed in; `uploads` 60 per hour per user (wardrobe and post upload-url, one bucket); `events` 600 per 5 min (per user, else per IP); `go` 120 per
+  min per IP; and a global fallback of 600 per min per IP under all of them (`/health*` exempt). Keys are the user ID when authenticated (the limiter
+  runs after `UseAuthentication`), else the client address as resolved by the forwarded headers. A rejection is 429 `application/problem+json` with
+  `errorCode: "RateLimited"`, `retryAfterSeconds`, the correlation ID and a `Retry-After` header. `RateLimits:Enabled=false` turns everything off:
+  `ApiFactory` and `appsettings.Development.json` do (so do not look for a 429 in the shared test host: `RateLimitTests` builds hosts with
+  `WithWebHostBuilder` and tiny limits), and compose defaults it to false locally and true in `compose.prod.yaml`. Endpoint that need a policy attach it
+  with `.RequireRateLimiting(RateLimitPolicies.X)`; a new public or expensive endpoint decides which one. Do not add a second limiter library.
+- **Request bodies:** Kestrel's `MaxRequestBodySize` is 10 MB; `RequestBodyLimitMiddleware` refuses by `Content-Length` with 413 `Request.TooLarge` and
+  sets the per-request limit: 1 MB for a JSON body (the internal worker endpoints under `/api/v1/internal` keep 10 MB for their batches) and, for an
+  endpoint with its own `RequestSizeLimitAttribute` (the lens photo, 8 MB plus its multipart envelope), that one. `RequestLimits:*` holds the numbers.
+- **Legal pages** (`Features/Legal`): `GET /legal/privacy`, `/legal/terms`, `/legal/delete-account` (Razor Pages, Turkish, public, mobile friendly) and
+  `GET /api/v1/legal` (`{ version, privacyUrl, termsUrl, deleteAccountUrl }`). The controller's details come from `Legal:ControllerName`,
+  `Legal:ContactEmail`, `Legal:Address` (the pages print `{{CONTROLLER_NAME}}` etc. while blank; production refuses to start until they are set) and the
+  version from `Legal:Version`. The texts are drafts: **every sentence that needs a lawyer carries `<!-- LAWYER -->`** and `docs/legal-review.md` says why;
+  change a text and its `docs/privacy-notes.md` section together, bump `Legal:Version` when users should read it again, and never promise something the
+  code does not do (the retention numbers are the ones in the privacy notes).
+- **Production** (`ASPNETCORE_ENVIRONMENT=Production`): `ProductionSettings.Validate` (pure, unit-tested) runs when the host starts and refuses with every
+  problem listed at once: a JWT signing key or internal key under 32 bytes or a `dev-only`/`change-me` value, an empty or default Vision key, IP salt,
+  database or storage password, a public storage address that is not https, missing `Legal:*`, empty `Admin:Users`, a placeholder bot contact. It never
+  prints a value. `UseForwardedHeaders` is the first middleware: `X-Forwarded-For`/`-Proto` are believed only from `Proxy:KnownNetworks` (default
+  `172.16.0.0/12`; compose pins `172.30.0.0/24`) and loopback, `ForwardLimit = 1`. `Proxy:TlsTerminated=true` adds HSTS and a 308 HTTPS redirect. OpenAPI and the
+  Hangfire dashboard exist only in Development or with `Diagnostics:Expose=true`. CORS is deliberately not configured (the mobile app needs none).
+  `GlobalExceptionHandler` hides exception detail outside Development. The data-protection keys go to `DataProtection:KeysPath` (production: `/keys`).
+  Migrations are applied by `dotnet Kombin.Api.dll migrate` (`MigrateCommand`; compose: `docker compose ... run --rm --no-deps api migrate`), never at start-up.
+  A settings problem found in production is a new check in `ProductionSettings` and a test, not a runbook line.
+- **Deploy files:** `docker/compose.prod.yaml` (override: only Caddy publishes 80/443, required secrets, limits, volumes), `docker/caddy/Caddyfile`
+  (blocks `/internal`, `/hangfire`, `/openapi`; `/api/v1/internal` and `/admin` only from `INTERNAL_ALLOWED_IPS` / `ADMIN_ALLOWED_IPS`; also proxies
+  `storage.$DOMAIN` to MinIO), `docker/.env.prod.example`, `scripts/gen-secrets.sh|.ps1`, `scripts/backup.sh` (pg_dump, gzip, age or openssl, bucket,
+  7 days) and `scripts/restore.sh` (into a scratch database, `--compare` row counts), and `docs/deploy.md` (server steps, restore drill, update procedure,
+  the closed-beta tunnel). Keep the variables of `.env.prod.example`, `compose.prod.yaml` and the validator in step.
 
 ## Commands
 
@@ -537,6 +596,11 @@ scripts/admin-hash.sh        # or scripts\admin-hash.ps1
 dotnet tool restore
 dotnet ef migrations add <Name> --project src/Kombin.Api --output-dir Persistence/Migrations
 dotnet ef database update --project src/Kombin.Api
+
+# Production: the image has no `dotnet ef`, the app migrates itself on request; secrets; backups (docs/deploy.md)
+docker compose --env-file docker/.env.prod --file docker/compose.yaml --file docker/compose.prod.yaml run --rm --no-deps api migrate
+scripts/gen-secrets.sh        # or scripts\gen-secrets.ps1
+scripts/backup.sh             # nightly from cron; scripts/restore.sh <file> --compare is the restore drill
 ```
 
 In `Development` the API applies migrations at startup when `Database:MigrateOnStartup` is true. In every other
@@ -561,12 +625,12 @@ the shared test database stays independent of the seed. `ApiFactory` switches se
 
 ## Explicitly out of scope (do not add)
 
-Rate limiting (including on `/go`, `/events` and the auth endpoints; the admin panel's login brake is the one exception), email verification, password reset, social login beyond Google and
+Rate limiting beyond the policies of the Launch readiness rules (no second limiter, no distributed or per-account limits yet), email verification, password reset, social login beyond Google and
 Apple ID tokens (no OAuth redirect flow, no other providers), an admin UI beyond the Razor panel under `/admin` (no SPA, no second frontend repo), MediatR/CQRS, generic
 repositories, AutoMapper, email/SMS/marketing notifications, A/B testing, scraping workers, affiliate conversion import, a free-form
 analytics event stream (Analytics accepts only its allow-list), and in Social: comments, DMs, stories or video, hashtags or search over
 posts, follow requests, creator payouts and public web pages for posts, and in Lens: text search, multi-photo or video search, storing
-query photos, retraining or fine-tuning, other model families. Features that exist: Identity (auth with a password or a Google/Apple ID token, me), Catalog (brands, sellers, categories, products, offers, price
+query photos, retraining or fine-tuning, other model families. Features that exist: Identity (auth with a password or a Google/Apple ID token, me, account deletion with a 7-day window), Legal (the public legal pages and their version), Catalog (brands, sellers, categories, products, offers, price
 snapshots, internal upsert, seller bootstrap and listing, offer sweep), Engagement (saved products, price alerts and their trigger feed, `/go` redirect, click
 history) and Profile (user profile and measurements, personas, swipe onboarding with style cards, derived style profile,
 rule-based match score, size map with hints) and Notification (devices, notification preferences, the notification feed, push

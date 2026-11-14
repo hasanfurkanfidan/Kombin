@@ -32,6 +32,23 @@ internal static class IdentityErrors
     public static readonly Error AccountDisabled =
         Error.Forbidden("Identity.AccountDisabled", "This account has been disabled. Contact support if you think this is a mistake.");
 
+    // Said, like AccountDisabled, only after the caller proved who they are. The 403 carries `deletionScheduledFor` (see AccountDeletion.PendingError).
+    public static readonly Error AccountPendingDeletion =
+        Error.Forbidden("Identity.AccountPendingDeletion", "This account is scheduled for deletion. Cancel the deletion to keep it.");
+
+    public static readonly Error PasswordRequired =
+        Error.Validation("Identity.PasswordRequired", "This account has a password: send it as 'password' to confirm the deletion.");
+
+    // 403 rather than 401: the caller's token is fine, and a 401 would make the app try to refresh or sign out.
+    public static readonly Error PasswordIncorrect =
+        Error.Forbidden("Identity.PasswordIncorrect", "The password is incorrect.");
+
+    public static readonly Error DeletionNotPending =
+        Error.Conflict("Identity.DeletionNotPending", "This account is not scheduled for deletion.");
+
+    public static readonly Error DeletionWindowClosed =
+        Error.Conflict("Identity.DeletionWindowClosed", "The cancellation period is over; the account is being deleted.");
+
     public static readonly Error UserNotFound =
         Error.Unauthorized("Identity.UserNotFound", "The authenticated user no longer exists.");
 }

@@ -83,7 +83,8 @@ internal static class UsersEndpoint
     /// <summary>The profile summary; built from the shared queries so the creator page shows the same numbers.</summary>
     public static async Task<UserProfileResponse?> BuildProfileAsync(KombinDbContext db, Guid userId, Guid? viewerId, CancellationToken cancellationToken)
     {
-        var user = await db.Users.AsNoTracking().Where(candidate => candidate.Id == userId).Select(candidate => new { candidate.Id, candidate.DisplayName }).SingleOrDefaultAsync(cancellationToken);
+        // An account pending deletion is gone for everyone else: no profile, no posts, nobody to follow.
+        var user = await db.Users.AsNoTracking().Where(candidate => candidate.Id == userId && candidate.DeletionRequestedAt == null).Select(candidate => new { candidate.Id, candidate.DisplayName }).SingleOrDefaultAsync(cancellationToken);
         if (user is null || await PostAccess.BlockedEitherWayAsync(db, viewerId, userId, cancellationToken))
         {
             return null;
@@ -111,7 +112,7 @@ internal static class UsersEndpoint
     public static async Task<PagedResponse<PostResponse>?> ListVisiblePostsAsync(
         KombinDbContext db, IObjectStorage storage, Guid userId, Guid? viewerId, PersonaScoring? scoring, PagedRequest paging, CancellationToken cancellationToken)
     {
-        if (!await db.Users.AnyAsync(user => user.Id == userId, cancellationToken) || await PostAccess.BlockedEitherWayAsync(db, viewerId, userId, cancellationToken))
+        if (!await db.Users.AnyAsync(user => user.Id == userId && user.DeletionRequestedAt == null, cancellationToken) || await PostAccess.BlockedEitherWayAsync(db, viewerId, userId, cancellationToken))
         {
             return null;
         }
@@ -169,7 +170,7 @@ internal static class UsersEndpoint
             return SocialErrors.CannotTargetSelf.ToHttpResult();
         }
 
-        if (!await db.Users.AnyAsync(user => user.Id == id, cancellationToken) || await PostAccess.BlockedEitherWayAsync(db, userId, id, cancellationToken))
+        if (!await db.Users.AnyAsync(user => user.Id == id && user.DeletionRequestedAt == null, cancellationToken) || await PostAccess.BlockedEitherWayAsync(db, userId, id, cancellationToken))
         {
             return SocialErrors.UserNotFound.ToHttpResult();
         }

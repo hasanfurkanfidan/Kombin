@@ -40,7 +40,8 @@ internal sealed class ReferralEvent
 
     public ReferralKind Kind { get; set; }
 
-    public Guid CreatorId { get; set; }
+    /// <summary>The creator who earns the share; null once their account is deleted (the amounts stay as the financial record).</summary>
+    public Guid? CreatorId { get; set; }
 
     /// <summary>No foreign key: a deleted post must not take the creator's earnings with it.</summary>
     public Guid PostId { get; set; }

@@ -1,7 +1,7 @@
 using Hangfire;
-using Hangfire.Dashboard;
 using Hangfire.PostgreSql;
 using Kombin.Api.Common.Auth;
+using Kombin.Api.Common.Hosting;
 using Kombin.Api.Features.Notification.DeleteDevice;
 using Kombin.Api.Features.Notification.GetPreferences;
 using Kombin.Api.Features.Notification.GetUnreadCount;
@@ -82,9 +82,9 @@ internal static class NotificationModule
     }
 
     /// <summary>
-    /// Registers the recurring jobs and, in Development, the dashboard. Call it after the database migrations: it is what first touches
+    /// Registers the recurring jobs and, in Development (or with <c>Diagnostics:Expose</c>), the dashboard. Call it after the database migrations: it is what first touches
     /// the Hangfire storage and creates its <c>hangfire</c> schema. Does nothing unless <c>Hangfire:Enabled</c> is true, so tests and
-    /// one-off tooling never touch the job tables. The dashboard is not mapped at all outside Development.
+    /// one-off tooling never touch the job tables. The dashboard is not mapped at all outside Development unless <c>Diagnostics:Expose</c> is true.
     /// </summary>
     public static void UseNotificationJobs(this WebApplication app)
     {
@@ -93,12 +93,14 @@ internal static class NotificationModule
             return;
         }
 
-        if (app.Environment.IsDevelopment())
+        // Development, or an environment that set Diagnostics:Expose on purpose (then only behind the founder's /admin sign-in).
+        if (app.ExposesDiagnostics())
         {
             app.UseHangfireDashboard(DashboardPath, new DashboardOptions
             {
                 DashboardTitle = "Kombin jobs",
-                Authorization = [new DevelopmentDashboardAuthorization()],
+                Authorization = [],
+                AsyncAuthorization = [new HostingExtensions.DashboardAuthorization(open: app.Environment.IsDevelopment())],
             });
         }
 
@@ -160,9 +162,4 @@ internal static class NotificationModule
         public void Dispose() => (_inner as IDisposable)?.Dispose();
     }
 
-    /// <summary>The dashboard exists only in Development, where it is open: the compose stack reaches it from outside the container.</summary>
-    private sealed class DevelopmentDashboardAuthorization : IDashboardAuthorizationFilter
-    {
-        public bool Authorize(DashboardContext context) => true;
-    }
 }

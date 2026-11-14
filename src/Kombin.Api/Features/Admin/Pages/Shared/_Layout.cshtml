@@ -56,7 +56,7 @@
             <a href="/admin/users" class="@Active("/admin/users")">Users</a>
             <a href="/admin/audit" class="@Active("/admin/audit")">Audit</a>
         </nav>
-        <form method="post" asp-page="/Logout" class="inline">
+        <form method="post" asp-page="/Admin/Pages/Logout" class="inline">
             <span class="muted">@User.Identity!.Name</span>
             <button type="submit">Sign out</button>
         </form>

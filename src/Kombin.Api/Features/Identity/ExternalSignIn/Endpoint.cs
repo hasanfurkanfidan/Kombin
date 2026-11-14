@@ -1,4 +1,5 @@
 using System.Globalization;
+using Kombin.Api.Common.RateLimiting;
 using Kombin.Api.Common.Results;
 using Kombin.Api.Common.Time;
 using Kombin.Api.Common.Validation;
@@ -29,6 +30,7 @@ internal static class ExternalSignInEndpoint
         group.MapPost("/external", Handle)
             .WithName("ExternalSignIn")
             .WithValidation<ExternalSignInRequest>()
+            .RequireRateLimiting(RateLimitPolicies.Auth)
             .Produces<AuthTokensResponse>()
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -131,6 +133,11 @@ internal static class ExternalSignInEndpoint
         {
             // Nothing was saved yet: a link made just now by email is dropped with the unsaved context.
             return IdentityErrors.AccountDisabled;
+        }
+
+        if (user.DeletionRequestedAt is not null)
+        {
+            return AccountDeletion.PendingError(user);
         }
 
         var isNewUser = step.Value == ExternalSignInStep.CreateUser;

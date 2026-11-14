@@ -1,0 +1,49 @@
+@page "/legal/delete-account"
+@model Kombin.Api.Features.Legal.DeleteAccountPageModel
+@{
+    ViewData["Title"] = "Hesabını ve verilerini sil";
+}
+<h1>Kombin hesabını ve verilerini sil</h1>
+<p class="meta">Sürüm @Model.Legal.Version</p>
+
+<p>Kombin hesabını istediğin zaman, uygulamadan kendin silebilirsin. Bu sayfa, silme isteğinde ne olduğunu ve hangi verilerin silindiğini anlatır.</p>
+
+<h2 id="uygulamadan">Uygulamadan silmek</h2>
+<!-- CHECK-WITH-APP -->
+<ol>
+    <li>Kombin uygulamasını aç ve giriş yap.</li>
+    <li><strong>Profil → Ayarlar → Hesabımı sil</strong> seçeneğine git.</li>
+    <li>Onay için <strong>SİL</strong> yaz. Şifreyle açtığın bir hesabın varsa şifreni de gir (Google veya Apple ile açtığın hesaplarda şifre sorulmaz).</li>
+    <li>Silme isteğini onayla. Hesabının silineceği tarihi görürsün.</li>
+</ol>
+
+<h2 id="ne-olur">İsteğinden sonra ne olur?</h2>
+<ul>
+    <li><strong>Hemen:</strong> Hesabından çıkış yapılır, bildirimler durur ve tüm gönderilerin herkesten gizlenir.</li>
+    <li><strong>7 gün boyunca:</strong> Fikrini değiştirebilirsin. Aynı e-posta ve şifreyle (ya da Google/Apple ile) tekrar giriş yapmayı denediğinde uygulama silmeyi iptal etmeyi önerir; iptal edersen hesabın ve gönderilerin olduğu gibi geri gelir.</li>
+    <li><strong>7 gün sonra:</strong> Hesabın ve verilerin kalıcı olarak silinir; bu geri alınamaz.</li>
+    <li><!-- LAWYER -->Düzenli veritabanı yedekleri en fazla 7 gün saklanır; sildiğin veriler bu süre sonunda yedeklerden de kaybolur.</li>
+</ul>
+
+<h2 id="silinenler">Neler silinir?</h2>
+<div class="tablewrap"><table>
+    <thead><tr><th>Veri</th><th>Ne olur?</th></tr></thead>
+    <tbody>
+    <tr><td>Hesabın: e-posta, şifre özeti, görünen ad, Google/Apple bağlantıların, oturumların</td><td>Silinir</td></tr>
+    <tr><td>Stil profilin, stil profillerin ("personalar"), kaydırma yanıtların, bedenlerin ve ölçülerin, şehrin</td><td>Silinir</td></tr>
+    <tr><td>Dolabın: tüm fotoğraflar (orijinal, arka planı temizlenmiş görsel, küçük resim) ve giyilme kayıtların</td><td>Silinir; depodaki dosyalar da silinir</td></tr>
+    <tr><td>Kayıtlı ürünlerin, fiyat alarmların, bildirimlerin, kayıtlı cihazların, bildirim tercihlerin</td><td>Silinir</td></tr>
+    <tr><td>Kombin önerilerin, kayıtlı kombinlerin ve geri bildirimlerin</td><td>Silinir</td></tr>
+    <tr><td>Gönderilerin (fotoğraflar, etiketler, açıklamalar), verdiğin beğeniler, takiplerin ve takipçilerin, engellemelerin, şikâyetlerin, paylaşım onay kaydın, kreatör profilin</td><td>Silinir; gönderi fotoğrafları depodan da silinir. Başkalarının gönderilerine verdiğin beğeniler geri alınır.</td></tr>
+    <tr><td>Satın alma tıklamaların ve kullanım istatistiklerin</td><td><strong>Anonimleştirilir:</strong> kayıtlar kalır ama sana bağlayan kullanıcı kimliği kaldırılır</td></tr>
+    <tr><td>İçerik üreticilerine ait komisyon kayıtları</td><td>Mali kayıt olarak tutarlarıyla kalır; kişi bağlantısı kaldırılır</td></tr>
+    <tr><td><!-- LAWYER -->Yönetim işlem kayıtları (hangi yöneticinin hangi kayıt için ne yaptığı)</td><td>Kişisel veri içermez; hesabının kimliği dışında bir bilgi tutulmaz</td></tr>
+    </tbody>
+</table></div>
+
+<h2 id="eposta">Uygulamaya giremiyorsan</h2>
+<p>Uygulamaya erişimin yoksa (cihazını kaybettin, şifreni unuttun) silme talebini <a href="mailto:@Model.Legal.ContactEmailOrPlaceholder">@Model.Legal.ContactEmailOrPlaceholder</a> adresine, hesabındaki e-posta adresinden göndererek iletebilirsin. Kimliğini doğruladıktan sonra hesabını sileriz.</p>
+<!-- LAWYER -->
+<p>Başvurunu en geç 30 gün içinde yanıtlarız; hesap silme istekleri normalde 7 gün içinde tamamlanır.</p>
+
+<p>Verilerinin nasıl işlendiği ve haklarının tamamı için <a href="/legal/privacy">Gizlilik Politikası ve KVKK Aydınlatma Metni</a>'ne bak.</p>

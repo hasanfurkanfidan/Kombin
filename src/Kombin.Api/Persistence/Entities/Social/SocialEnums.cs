@@ -30,6 +30,12 @@ internal enum PostStatus
     Hidden,
     Deleted,
     Failed,
+
+    /// <summary>
+    /// The author asked to delete their account: the post is hidden from everyone at once, like a deleted one, but the previous status is kept
+    /// in <see cref="Post.StatusBeforeDeletion"/> so cancelling the deletion within the window brings the post back.
+    /// </summary>
+    AccountPending,
 }
 
 internal enum PostTagKind

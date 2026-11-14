@@ -1337,6 +1337,10 @@ namespace Kombin.Api.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
+                    b.Property<DateTimeOffset?>("DeletionRequestedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deletion_requested_at");
+
                     b.Property<DateTimeOffset?>("DisabledAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("disabled_at");
@@ -1368,6 +1372,10 @@ namespace Kombin.Api.Persistence.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_users");
+
+                    b.HasIndex("DeletionRequestedAt")
+                        .HasDatabaseName("ix_users_deletion_requested_at")
+                        .HasFilter("deletion_requested_at IS NOT NULL");
 
                     b.HasIndex("Email")
                         .IsUnique()
@@ -2462,6 +2470,11 @@ namespace Kombin.Api.Persistence.Migrations
                         .HasColumnType("character varying(20)")
                         .HasColumnName("status");
 
+                    b.Property<string>("StatusBeforeDeletion")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status_before_deletion");
+
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
@@ -2732,7 +2745,7 @@ namespace Kombin.Api.Persistence.Migrations
                         .HasColumnType("numeric(12,2)")
                         .HasColumnName("creator_amount");
 
-                    b.Property<Guid>("CreatorId")
+                    b.Property<Guid?>("CreatorId")
                         .HasColumnType("uuid")
                         .HasColumnName("creator_id");
 
@@ -3604,8 +3617,7 @@ namespace Kombin.Api.Persistence.Migrations
                     b.HasOne("Kombin.Api.Persistence.Entities.Identity.User", null)
                         .WithMany()
                         .HasForeignKey("CreatorId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
+                        .OnDelete(DeleteBehavior.SetNull)
                         .HasConstraintName("fk_referral_events_users_creator_id");
 
                     b.HasOne("Kombin.Api.Persistence.Entities.Catalog.Offer", null)

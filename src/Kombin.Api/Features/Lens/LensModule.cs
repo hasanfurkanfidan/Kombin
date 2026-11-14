@@ -1,3 +1,4 @@
+using Kombin.Api.Common.RateLimiting;
 using Kombin.Api.Features.Lens.Search;
 
 namespace Kombin.Api.Features.Lens;
@@ -12,7 +13,7 @@ internal static class LensModule
     public static IEndpointRouteBuilder MapLensEndpoints(this IEndpointRouteBuilder app)
     {
         // Public: an acquisition screen; a bearer token adds the wardrobe matches and the profile's audience.
-        var lens = app.MapGroup("/api/v1/lens").WithTags("Lens");
+        var lens = app.MapGroup("/api/v1/lens").WithTags("Lens").RequireRateLimiting(RateLimitPolicies.Lens);
         SearchEndpoint.Map(lens);
 
         return app;

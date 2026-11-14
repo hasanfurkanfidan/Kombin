@@ -8,7 +8,7 @@
     <label for="q">E-mail (part of it is enough) or user ID</label>
     <input id="q" type="text" name="q" value="@Model.Query" autocomplete="off">
     <div class="actions"><button type="submit">Search</button></div>
-    <div class="muted" style="margin-top:6px">E-mail addresses are shown on this page only. There is no password reset and no impersonation.</div>
+    <div class="muted" style="margin-top:6px">E-mail addresses are shown on this page only. There is no password reset and no impersonation. "Delete now" removes an account for good.</div>
 </form>
 
 @if (Model.Query is not null && Model.Matches.Count == 0 && Model.Detail is null)
@@ -28,7 +28,7 @@
                 <td>@match.DisplayName</td>
                 <td>@AdminFormat.Time(match.CreatedAt)</td>
                 <td>@AdminFormat.Time(match.LastLoginAt)</td>
-                <td class="@(match.DisabledAt is null ? "ok" : "bad")">@(match.DisabledAt is null ? "active" : "disabled")</td>
+                <td class="@(match.DisabledAt is null && match.DeletionRequestedAt is null ? "ok" : "bad")">@(match.DeletionRequestedAt is not null ? "pending deletion" : match.DisabledAt is null ? "active" : "disabled")</td>
             </tr>
         }
         </tbody>
@@ -44,6 +44,13 @@
         <p class="@(user.DisabledAt is null ? "ok" : "bad")">
             @(user.DisabledAt is null ? "Account is active." : $"Disabled since {AdminFormat.Time(user.DisabledAt)}: sign-in is refused and the refresh tokens are revoked.")
         </p>
+        @if (user.DeletionRequestedAt is { } requested)
+        {
+            <p class="bad">
+                Pending deletion: requested @AdminFormat.Time(requested), the data is removed after @AdminFormat.Time(Kombin.Api.Features.Identity.AccountDeletionRules.ScheduledFor(requested)).
+                Sign-in is refused, every session ended and every post hidden.
+            </p>
+        }
         <div class="tablewrap"><table>
             <tbody>
                 <tr><th>Created</th><td>@AdminFormat.Time(user.CreatedAt)</td></tr>
@@ -60,6 +67,17 @@
             </tbody>
         </table></div>
         <div class="actions">
+            @if (user.DeletionRequestedAt is not null)
+            {
+                <form method="post" asp-page-handler="CancelDeletion" data-confirm="Cancel the deletion? The user can sign in again and the posts come back.">
+                    <input type="hidden" name="id" value="@user.Id">
+                    <button class="primary" type="submit">Cancel deletion</button>
+                </form>
+            }
+            <form method="post" asp-page-handler="DeleteNow" data-confirm="Delete this account and all its data NOW? Photos are removed from storage. This cannot be undone.">
+                <input type="hidden" name="id" value="@user.Id">
+                <button class="danger" type="submit">Delete now</button>
+            </form>
             @if (user.DisabledAt is null)
             {
                 <form method="post" asp-page-handler="Disable" data-confirm="Disable this account? Sign-in is refused and every session ends.">

@@ -17,4 +17,11 @@ internal sealed class User : BaseEntity
     /// are revoked. Nothing else is touched, so enabling it again restores the account as it was. Null for a normal account.
     /// </summary>
     public DateTimeOffset? DisabledAt { get; set; }
+
+    /// <summary>
+    /// Set when the user asked to delete the account (<c>DELETE /me</c>, <c>AccountDeletion</c>): the account is then pending deletion. Sign-in is
+    /// refused (403 <c>Identity.AccountPendingDeletion</c>) until the user cancels, and the <c>account-deletion</c> job removes the account for good
+    /// <c>AccountDeletionRules.Window</c> (7 days) after this instant. Null for a normal account.
+    /// </summary>
+    public DateTimeOffset? DeletionRequestedAt { get; set; }
 }

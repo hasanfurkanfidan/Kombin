@@ -1,6 +1,6 @@
 # Privacy notes: every personal-data touchpoint (for counsel)
 
-Scope: the Kombin backend (`kombin-backend`) and the vision service it calls (`kombin-vision`), as of Task 15 (visual search). Turkish
+Scope: the Kombin backend (`kombin-backend`) and the vision service it calls (`kombin-vision`), as of Task 16-A (launch readiness: account deletion, the public legal pages, production configuration). Turkish
 law (KVKK, Law No. 6698) and, for EU users, the GDPR are the frames in mind. This is an engineering inventory, not a legal opinion: it says
 what we collect, why, where it lives, who can see it, how long we keep it and how it is deleted. Open questions are at the end.
 
@@ -8,16 +8,60 @@ what we collect, why, where it lives, who can see it, how long we keep it and ho
 
 | Data | Why | Where | Visible to | Retention / deletion |
 |---|---|---|---|---|
-| Email (lower-cased), password hash (never the password), display name | sign-in; the display name is shown on posts and profiles | `identity.users` | the user; the display name to anyone who can see one of their posts or their profile | until account deletion (**not built yet**, see open questions) |
-| Refresh tokens (hashed), device name, last login time | staying signed in | `identity.refresh_tokens`, `users.last_login_at` | nobody | revoked on logout; expired tokens kept until account deletion |
+| Email (lower-cased), password hash (never the password), display name | sign-in; the display name is shown on posts and profiles | `identity.users` | the user; the display name to anyone who can see one of their posts or their profile | until account deletion (section 1a: 7-day window, then removed) |
+| Refresh tokens (hashed), device name, last login time | staying signed in | `identity.refresh_tokens`, `users.last_login_at` | nobody | revoked on logout; expired tokens kept until account deletion (section 1a) |
+
+## 1a. Account deletion (Task 16-A)
+
+`DELETE /api/v1/me` (the app's "Hesabımı sil"; the public page `/legal/delete-account` explains it) asks to delete the account. The user types "SİL" and,
+for a password account, the password. The request takes effect at once, the data is removed 7 days later:
+
+| When | What happens |
+|---|---|
+| The request | `users.deletion_requested_at` is set. Every refresh token is revoked, every device is deactivated (no push), every post that is or could become visible (live, under review, hidden, draft) is hidden from everyone (status `AccountPending`, the old status is remembered). Sign-in is refused (403) with the date. |
+| The next 7 days | The user can take it back: `POST /auth/cancel-deletion` with the same credentials as sign-in (password, or a Google/Apple ID token) restores the account and the posts and signs the user in. The founder can do the same from `/admin/users` ("Cancel deletion"). |
+| After 7 days | The hourly job `account-deletion` removes the account: first the stored objects, then, in one transaction, the rows below. If the storage cannot be reached nothing is touched and the next hour tries again. The founder can also remove an account at once ("Delete now", audited), e.g. for an e-mailed request. |
+
+What happens to every table that holds data about a user:
+
+| Table | At deletion |
+|---|---|
+| `identity.users` | deleted |
+| `identity.external_logins` | deleted |
+| `identity.refresh_tokens` | revoked at the request, deleted |
+| `profile.user_profiles` (audience, measurements, city) | deleted |
+| `profile.personas`, `profile.persona_style_profiles`, `profile.style_swipes` | deleted |
+| `profile.size_entries` | deleted |
+| `engagement.saved_products`, `price_alerts`, `alert_triggers` | deleted |
+| `notification.devices` (push tokens) | deactivated at the request, deleted |
+| `notification.notifications`, `notification_preferences` | deleted |
+| `wardrobe.items`, `wardrobe.wears` | deleted; the objects (original, cutout, thumbnail) are deleted from storage first |
+| `recommendation.outfits`, `outfit_items`, `outfit_feedback` | deleted |
+| `social.posts`, `post_tags` | deleted; the objects (original, feed image, preview) are deleted from storage first |
+| `social.likes` | the user's likes and the likes on the user's posts are deleted; the like counters of other people's posts go down by one |
+| `social.reports` | the reports the user made are deleted (the report counter of the reported post is left as it is: the report was made); reports on the user's posts go with the posts |
+| `social.follows`, `social.blocks` | deleted in both directions |
+| `social.posting_consents` | deleted (the proof of consent goes with the account; see open question 11) |
+| `social.creator_profiles` | deleted |
+| `engagement.clicks` | **anonymised**: `user_id`, `persona_id` and (as a creator) `creator_id` become null; the rest stays (offer, product, seller, source, post ID, user agent, salted IP hash) as the revenue record |
+| `analytics.events` | **anonymised**: `user_id` becomes null; `anonymous_id` (a random install ID) stays (open question 12) |
+| `social.referral_events` | **kept** as the financial record: `creator_id` and `viewer_user_id` become null, the amounts stay |
+| `admin.audit_log` | kept; it holds no personal data of app users, only the deleted user's ID as a target |
+| `analytics.weekly_metrics`, `recommendation.narrations`, `profile.style_cards`, the catalog | not personal data; untouched |
+| Hangfire job tables | job rows hold IDs for the days Hangfire keeps them, then expire by themselves |
+| Backups | the database backups (`scripts/backup.sh`) are kept 7 days, so deleted data is gone from them 7 days after the removal |
+| Logs | request logs and the reverse proxy's access log (client addresses) rotate by size (5 x 10 MB per container); they are not searched or edited per user |
+
+Tested in `AccountDeletionTests` (every table above for one user, other users untouched, the storage objects gone, the retry after a storage failure,
+cancelling inside the window, the admin buttons).
 
 ## 2. Style profile, sizes, wardrobe (Profile, Wardrobe)
 
 | Data | Why | Where | Visible to | Retention |
 |---|---|---|---|---|
-| Audience (women/men/unisex), measurements, city, personas, swipes, sizes per brand | recommendations; the city fetches the weather | `profile.*` | the user only; the audience is copied onto posts for feed matching (never shown) | until account deletion |
+| Audience (women/men/unisex), measurements, city, personas, swipes, sizes per brand | recommendations; the city fetches the weather | `profile.*` | the user only; the audience is copied onto posts for feed matching (never shown) | until account deletion (section 1a) |
 | Wardrobe photos: private original, public cutout and thumbnail, garment attributes, a CLIP embedding | the wardrobe and outfits | object storage `wardrobe/{user}/{item}/…`, `wardrobe.items` | the original: the user (15-minute presigned link); cutout/thumbnail: **anyone with the URL** (unguessable keys, public bucket policy) and anyone who sees an outfit post using that piece | archived items' images deleted after 30 days; abandoned uploads after 1 day |
-| Wear dates | wear tracking | `wardrobe.wears` | the user | until account deletion |
+| Wear dates | wear tracking | `wardrobe.wears` | the user | until account deletion (section 1a) |
 
 The original wardrobe photo is sent to `kombin-vision`, which processes it in memory and stores nothing. Wardrobe originals are **not**
 metadata-stripped (they are private and never shown); see open questions.
@@ -78,6 +122,7 @@ UI: reviewers are the founder/operators with the internal key.
   questions about the decision).
 - Kept after deletion: buy clicks (`engagement.clicks`) and creator referral events keep the post's ID (a random UUID, no image, no text):
   they are the revenue and commission record. Storage backups (if the provider keeps any) follow the provider's retention.
+- Deleting the **account** deletes all the user's posts the same way (section 1a), after the 7-day window; they are hidden at once.
 
 ## 4. Visual search ("Görselden ürün bul", Task 15)
 
@@ -121,22 +166,33 @@ The founder's server-rendered panel (`/admin`). Admin accounts are configuration
 | What an admin did | `admin.audit_log` (admin e-mail, action, target ID, short summary, time) | no personal data of app users in the summary: IDs, handles, enum names and the removal reason the author was shown; kept indefinitely (open question below) |
 
 Disabling an account (soft) revokes its refresh tokens and refuses sign-in; it deletes nothing. The account's posts stay visible according to
-their own rules; account deletion is still not built.
+their own rules. Account deletion (section 1a) is also on `/admin/users`: it shows a pending request and offers "Delete now" and "Cancel deletion", both
+audited (the audit summary holds counts, never e-mail addresses).
 
 ## 6. Analytics (Analytics)
 
-Allow-listed events only (`AnalyticsEventCatalog`); values are IDs, numbers and enum names, never free text. Social events: `post_view`,
+Allow-listed events only (`AnalyticsEventCatalog`); values are IDs, numbers and enum names, never free text. After an account is deleted its events lose
+their `user_id` (section 1a). Social events: `post_view`,
 `post_tag_tap`, `post_like`, `post_create_start/done`, `post_report`, `creator_profile_view`, `try_with_wardrobe` — post and creator IDs,
 counts and enums; **no captions, handles or labels**. Visual-search events: counts, durations, result positions and match levels, **no
 image data**. Keys named like personal data are refused on every event. Anonymous events are linked to
 the account after sign-in (`IAnalyticsIdentityLinker`).
 
+## 6a. Rate limiting and server logs (Task 16-A)
+
+The rate limiter (`RateLimits:*`) counts requests per user ID (signed in) or per client address in the API's memory only: nothing is written, and a
+restart forgets everything. The address is the real client's when the reverse proxy (Caddy) forwards it. The reverse proxy writes an access log
+(client address, path, status) to its container log, rotated by size; the API's own log has correlation IDs and paths, not addresses, e-mail
+addresses or tokens. Neither is searched per user.
+
 ## 7. Processors and transfers
 
 | Recipient | What | Where |
 |---|---|---|
-| Object storage (MinIO in development; S3/R2 planned) | photos and renditions | hosting provider — **region to be decided** |
+| Object storage (MinIO on the server; R2 possible) | photos and renditions | the hosting provider's EU region (the plan: one EU VPS) |
+| Backup bucket (S3-compatible, e.g. Cloudflare R2) | the encrypted nightly database dump (age or AES-256; the key is not on the server), kept 7 days | the provider's EU or default jurisdiction: **to be chosen** (open question 6) |
 | `kombin-vision` | photos for analysis, moderation and detection, visual-search query photos; stores nothing | our own service, same deployment |
+| Let's Encrypt | the domain names, for the TLS certificates (no user data) | Let's Encrypt |
 | Expo Push Service | push tokens and notification text | Expo (US) |
 | Open-Meteo | the profile's city (no user ID) | Open-Meteo (EU) |
 | Anthropic (only if `Narration:Provider = Anthropic`) | outfit summaries (garment categories/colours, no photos, no user data) | Anthropic (US) |
@@ -146,7 +202,9 @@ Photos of posts and visual-search photos are never sent to a third party.
 
 ## 8. Open questions for counsel
 
-1. **Account deletion and data export** are not built (a cross-feature task). Until then deletion requests are manual.
+1. **Data export** (KVKK m. 11 access) is not built; access requests are answered by hand from the e-mail address on the legal pages. Account deletion is built
+   (section 1a): is a 7-day cancellation window with the account closed meanwhile acceptable as "deletion on request", or must a request that cannot be taken
+   back be offered as well?
 2. Do photos of people (and of third parties in them) need consent beyond the poster's confirmation in the consent text?
 3. Is open follow (no approval) acceptable for "Takipçilerime" posts, or do we need follow requests before launch?
 4. Retention of moderation scores and of blocked posts (30 days) and of reports after a post is deleted (deleted with it today).
@@ -158,3 +216,12 @@ Photos of posts and visual-search photos are never sent to a third party.
    lens screen enough, and should anonymous use need anything more?
 10. Admin audit log (`admin.audit_log`) is kept indefinitely and holds the removal reasons authors were shown. How long should it be kept, and is a
     founder's access to e-mail addresses on `/admin/users` enough of a justification on its own (it is logged only as the user ID of an action)?
+11. Account deletion deletes the posting-consent records (the proof that a user accepted a text version). Should proof of consent be kept (anonymised) for a limitation
+    period for posts that were public?
+12. `analytics.events.anonymous_id` and a click's user agent and salted IP hash survive deletion. They no longer point at an account, but they are pseudonymous
+    identifiers of an install or a connection. Delete or null them too?
+13. The 13-year limit in the legal texts is a placeholder: there is still no age gate (question 8), and Turkish law and the stores may require something else.
+14. The reverse proxy's access log holds client addresses for as long as the container logs rotate (about 50 MB). Is that a documented retention, or should the proxy not
+    log addresses at all?
+15. Backups keep deleted data for up to 7 days after the removal. Is "within 7 days of the removal" an acceptable statement, and should the legal pages say so as precisely?
+16. The public legal pages are drafts written from this document; `docs/legal-review.md` lists every sentence flagged for a lawyer.

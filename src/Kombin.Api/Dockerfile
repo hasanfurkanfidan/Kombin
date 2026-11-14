@@ -25,6 +25,10 @@ RUN apk add --no-cache tzdata
 
 COPY --from=build /app/publish .
 
+# The data-protection keys (the admin cookie and antiforgery tokens) live here in Production; the compose override mounts a named volume on it,
+# which inherits this ownership, so a restart or an image update does not sign the founder out.
+RUN mkdir /keys && chown $APP_UID /keys
+
 ENV ASPNETCORE_HTTP_PORTS=8080
 EXPOSE 8080
 

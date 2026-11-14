@@ -11,7 +11,9 @@ products, price/stock alerts, and the `/go/{offerId}` affiliate redirect that re
 Hangfire) and **Analytics** (an event intake for the app, the four beta metrics, an optional Metabase for operators) and **Wardrobe**
 (a garment from a phone photo in a few seconds: background removal and tagging by `kombin-vision`, images in MinIO, wear log, stats
 and a rule-based gap analysis with catalog suggestions) and an **Admin panel** (server-rendered pages under `/admin` for the founder: review
-queue, creators, catalog, users, audit log).
+queue, creators, catalog, users, audit log) and **launch readiness**: account deletion with a 7-day cancellation window, rate limits, request body limits,
+the public legal pages (privacy, terms, deleting your account), a Production mode that refuses development defaults, and the deploy kit (compose
+override, Caddy, backups, `docs/deploy.md`).
 
 ## Requirements
 
@@ -41,6 +43,7 @@ docker compose --file docker/compose.yaml exec -T db sh -c 'psql -U "$POSTGRES_U
 
 The compose stack runs the API in `Development` with `Database__MigrateOnStartup=true` and `Database__SeedOnStartup=true`,
 so the schema is created and filled on first start. OpenAPI document (Development only): `http://localhost:8080/openapi/v1.json`.
+Rate limits are off in this stack (`RATE_LIMITS_ENABLED=true` turns them on). **Production** is a different stack: `docker/compose.prod.yaml` on top of this file, see `docs/deploy.md`.
 
 ### Demo data
 
@@ -86,11 +89,15 @@ KOMBIN_PERF=1 dotnet test --project tests/Kombin.Api.IntegrationTests --configur
 | Method | Route | Auth | Success | Errors |
 |---|---|---|---|---|
 | POST | `/auth/register` | - | 201 `{ accessToken, refreshToken, expiresIn, isNewUser }`; body `{ email, password, displayName, anonymousId? }` | 400 validation, 409 `Identity.EmailTaken` |
-| POST | `/auth/login` | - | 200 same shape; body `{ email, password, deviceName?, anonymousId? }` | 400, 401 `Identity.InvalidCredentials`, 403 `Identity.AccountDisabled` (right password, account disabled by the founder) |
+| POST | `/auth/login` | - | 200 same shape; body `{ email, password, deviceName?, anonymousId? }` | 400, 401 `Identity.InvalidCredentials`, 403 `Identity.AccountDisabled` (right password, account disabled by the founder) or `Identity.AccountPendingDeletion` (right password, deletion requested; the problem document carries `deletionScheduledFor`), 429 |
 | POST | `/auth/external` | - | 200 same shape; body `{ provider: "google" or "apple", idToken, displayName?, deviceName?, anonymousId?, nonce? }` | 400 validation or `Identity.ExternalEmailMissing`, 401 `Identity.ExternalTokenInvalid`, 403 `Identity.AccountDisabled`, 503 `Identity.ExternalProviderDisabled` / `Identity.ExternalProviderUnavailable` |
 | POST | `/auth/refresh` | - | 200 same shape; old token revoked | 401 `Identity.InvalidRefreshToken` (also for the tokens of a disabled account, which are revoked) |
 | POST | `/auth/logout` | Bearer | 204 | 401 |
 | GET | `/me` | Bearer | 200 `{ id, email, displayName, createdAt }` | 401 |
+| DELETE | `/me` | Bearer | 202 `{ deletionRequestedAt, deletionScheduledFor }`; body `{ password?, confirm }` (`confirm` is "SİL", any casing; `password` is required for an account that has one). The account is pending deletion at once and removed after 7 days | 400 validation or `Identity.PasswordRequired`, 401, 403 `Identity.PasswordIncorrect`, 429 |
+| POST | `/auth/cancel-deletion` | - | 200 same shape as login (the account is restored and the user signed in); body `{ email, password }` or `{ provider, idToken, nonce? }`, plus `deviceName?`, `anonymousId?` | 400, 401 `Identity.InvalidCredentials`/`ExternalTokenInvalid`, 409 `Identity.DeletionNotPending` / `Identity.DeletionWindowClosed`, 429 |
+| GET | `/legal` | - | 200 `{ version, privacyUrl, termsUrl, deleteAccountUrl }` (absolute URLs of the legal pages) | - |
+| GET | `/legal/privacy`, `/legal/terms`, `/legal/delete-account` (outside `/api/v1`) | - | HTML, Turkish, mobile friendly | - |
 | POST | `/internal/identity/users/{userId}/disable` | internal key | 200 `{ userId, isDisabled, disabledAt, revokedTokens }`; sign-in, Google/Apple sign-in and refresh are refused, every refresh token is revoked, nothing else is touched. An access token already issued works until it expires (15 min) | 401, 404 `Identity.UserNotFound` |
 | POST | `/internal/identity/users/{userId}/enable` | internal key | 200 same shape; undoes a disable | 401, 404 |
 
@@ -508,7 +515,7 @@ the API's internal endpoints call (`PostReviewer`, `CreatorInvites`, `AccountAcc
 | `/admin/review` | posts `NeedsReview` and `Hidden`, oldest first: feed image (signed, 1 h), author, caption, moderation labels and scores, report reasons. **Yayınla** (approve), **Engelle** (block, with a reason from a list plus your own words, which the author sees) and **Gizli tut** (keep; moves it to the back of the queue) |
 | `/admin/creators` | creators with posts, 30-day clicks and an *estimated* earnings figure; invite (find a user by e-mail, handle or ID, then set handle, bio and link) and revoke |
 | `/admin/catalog` | sellers (country, active, newest offer seen, products, offers, the raw website URL), embedding counts with the failed and unusable products, **Run backfill now** (queues `ProductEmbeddingJob.BackfillAsync`, the same `EmbedAsync` as `POST /internal/catalog/embeddings/run`, on the Hangfire server), and a read-only product lookup by ID or slug with its offers (raw seller URLs, marked) and price history |
-| `/admin/users` | search by e-mail or ID: sign-in methods, personas, wardrobe items, posts and blocks; **Disable account** / **Re-enable**. No password reset, no impersonation. E-mail addresses appear on this page only |
+| `/admin/users` | search by e-mail or ID: sign-in methods, personas, wardrobe items, posts and blocks; **Disable account** / **Re-enable**; whether the account is pending deletion, with **Delete now** and **Cancel deletion**. No password reset, no impersonation. E-mail addresses appear on this page only |
 | `/admin/audit` | the audit log, 50 per page, newest first |
 
 **Sign-in.** `Admin:Users` is a list of `{ Email, PasswordHash }`, separate from the app's users. The hash is the same PBKDF2 format the app uses
@@ -523,8 +530,60 @@ unframed and has a restrictive Content-Security-Policy.
 | `Admin:Users:0:Email` | `Admin__Users__0__Email`, `Admin__Users__1__Email`, ... | `ADMIN_EMAIL` | the first founder's sign-in e-mail; an empty list means nobody can sign in (the default) |
 | `Admin:Users:0:PasswordHash` | `Admin__Users__0__PasswordHash`, ... | `ADMIN_PASSWORD_HASH` | the hash printed by `hash-password` (no `$` in it, so compose and `.env` files keep it intact) |
 
-The data-protection keys of the session and anti-forgery cookies are not persisted yet, so a restart of the API signs the founder out.
-**`/admin` must not be public:** serve it only to the founder's IP or behind Cloudflare Access (Task 16); until then it listens on the API's own port.
+The data-protection keys of the session and anti-forgery cookies are persisted in Production (`/keys`, a volume), so a restart does not sign the founder out. **`/admin` must not
+be public:** the production Caddyfile answers 404 to every address outside `ADMIN_ALLOWED_IPS` (or switch it to Cloudflare Access); the development stack serves it on the API's own port.
+The sign-in brake keys on the forwarded client address behind the proxy.
+
+### Account deletion
+
+`DELETE /me` is what the stores require. The app asks for "SİL" (and the password of a password account) and the API answers 202 with the date the data will be
+gone (7 days later). From that moment the account is **pending**: every session and device is ended, every post is hidden from everyone, and signing in answers 403
+`Identity.AccountPendingDeletion` (with `deletionScheduledFor`), so the app can offer to cancel. `POST /auth/cancel-deletion` with the sign-in credentials takes it back
+inside the window, restores the posts and signs the user in. After 7 days the hourly job `account-deletion` removes everything of the user, the stored photos first; clicks,
+analytics events and referral amounts are kept without the person. `docs/privacy-notes.md` section 1a lists every table. The founder's `/admin/users` shows pending
+accounts and has **Delete now** (for an e-mailed request) and **Cancel deletion**.
+
+### Rate limits and request sizes
+
+In-memory (per API instance), fixed windows, keyed by the user when signed in and by the client address otherwise (the real one behind the proxy, see Production). A refused
+request is `429 application/problem+json` with `errorCode: "RateLimited"` and a `Retry-After` header. Limits live in `RateLimits:*` (`appsettings.json`); `RateLimits:Enabled=false`
+switches them all off (the development settings and the test host do).
+
+| Policy | Applies to | Default |
+|---|---|---|
+| `auth` | login, register, external sign-in, refresh, cancel-deletion, `DELETE /me` (one bucket) | 10 per 5 minutes per IP |
+| `lens` | `POST /lens/search` | 20 per hour per IP (anonymous), 60 per hour per user |
+| `uploads` | wardrobe and post upload URLs (one bucket) | 60 per hour per user |
+| `events` | `POST /events` | 600 per 5 minutes per user (per IP while anonymous) |
+| `go` | `GET /go/{offerId}` | 120 per minute per IP |
+| global | everything else, under all of the above (`/health*` exempt) | 600 per minute per IP |
+
+Bodies: 10 MB at most; a JSON body 1 MB (the internal worker endpoints keep 10 MB for their batches); the visual-search photo 8 MB plus its multipart envelope. Over the limit: 413 `Request.TooLarge`.
+
+### Production
+
+`ASPNETCORE_ENVIRONMENT=Production` behaves differently on purpose: the API **refuses to start** with a development value, a placeholder or a missing secret (a JWT or internal key
+under 32 bytes, an empty Vision key or IP salt, the default database or MinIO password, a non-https public storage address, missing `Legal:*`, no `Admin:Users`) and lists every problem
+at once; `X-Forwarded-For`/`-Proto` are trusted only from `Proxy:KnownNetworks`; with `Proxy:TlsTerminated=true` it redirects HTTP (308) and sends HSTS; OpenAPI and the Hangfire
+dashboard are not exposed unless `Diagnostics:Expose=true`; CORS is closed; Kestrel limits are set; the data-protection keys are kept on disk (`DataProtection:KeysPath`, `/keys` in the image,
+a volume in compose). Migrations are applied with the image's own command, because the runtime image has no `dotnet ef`: `docker compose ... run --rm --no-deps api migrate`.
+
+| Setting | Env | Meaning |
+|---|---|---|
+| `Legal:ControllerName`, `Legal:ContactEmail`, `Legal:Address` | `LEGAL_CONTROLLER_NAME`, `LEGAL_CONTACT_EMAIL`, `LEGAL_ADDRESS` | who the data controller is (printed on the legal pages; required in Production) |
+| `Legal:Version` | `LEGAL_VERSION` | the version of the legal texts, shown on the pages and by `GET /legal` |
+| `Legal:PublicBaseUrl` | `LEGAL_PUBLIC_BASE_URL` | the public address used for the URLs in `GET /legal` (default: the address of the request) |
+| `Proxy:TlsTerminated` | `PROXY_TLS_TERMINATED` | TLS ends at the reverse proxy: HTTPS redirect and HSTS |
+| `Proxy:KnownNetworks` | `PROXY_KNOWN_NETWORKS` | CIDRs whose forwarded headers are believed (default `172.16.0.0/12`; compose pins `172.30.0.0/24`) |
+| `Diagnostics:Expose` | `DIAGNOSTICS_EXPOSE` | serve OpenAPI and `/hangfire` outside Development (the dashboard then needs the `/admin` sign-in) |
+| `DataProtection:KeysPath` | `DataProtection__KeysPath` | where the cookie/antiforgery keys live (Production default `/keys`) |
+| `RateLimits:*`, `RequestLimits:*` | `RateLimits__Enabled`, ... | see above |
+
+The deploy kit: `docker/compose.prod.yaml` (nothing published but Caddy's 80 and 443, required secrets, restarts, memory limits, volumes), `docker/caddy/Caddyfile`
+(TLS, blocks `/internal`, `/hangfire`, `/openapi`, restricts `/admin` to `ADMIN_ALLOWED_IPS` and the worker endpoints to `INTERNAL_ALLOWED_IPS`, proxies `storage.$DOMAIN` to MinIO),
+`docker/.env.prod.example`, `scripts/gen-secrets.sh|.ps1`, `scripts/backup.sh` (encrypted nightly dump to an S3-compatible bucket, 7 days kept) and `scripts/restore.sh` (into a scratch
+database, `--compare` the row counts). **`docs/deploy.md`** is the step-by-step for a fresh Ubuntu VPS (user, SSH, firewall, Docker, first start, backups, restore drill, updates) and
+the closed-beta variant with a tunnel from the dev PC.
 
 ## Decisions worth knowing
 
@@ -541,7 +600,7 @@ The data-protection keys of the session and anti-forgery cookies are not persist
 - **Logging:** Serilog to the console, with the correlation ID on every event. `GlobalExceptionHandler` is the single place
   that logs an unhandled exception (once, at Error), so EF Core's own command/query/update error categories are muted in
   `appsettings.json`; otherwise one failing query would produce several Error lines.
-- **Migrations** are never applied automatically outside `Development`; use `dotnet ef database update`.
+- **Migrations** are never applied automatically outside `Development`; use `dotnet ef database update`, or `dotnet Kombin.Api.dll migrate` where there is no SDK (the production image).
 
 ### Catalog decisions
 
@@ -582,18 +641,18 @@ The data-protection keys of the session and anti-forgery cookies are not persist
 - **Saved list** items for a product nobody sells report `offerCount: 0` and `lowestPrice: 0`.
 - **Click IDs** are reserved from the identity sequence before the insert, because the ID goes into the redirect URL; the
   `clicks` table is therefore only ever inserted into.
-- **Behind a proxy** the click's IP hash is that of the proxy until forwarded headers are configured.
+- **Behind a proxy** the click's IP hash is that of the forwarded client when the proxy is in `Proxy:KnownNetworks` (production), else that of the proxy.
 
 ## TODO
 
-- Rate limiting on the auth endpoints (out of scope for the foundation task; the admin sign-in has its own small one).
+- Rate limits are per instance (in memory): a second API instance, or a different edge, needs a shared store first.
 - Catalog: deactivating offers that stop being seen (`Offer.IsActive`, and `Product.IsActive` when none remain) needs a
   sweep job or an internal endpoint; nothing sets them to false yet except re-linking.
 - Catalog: full-text search (today `ILIKE`), entity resolution/image similarity for products without a `modelCode`,
   copying images to our own storage, product embeddings (pgvector is installed; only wardrobe items have embeddings so far),
   TimescaleDB for `price_snapshots`.
-- Engagement: rate limiting and bot filtering on `/go`, affiliate conversion/postback import, real affiliate templates per
-  seller, forwarded-headers setup.
+- Engagement: bot filtering on `/go` (it only has the per-IP limit), affiliate conversion/postback import, real affiliate templates per
+  seller.
 - Notification: the first run of `alert-dispatcher` on a database that already has unconsumed triggers turns every one of them
   into a notification (the oldest 500 per minute); mark old triggers consumed before enabling Hangfire there. The Hangfire
-  dashboard has no authentication, which is why it exists in Development only.
+  dashboard has no authentication of its own, which is why it exists in Development only (elsewhere only with `Diagnostics:Expose=true`, behind the `/admin` sign-in).

@@ -36,7 +36,8 @@ internal static class ResultHttpExtensions
                 httpContext,
                 error.ErrorType.ToStatusCode(),
                 detail: error.Description,
-                errorCode: error.Code);
+                errorCode: error.Code,
+                extra: error.Extensions);
 
             return problem.ExecuteAsync(httpContext);
         }

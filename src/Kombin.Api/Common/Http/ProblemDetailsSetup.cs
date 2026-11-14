@@ -3,12 +3,18 @@ namespace Kombin.Api.Common.Http;
 /// <summary>Builds every <c>application/problem+json</c> response so they all carry the same extensions.</summary>
 internal static class Problems
 {
-    public static IResult Create(HttpContext context, int statusCode, string? title = null, string? detail = null, string? errorCode = null) =>
+    public static IResult Create(
+        HttpContext context,
+        int statusCode,
+        string? title = null,
+        string? detail = null,
+        string? errorCode = null,
+        IReadOnlyDictionary<string, object?>? extra = null) =>
         TypedResults.Problem(
             statusCode: statusCode,
             title: title,
             detail: detail,
-            extensions: Extensions(context, errorCode));
+            extensions: Extensions(context, errorCode, extra));
 
     public static IResult Validation(HttpContext context, IDictionary<string, string[]> errors) =>
         TypedResults.ValidationProblem(
@@ -16,9 +22,17 @@ internal static class Problems
             title: "One or more validation errors occurred.",
             extensions: Extensions(context, "Validation.Failed"));
 
-    private static Dictionary<string, object?> Extensions(HttpContext context, string? errorCode)
+    private static Dictionary<string, object?> Extensions(HttpContext context, string? errorCode, IReadOnlyDictionary<string, object?>? extra = null)
     {
         var extensions = new Dictionary<string, object?> { ["correlationId"] = context.GetCorrelationId() };
+
+        if (extra is not null)
+        {
+            foreach (var (name, value) in extra)
+            {
+                extensions[name] = value;
+            }
+        }
 
         if (errorCode is not null)
         {

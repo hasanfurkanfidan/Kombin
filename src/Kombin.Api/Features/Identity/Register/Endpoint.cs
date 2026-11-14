@@ -1,3 +1,4 @@
+using Kombin.Api.Common.RateLimiting;
 using Kombin.Api.Common.Results;
 using Kombin.Api.Common.Time;
 using Kombin.Api.Common.Validation;
@@ -18,6 +19,7 @@ internal static class RegisterEndpoint
         group.MapPost("/register", Handle)
             .WithName("Register")
             .WithValidation<RegisterRequest>()
+            .RequireRateLimiting(RateLimitPolicies.Auth)
             .Produces<AuthTokensResponse>(StatusCodes.Status201Created)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status409Conflict);

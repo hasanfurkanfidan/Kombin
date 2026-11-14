@@ -20,6 +20,7 @@ internal sealed class PostConfiguration : IEntityTypeConfiguration<Post>
         builder.Property(post => post.Kind).HasConversion<string>().HasMaxLength(20);
         builder.Property(post => post.Visibility).HasConversion<string>().HasMaxLength(20);
         builder.Property(post => post.Status).HasConversion<string>().HasMaxLength(20);
+        builder.Property(post => post.StatusBeforeDeletion).HasConversion<string>().HasMaxLength(20);
         builder.Property(post => post.Audience).HasConversion<string>().HasMaxLength(20);
         builder.Property(post => post.ModerationVerdict).HasConversion<string>().HasMaxLength(20);
         builder.Property(post => post.Caption).HasMaxLength(Post.MaxCaptionLength);

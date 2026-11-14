@@ -1,4 +1,5 @@
 using Kombin.Api.Common.Auth;
+using Kombin.Api.Common.RateLimiting;
 using Kombin.Api.Common.Results;
 using Kombin.Api.Common.Time;
 using Kombin.Api.Persistence;
@@ -12,6 +13,7 @@ internal static class RefreshTokenEndpoint
     public static void Map(RouteGroupBuilder group) =>
         group.MapPost("/refresh", Handle)
             .WithName("RefreshToken")
+            .RequireRateLimiting(RateLimitPolicies.Auth)
             .Produces<AuthTokensResponse>()
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden);
@@ -60,6 +62,12 @@ internal static class RefreshTokenEndpoint
         if (user.DisabledAt is not null)
         {
             return IdentityErrors.AccountDisabled.ToHttpResult();
+        }
+
+        // The request revoked every refresh token, so this is only reached by a token issued in between; it gets the same answer as a login.
+        if (user.DeletionRequestedAt is not null)
+        {
+            return AccountDeletion.PendingError(user).ToHttpResult();
         }
 
         var issued = tokens.Issue(user, current.DeviceName);

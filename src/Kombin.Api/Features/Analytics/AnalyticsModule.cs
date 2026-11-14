@@ -1,5 +1,6 @@
 using Hangfire;
 using Kombin.Api.Common.Auth;
+using Kombin.Api.Common.RateLimiting;
 using Kombin.Api.Features.Analytics.GetWeeklyMetrics;
 using Kombin.Api.Features.Analytics.Jobs;
 using Kombin.Api.Features.Analytics.RecordEvents;
@@ -22,7 +23,7 @@ internal static class AnalyticsModule
     public static IEndpointRouteBuilder MapAnalyticsEndpoints(this IEndpointRouteBuilder app)
     {
         // Public: the app reports before login. A bearer token, when sent, attributes the events to the user.
-        var events = app.MapGroup("/api/v1/events").WithTags("Analytics");
+        var events = app.MapGroup("/api/v1/events").WithTags("Analytics").RequireRateLimiting(RateLimitPolicies.Events);
         RecordEventsEndpoint.Map(events);
 
         // Internal: for operators and dashboards, with X-Internal-Key.

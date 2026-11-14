@@ -12,6 +12,8 @@ internal sealed class Device : BaseEntity
 
     public const string Replaced = "Replaced";
 
+    public const string AccountDeletion = "AccountDeletion";
+
     public Guid UserId { get; set; }
 
     public string ExpoPushToken { get; set; } = string.Empty;
@@ -28,7 +30,7 @@ internal sealed class Device : BaseEntity
 
     public DateTimeOffset? DeactivatedAt { get; set; }
 
-    /// <summary>One of <see cref="DeviceNotRegistered"/>, <see cref="UserRemoved"/> and <see cref="Replaced"/>.</summary>
+    /// <summary>One of <see cref="DeviceNotRegistered"/>, <see cref="UserRemoved"/>, <see cref="Replaced"/> and <see cref="AccountDeletion"/>.</summary>
     public string? DeactivationReason { get; set; }
 
     public void Deactivate(string reason, DateTimeOffset now)
