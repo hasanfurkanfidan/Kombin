@@ -16,14 +16,24 @@ namespace Kombin.Api.Features.Social.PublishPost;
 /// </summary>
 internal sealed record PublishTag(string? Kind, double X, double Y, double W, double H, Guid? WardrobeItemId, Guid? ProductId, string? Label);
 
-/// <summary><c>Visibility</c> is <c>Private</c>, <c>Followers</c> or <c>Public</c>. <c>Tags</c> replaces every tag and proposal of the post.</summary>
+/// <summary>
+/// <c>Visibility</c> is <c>Private</c>, <c>Followers</c> or <c>Public</c>. <c>Followers</c> is not private: anyone signed in can follow without
+/// approval and then sees the post (security review M5). <c>Tags</c> replaces every tag and proposal of the post.
+/// </summary>
 internal sealed record PublishPostRequest(string? Caption, string? Visibility, IReadOnlyList<PublishTag>? Tags);
 
 internal static class PublishPostEndpoint
 {
+    /// <summary>What the OpenAPI document says about visibility, so the app team never offers "Followers" as private.</summary>
+    public const string Description =
+        "Confirms the post's tags, caption and visibility. Visibility: Private (only the author), Followers or Public (everyone, signed out "
+        + "included). Followers is NOT a privacy boundary: following needs no approval, so any signed-in user can follow the author and then "
+        + "see the post; blocking someone removes their follow. Word the option accordingly in the app.";
+
     public static void Map(RouteGroupBuilder group) =>
         group.MapPut("/{id:guid}/publish", Handle)
             .WithName("PublishPost")
+            .WithDescription(PublishPostEndpoint.Description)
             .WithValidation<PublishPostRequest>()
             .Produces<PostResponse>()
             .ProducesProblem(StatusCodes.Status400BadRequest)

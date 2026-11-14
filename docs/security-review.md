@@ -4,8 +4,9 @@ Branch `task-s1-security-review`, November 2026. A defensive review of our own c
 code, each area below read in full, each Critical/High finding proven by an integration test that failed before its fix. Findings are
 things that are true of this code, with where, how, and what was done.
 
-**Counts:** Critical 0 · High 2 · Medium 6 · Low 9 · Info 12. **Fixed in this branch:** both Highs, two Mediums in full, one Medium in part,
-one Low. Everything else is planned or accepted below, with the reason.
+**Counts:** Critical 0 · High 2 · Medium 6 · Low 9 · Info 12. **Fixed in this branch:** both Highs, five Mediums (M1, M3, M4, M6 in full, M2
+in part: oversized uploads are deleted), one Low (L1). M2's size-limited upload ships with the mobile change before the public launch; M5 is
+accepted and documented (CEO decisions of 2026-11-15). Everything else is planned or accepted below, with the reason.
 
 ## 1. What an attacker would try first
 
@@ -21,7 +22,8 @@ one Low. Everything else is planned or accepted below, with the reason.
 4. **Farm creator earnings.** Reloading a creator's tag link (signed out, a script, or the creator from a second device) earned a click each
    time. *Fixed:* one viewer earns a creator once per post and product a day.
 5. **Hide someone's post with three throwaway accounts** (M4), **fill the disk** through presigned uploads (M2) or the analytics intake (M6).
-   Planned, see below.
+   *Fixed:* M4 (only trusted reporters hide) and M6 (a daily cap per actor, 180-day retention); M2 is limited (oversized uploads are deleted
+   at once) until the size-limited upload ships with the mobile change.
 
 ## 2. Attack surface (generated from the code)
 
@@ -95,10 +97,10 @@ Sorted by severity. Status: **Fixed** (in this branch, with the test that proves
 | H1 | High | Account pre-hijacking through Google/Apple link-by-email | `Features/Identity/ExternalSignIn/Endpoint.cs:115` | Fixed |
 | H2 | High | SSRF in catalog image downloads (embedding job, "Dolabıma ekle"), readable through a public object | `Features/Catalog/CatalogModule.cs:36`, `Features/Wardrobe/WardrobeModule.cs:30`, `Common/Http/OutboundGuard.cs` | Fixed |
 | M1 | Medium | Creator click inflation: every repeat click earned a referral | `Features/Engagement/Redirect/Endpoint.cs:72`, `Features/Social/CreatorAttribution.cs` | Fixed |
-| M2 | Medium | Presigned PUT has no size cap: storage fill | `Common/Storage/S3ObjectStorage.cs:87` | Partly fixed, rest planned |
+| M2 | Medium | Presigned PUT has no size cap: storage fill | `Common/Storage/S3ObjectStorage.cs:87` | Partly fixed; rest planned with the mobile upload change, before public launch |
 | M3 | Medium | Wardrobe-tag thumbnails bypass moderation | `Features/Social/PostResponses.cs:203` | Fixed |
 | M4 | Medium | Three throwaway accounts hide any live post | `Features/Social/ReportPost/Endpoint.cs` | Fixed |
-| M5 | Medium | "Followers" visibility is not a privacy boundary | `Features/Social/PostRules.cs:44` | Accepted (copy change planned) |
+| M5 | Medium | "Followers" visibility is not a privacy boundary | `Features/Social/PostRules.cs:44` | Accepted; API docs say so, the app rewords it |
 | M6 | Medium | Analytics intake as an anonymous storage-fill vector | `Features/Analytics/RecordEvents/Endpoint.cs` | Fixed |
 | L1 | Low | `/go` stored any persona ID | `Features/Engagement/Redirect/Endpoint.cs` | Fixed |
 | L2 | Low | Registration reveals whether an e-mail has an account | `Features/Identity/Register/Endpoint.cs:40` | Accepted |
@@ -157,7 +159,8 @@ up to 5 GB for 15 minutes. `process` refuses > 8 MB, but the object stayed until
 posts; `WardrobeTests`, `SecurityReviewTests.AnOversizedPostUploadIsDeletedWhenProcessingIsRefused`). *Plan:* sign the length: switch the
 upload to a presigned **POST** policy with `content-length-range 1..8 MB` (S3, R2 and MinIO all enforce it; the app already sends the size in the
 request), and set a MinIO bucket quota in `minio-init` as the backstop. Not done here: it changes the mobile upload contract (multipart form
-instead of a raw PUT) and can only be verified against real MinIO.
+instead of a raw PUT) and can only be verified against real MinIO. *Decision (CEO, 2026-11-15):* not now; it ships together with the mobile
+upload change before the public launch.
 
 **M3 · Wardrobe-tag thumbnails bypass moderation (Fixed).** A photo post was moderated, and so were an outfit post's cutouts, but a wardrobe
 tag added at publish showed that item's public thumbnail (`PostResponses`, `image = summary?.ThumbUrl`) and wardrobe photos were never
@@ -183,10 +186,11 @@ the automatic hide: account at least 72 h old, at least one persona (onboarding 
 `…ATrustedReporterCountsOncePerAuthorADayAndThreeOfThemHideThePost` (both fail when every report counts again), `SocialRulesTests`.
 *Left:* someone patient enough to age three accounts for 72 h and onboard them can still hide a post until a review; the queue sees it at once.
 
-**M5 · "Followers" is not a privacy boundary (Accepted, copy change planned).** `Followers` posts are visible to followers, and following is one
-tap with no approval (follow requests are out of scope), so any signed-in account sees them. Blocking removes a follower. Users choosing
-"Takipçiler" will expect more. *Plan:* the app labels it "Takipçilerim (herkes takip edebilir)" and the privacy notes say so; real
-restriction needs follow requests, a product decision.
+**M5 · "Followers" is not a privacy boundary (Accepted; documented).** `Followers` posts are visible to followers, and following is one tap
+with no approval (follow requests are out of scope), so any signed-in account sees them. Blocking removes a follower. Users choosing
+"Takipçiler" will expect more. *Decision (CEO, 2026-11-15):* the backend stays as it is and the app rewords the option. The API says so: the
+`PUT /posts/{id}/publish` description in the OpenAPI document, `PublishPostRequest` and `PostVisibility.Followers` (`OpenApiTests.PublishingSaysFollowersIsNotPrivate`),
+the README API table and the privacy notes. Real restriction needs follow requests, a product decision.
 
 **M6 · Analytics intake as a storage-fill vector (Fixed).** `POST /api/v1/events` is anonymous, takes 50 events of up to 2 KB, and `events`
 allows 600 requests per 5 minutes per address: about 17 GB a day per address into `analytics.events`, which had no retention. *Fix (CEO

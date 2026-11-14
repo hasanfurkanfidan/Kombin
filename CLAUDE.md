@@ -448,7 +448,8 @@ External Python workers (a separate repo) push the catalog through the internal 
   - posting needs the current `PostingConsent` version; versions are append-only and their text hashes are pinned in `PostingConsentTests`
     (a new text is a new version; never edit a published one). The acceptance row stores the exact text shown.
   - posts are `Private` until the author chooses `Followers` or `Public`; others see only `Live` posts (`PostRules.CanView`, the one place
-    for visibility, plus `PostAccess`); a block in either direction hides everything both ways and removes follows.
+    for visibility, plus `PostAccess`); a block in either direction hides everything both ways and removes follows. `Followers` is **not
+    private** (anyone signed in may follow without approval): the API documentation says so (`PublishPostEndpoint.Description`, security review M5).
   - metadata is stripped before anything reads the photo (`ImageMetadata.Strip`, JPEG/PNG/WEBP only; unparseable → refused) and the stored
     original is replaced; renditions are re-encoded by the vision service from pixels; all post objects are private (presigned, 1 h).
   - delete = tombstone at once + `social-purge` (hourly) deletes objects and rows, so "within 24 h" holds. Clicks and referral events keep the

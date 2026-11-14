@@ -92,7 +92,7 @@ No face recognition, no biometric templates, no person identification, no age or
 
 - New posts are **Private**. The author chooses Private, Followers ("Takipçilerime") or Public ("Herkese açık") when publishing.
 - Public: anyone, including signed-out users of the app. Followers: users who follow the author (**follows are not approved in v1**:
-  anyone can follow; the author can block). Private: the author only.
+  anyone can follow; the author can block; the API documentation says so and the app words the option accordingly, security review M5). Private: the author only.
 - Not visible to anyone but the author unless `Live`: processing, drafts, posts under review, blocked and hidden posts.
 - A block (either direction) hides each side's posts and profile from the other and removes follows. The blocked user is not told.
 - There are no public web pages for posts (no indexing by search engines); everything is behind the app's API.

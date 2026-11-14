@@ -10,8 +10,16 @@ internal enum PostKind
 /// <summary>Who may see a live post. New posts are <see cref="Private"/> until the author chooses otherwise.</summary>
 internal enum PostVisibility
 {
+    /// <summary>Only the author.</summary>
     Private,
+
+    /// <summary>
+    /// Users who follow the author. <b>Not a privacy boundary:</b> following needs no approval (there are no follow requests), so any signed-in
+    /// user can follow and then see these posts; blocking someone removes their follow. The app words the option accordingly (security review M5).
+    /// </summary>
     Followers,
+
+    /// <summary>Everyone, signed-out users of the app included.</summary>
     Public,
 }
 
