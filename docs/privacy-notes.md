@@ -108,6 +108,21 @@ the catalog's embeddings; they are sellers' product shots, not personal data, an
 Creators see aggregate numbers only (`GET /me/creator/stats`: clicks, an estimate, top posts) — never who clicked. Creator posts show "Bu
 içerikten komisyon kazanabilir" (advertising disclosure). Affiliate URLs carry our click ID, never user identifiers.
 
+## 5a. Admin panel (Task 10b)
+
+The founder's server-rendered panel (`/admin`). Admin accounts are configuration (`Admin:Users`: an e-mail and a password hash), not rows of
+`identity.users`, and the panel never uses the app's tokens.
+
+| What the panel shows | Where | Minimisation |
+|---|---|---|
+| A user's e-mail, display name, sign-in methods, counts of personas, wardrobe items, posts and blocks, creator handle | `/admin/users` | e-mail addresses appear **only** on this page (the creator invite page prints them masked, `f***@gmail.com`); no measurements, no city, no sizes, no wardrobe photos, no list of what the user owns |
+| Post photos waiting for review | `/admin/review` | the **feed-size** rendition only, a 1-hour presigned link; never the original (which is stripped of metadata anyway); author shown by display name and ID |
+| Report reasons and moderation scores | `/admin/review` | reporters are never shown, only the reasons and counts |
+| What an admin did | `admin.audit_log` (admin e-mail, action, target ID, short summary, time) | no personal data of app users in the summary: IDs, handles, enum names and the removal reason the author was shown; kept indefinitely (open question below) |
+
+Disabling an account (soft) revokes its refresh tokens and refuses sign-in; it deletes nothing. The account's posts stay visible according to
+their own rules; account deletion is still not built.
+
 ## 6. Analytics (Analytics)
 
 Allow-listed events only (`AnalyticsEventCatalog`); values are IDs, numbers and enum names, never free text. Social events: `post_view`,
@@ -141,3 +156,5 @@ Photos of posts and visual-search photos are never sent to a third party.
 8. Minors: there is no age gate.
 9. Visual search processes photos of other people (a stranger in the street) in memory only, never stored. Is an in-app notice on the
    lens screen enough, and should anonymous use need anything more?
+10. Admin audit log (`admin.audit_log`) is kept indefinitely and holds the removal reasons authors were shown. How long should it be kept, and is a
+    founder's access to e-mail addresses on `/admin/users` enough of a justification on its own (it is logged only as the user ID of an action)?

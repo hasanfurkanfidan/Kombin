@@ -5,6 +5,7 @@ using Kombin.Api.Common.Http;
 using Kombin.Api.Common.Storage;
 using Kombin.Api.Common.Time;
 using Kombin.Api.Common.Validation;
+using Kombin.Api.Features.Admin;
 using Kombin.Api.Features.Analytics;
 using Kombin.Api.Features.Catalog;
 using Kombin.Api.Features.Engagement;
@@ -19,6 +20,12 @@ using Kombin.Api.Persistence;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Serilog;
 using Serilog.Events;
+
+// `dotnet run --project src/Kombin.Api -- hash-password`: makes a password hash for Admin:Users, before any configuration or database is touched.
+if (AdminHashCommand.IsRequested(args))
+{
+    return AdminHashCommand.Run(args, Console.Out, Console.Error, AdminHashCommand.ReadFromConsole);
+}
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -46,10 +53,12 @@ builder.Services.AddObjectStorage();
 builder.Services.AddWardrobeFeature();
 builder.Services.AddRecommendationFeature();
 builder.Services.AddSocialFeature();
+builder.Services.AddAdminFeature();
 
 var app = builder.Build();
 
 app.UseMiddleware<CorrelationIdMiddleware>();
+app.UseAdminSecurityHeaders();
 app.UseSerilogRequestLogging(options => options.GetLevel = RequestLogLevel);
 app.UseExceptionHandler();
 app.UseStatusCodePages();
@@ -75,6 +84,7 @@ app.MapWardrobeEndpoints();
 app.MapRecommendationEndpoints();
 app.MapSocialEndpoints();
 app.MapLensEndpoints();
+app.MapAdminEndpoints();
 
 await app.MigrateDatabaseOnStartupAsync();
 await app.SeedStyleCardsOnStartupAsync();
@@ -87,6 +97,7 @@ app.UseAnalyticsJobs();
 app.UseWardrobeJobs();
 app.UseSocialJobs();
 await app.RunAsync();
+return 0;
 
 static LogEventLevel RequestLogLevel(HttpContext context, double elapsedMilliseconds, Exception? exception)
 {

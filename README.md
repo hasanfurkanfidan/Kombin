@@ -10,7 +10,8 @@ products, price/stock alerts, and the `/go/{offerId}` affiliate redirect that re
 **Notification** (device registration, notification preferences and feed, push delivery through Expo, background jobs on
 Hangfire) and **Analytics** (an event intake for the app, the four beta metrics, an optional Metabase for operators) and **Wardrobe**
 (a garment from a phone photo in a few seconds: background removal and tagging by `kombin-vision`, images in MinIO, wear log, stats
-and a rule-based gap analysis with catalog suggestions).
+and a rule-based gap analysis with catalog suggestions) and an **Admin panel** (server-rendered pages under `/admin` for the founder: review
+queue, creators, catalog, users, audit log).
 
 ## Requirements
 
@@ -85,11 +86,13 @@ KOMBIN_PERF=1 dotnet test --project tests/Kombin.Api.IntegrationTests --configur
 | Method | Route | Auth | Success | Errors |
 |---|---|---|---|---|
 | POST | `/auth/register` | - | 201 `{ accessToken, refreshToken, expiresIn, isNewUser }`; body `{ email, password, displayName, anonymousId? }` | 400 validation, 409 `Identity.EmailTaken` |
-| POST | `/auth/login` | - | 200 same shape; body `{ email, password, deviceName?, anonymousId? }` | 400, 401 `Identity.InvalidCredentials` |
-| POST | `/auth/external` | - | 200 same shape; body `{ provider: "google" or "apple", idToken, displayName?, deviceName?, anonymousId?, nonce? }` | 400 validation or `Identity.ExternalEmailMissing`, 401 `Identity.ExternalTokenInvalid`, 503 `Identity.ExternalProviderDisabled` / `Identity.ExternalProviderUnavailable` |
-| POST | `/auth/refresh` | - | 200 same shape; old token revoked | 401 `Identity.InvalidRefreshToken` |
+| POST | `/auth/login` | - | 200 same shape; body `{ email, password, deviceName?, anonymousId? }` | 400, 401 `Identity.InvalidCredentials`, 403 `Identity.AccountDisabled` (right password, account disabled by the founder) |
+| POST | `/auth/external` | - | 200 same shape; body `{ provider: "google" or "apple", idToken, displayName?, deviceName?, anonymousId?, nonce? }` | 400 validation or `Identity.ExternalEmailMissing`, 401 `Identity.ExternalTokenInvalid`, 403 `Identity.AccountDisabled`, 503 `Identity.ExternalProviderDisabled` / `Identity.ExternalProviderUnavailable` |
+| POST | `/auth/refresh` | - | 200 same shape; old token revoked | 401 `Identity.InvalidRefreshToken` (also for the tokens of a disabled account, which are revoked) |
 | POST | `/auth/logout` | Bearer | 204 | 401 |
 | GET | `/me` | Bearer | 200 `{ id, email, displayName, createdAt }` | 401 |
+| POST | `/internal/identity/users/{userId}/disable` | internal key | 200 `{ userId, isDisabled, disabledAt, revokedTokens }`; sign-in, Google/Apple sign-in and refresh are refused, every refresh token is revoked, nothing else is touched. An access token already issued works until it expires (15 min) | 401, 404 `Identity.UserNotFound` |
+| POST | `/internal/identity/users/{userId}/enable` | internal key | 200 same shape; undoes a disable | 401, 404 |
 
 Every token response carries `isNewUser`: true when that request created the account (register, first Google/Apple sign-in), so the
 app can route to onboarding; login and refresh say false.
@@ -443,8 +446,9 @@ personal-data touchpoint: `docs/privacy-notes.md`. Routes marked *public* work s
 | GET | `/creators/{handle}` *public* | 200 `{ profile, disclosure, posts }` | 404 `Social.CreatorNotFound` |
 | GET | `/me/creator/stats?days=30` | 200 `{ days, since, clicks, estimatedEarnings { amount, currency, isEstimate, clicks, conversionRatePercent, averageOrderValue, commissionPercent, sharePercent }, confirmedEarnings, followerCount, topPosts }` | 403 `Social.NotACreator` |
 | PUT | `/internal/social/creators/{userId}` | 200; body `{ handle, bio?, link?, isActive? }` (internal key) | 400, 404, 409 `Social.HandleTaken` |
+| DELETE | `/internal/social/creators/{userId}` | 200 the profile with `isActive: false`: attribution stops, the handle stays reserved, posts and past clicks are untouched; idempotent (internal key) | 401, 404 `Social.CreatorNotFound` |
 | GET | `/internal/social/review-queue` | 200 hidden and borderline posts, oldest first (internal key) | 401 |
-| POST | `/internal/social/posts/{id}/review` | 200 `{ postId, status }`; body `{ decision }`: `Approve` or `Remove` (internal key) | 404, 409 `Social.NotReviewable` |
+| POST | `/internal/social/posts/{id}/review` | 200 `{ postId, status }`; body `{ decision, reason? }`: `Approve`, `Remove` (the author reads `reason`, at most 200 characters, else the standard text) or `Keep` (no change, the post moves to the back of the queue) (internal key) | 400, 404, 409 `Social.NotReviewable` |
 
 **Post flow.** consent → `upload-url` → PUT the photo → `process` → `post-process` strips the metadata (EXIF location and the rest; the
 stored original is replaced), calls `kombin-vision /v1/moderate?renditions=true` (allow → `Draft`, review → `NeedsReview`, block → `Blocked`
@@ -490,6 +494,37 @@ Design: `docs/design/visual-search.md`. Public; a bearer token adds the caller's
 | `product-embeddings` | daily 03:00 Istanbul (3 h budget) | embeds due products' primary images through `kombin-vision /v1/embed` (new, new image, new model, failed after back-off); 1 request per image host per second as `KombinBot`; a 404 is marked and not refetched for 30 days |
 
 Measured by `LensPerformanceTests` (50k products, one region, `KOMBIN_PERF=1`, vision excluded): p95 71 ms signed in (wardrobe of 200 pieces, profile audience), 54 ms anonymous (budget 400 ms).
+
+### Admin panel
+
+The founder's tool, so nobody needs SQL: server-rendered Razor Pages under `/admin` in the API itself (`Features/Admin/Pages`), plain HTML and
+a little CSS, readable on a phone. It has its own sign-in and **never** uses the app's JWTs; every action goes through the same use-case classes
+the API's internal endpoints call (`PostReviewer`, `CreatorInvites`, `AccountAccess`, `ProductEmbeddingJob`), and every action writes a row to
+`admin.audit_log`.
+
+| Page | What it does |
+|---|---|
+| `/admin` | today / last-7-days numbers (new users, posts created and gone live, buy clicks and clicks by source, price alerts triggered, lens searches, sellers with a fresh offer, products with and without an embedding); each number has a `<details>` block with the SQL it comes from. Health strip: the last run and result of every Hangfire recurring job, the vision service's `/health`, the database size |
+| `/admin/review` | posts `NeedsReview` and `Hidden`, oldest first: feed image (signed, 1 h), author, caption, moderation labels and scores, report reasons. **Yayınla** (approve), **Engelle** (block, with a reason from a list plus your own words, which the author sees) and **Gizli tut** (keep; moves it to the back of the queue) |
+| `/admin/creators` | creators with posts, 30-day clicks and an *estimated* earnings figure; invite (find a user by e-mail, handle or ID, then set handle, bio and link) and revoke |
+| `/admin/catalog` | sellers (country, active, newest offer seen, products, offers, the raw website URL), embedding counts with the failed and unusable products, **Run backfill now** (queues `ProductEmbeddingJob.BackfillAsync`, the same `EmbedAsync` as `POST /internal/catalog/embeddings/run`, on the Hangfire server), and a read-only product lookup by ID or slug with its offers (raw seller URLs, marked) and price history |
+| `/admin/users` | search by e-mail or ID: sign-in methods, personas, wardrobe items, posts and blocks; **Disable account** / **Re-enable**. No password reset, no impersonation. E-mail addresses appear on this page only |
+| `/admin/audit` | the audit log, 50 per page, newest first |
+
+**Sign-in.** `Admin:Users` is a list of `{ Email, PasswordHash }`, separate from the app's users. The hash is the same PBKDF2 format the app uses
+for passwords; make one with `scripts/admin-hash.sh` (or `.ps1`), which runs `dotnet run --project src/Kombin.Api -- hash-password` (it reads
+the password from the terminal or stdin, at least 12 characters). A session cookie (`kombin_admin`: `HttpOnly`, `SameSite=Strict`, `Secure`
+outside Development, 8 hours, sliding) is set on success. Five failed sign-ins from one address in 15 minutes lock that address out (429) until
+the window passes (in memory, so a restart forgives). Every POST carries an anti-forgery token, and every `/admin` response is `no-store`,
+unframed and has a restrictive Content-Security-Policy.
+
+| Setting | Env | `docker/.env` | Meaning |
+|---|---|---|---|
+| `Admin:Users:0:Email` | `Admin__Users__0__Email`, `Admin__Users__1__Email`, ... | `ADMIN_EMAIL` | the first founder's sign-in e-mail; an empty list means nobody can sign in (the default) |
+| `Admin:Users:0:PasswordHash` | `Admin__Users__0__PasswordHash`, ... | `ADMIN_PASSWORD_HASH` | the hash printed by `hash-password` (no `$` in it, so compose and `.env` files keep it intact) |
+
+The data-protection keys of the session and anti-forgery cookies are not persisted yet, so a restart of the API signs the founder out.
+**`/admin` must not be public:** serve it only to the founder's IP or behind Cloudflare Access (Task 16); until then it listens on the API's own port.
 
 ## Decisions worth knowing
 
@@ -551,7 +586,7 @@ Measured by `LensPerformanceTests` (50k products, one region, `KOMBIN_PERF=1`, v
 
 ## TODO
 
-- Rate limiting on the auth endpoints (out of scope for the foundation task).
+- Rate limiting on the auth endpoints (out of scope for the foundation task; the admin sign-in has its own small one).
 - Catalog: deactivating offers that stop being seen (`Offer.IsActive`, and `Product.IsActive` when none remain) needs a
   sweep job or an internal endpoint; nothing sets them to false yet except re-linking.
 - Catalog: full-text search (today `ILIKE`), entity resolution/image similarity for products without a `modelCode`,

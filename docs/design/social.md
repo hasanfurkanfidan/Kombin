@@ -81,8 +81,10 @@ the viewer owns exactly, or has a ready piece of the same category and colour; e
 ## Moderation & safety flow
 
 Report (`Nudity|Violence|Hate|Harassment|Spam|Scam|Other`, once per user and post) → the third distinct reporter hides a `Live` post. Hidden
-and `NeedsReview` posts wait in `GET /internal/social/review-queue`; `POST /internal/social/posts/{id}/review {approve|remove}` restores
-(`Live`, or `Draft` if never confirmed) or blocks with the removal reason. No admin UI (out of scope); the founder uses the internal key.
+and `NeedsReview` posts wait in `GET /internal/social/review-queue`; `POST /internal/social/posts/{id}/review {decision: Approve|Remove|Keep,
+reason?}` restores (`Live`, or `Draft` if never confirmed), blocks with the removal reason (the reviewer's `reason`, else the standard text) or
+leaves the post as it is and moves it to the back of the queue (`Keep`). The transition lives in one class, `PostReviewer`, which the
+founder's admin panel (`/admin/review`, Task 10b) calls too.
 Blocking removes follows both ways and hides each side's posts and profile from the other; the blocked user is not told.
 
 ## Creator economics

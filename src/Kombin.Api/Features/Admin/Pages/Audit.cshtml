@@ -1,0 +1,31 @@
+@page "/admin/audit"
+@model Kombin.Api.Features.Admin.Pages.AuditModel
+@{
+    ViewData["Title"] = "Audit";
+}
+<h1>Audit log</h1>
+<p class="muted">Everything done in this panel, newest first (@Model.Entries.TotalCount entries). Times are Istanbul time.</p>
+<div class="tablewrap"><table>
+    <thead><tr><th>When</th><th>Who</th><th>Action</th><th>Target</th><th class="wrap">Summary</th></tr></thead>
+    <tbody>
+    @foreach (var entry in Model.Entries.Items)
+    {
+        <tr>
+            <td>@AdminFormat.Time(entry.CreatedAt)</td>
+            <td>@entry.Actor</td>
+            <td>@entry.Action</td>
+            <td>@(entry.TargetType is null ? "-" : $"{entry.TargetType} {entry.TargetId}")</td>
+            <td class="wrap">@entry.Summary</td>
+        </tr>
+    }
+    @if (Model.Entries.Items.Count == 0)
+    {
+        <tr><td colspan="5" class="muted">Nothing yet.</td></tr>
+    }
+    </tbody>
+</table></div>
+<div class="pager">
+    @if (Model.Entries.Page > 1) { <a class="btn" href="/admin/audit?p=@(Model.Entries.Page - 1)">← Newer</a> }
+    <span class="muted">Page @Model.Entries.Page of @Math.Max(1, Model.Entries.TotalPages)</span>
+    @if (Model.Entries.Page < Model.Entries.TotalPages) { <a class="btn" href="/admin/audit?p=@(Model.Entries.Page + 1)">Older →</a> }
+</div>

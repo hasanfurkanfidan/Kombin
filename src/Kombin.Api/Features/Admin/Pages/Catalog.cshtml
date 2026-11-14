@@ -1,0 +1,119 @@
+@page "/admin/catalog"
+@model Kombin.Api.Features.Admin.Pages.CatalogModel
+@{
+    ViewData["Title"] = "Catalog";
+    var now = Model.Now;
+}
+<h1>Catalog</h1>
+
+<h2>Sellers</h2>
+<p class="muted">No worker run is recorded, so "last offer seen" (the newest <code>last_seen_at</code> of the seller's offers) is the sign that a worker is alive. The website is the <strong>raw seller URL</strong>: it is only shown here, never in the API.</p>
+<div class="tablewrap"><table>
+    <thead><tr><th>Seller</th><th>Country</th><th>Active</th><th>Last offer seen</th><th class="num">Products</th><th class="num">Offers (active / all)</th><th>Website (raw URL)</th></tr></thead>
+    <tbody>
+    @foreach (var seller in Model.Sellers)
+    {
+        <tr>
+            <td>@seller.Name<div class="muted">@seller.Slug · @seller.Kind</div></td>
+            <td>@seller.Country</td>
+            <td class="@(seller.IsActive ? "ok" : "muted")">@(seller.IsActive ? "yes" : "no")</td>
+            <td>@AdminFormat.Time(seller.LastSeen) <span class="muted">(@AdminFormat.Ago(seller.LastSeen, now))</span></td>
+            <td class="num">@seller.Products</td>
+            <td class="num">@seller.ActiveOffers / @seller.Offers</td>
+            <td><a href="@seller.WebsiteUrl" rel="noreferrer noopener" target="_blank">@seller.WebsiteUrl</a></td>
+        </tr>
+    }
+    </tbody>
+</table></div>
+
+<h2>Visual search embeddings</h2>
+<div class="grid">
+    <div class="card"><div class="muted">Active products</div><div class="big">@Model.Embeddings.ActiveProducts</div></div>
+    <div class="card"><div class="muted">Ready</div><div class="big ok">@Model.Embeddings.Ready</div></div>
+    <div class="card"><div class="muted">Not tried yet</div><div class="big @(Model.Embeddings.NotTried > 0 ? "warn" : "")">@Model.Embeddings.NotTried</div></div>
+    <div class="card"><div class="muted">Failed (will retry)</div><div class="big @(Model.Embeddings.Failed > 0 ? "bad" : "")">@Model.Embeddings.Failed</div></div>
+    <div class="card"><div class="muted">Unusable image</div><div class="big @(Model.Embeddings.Unusable > 0 ? "bad" : "")">@Model.Embeddings.Unusable</div></div>
+</div>
+<form method="post" asp-page-handler="Backfill" class="card" data-confirm="Start an embeddings backfill now?">
+    <label for="limit">Products to work on (1-@Kombin.Api.Features.Catalog.Jobs.ProductEmbeddingJob.MaxBackfillLimit)</label>
+    <input id="limit" type="number" name="limit" value="100" min="1" max="@Kombin.Api.Features.Catalog.Jobs.ProductEmbeddingJob.MaxBackfillLimit" style="max-width:140px">
+    <div class="muted">Runs in the background job server, one image request per host per second; it is the nightly job's work, started now. The numbers above change as it goes.</div>
+    <div class="actions"><button class="primary" type="submit">Run backfill now</button></div>
+</form>
+@if (Model.Embeddings.Problems.Count > 0)
+{
+    <div class="tablewrap"><table>
+        <thead><tr><th>Product</th><th>Status</th><th class="num">Attempts</th><th>Next attempt</th><th class="wrap">Reason</th></tr></thead>
+        <tbody>
+        @foreach (var problem in Model.Embeddings.Problems)
+        {
+            <tr>
+                <td><a href="/admin/catalog?product=@problem.ProductId">@problem.Name</a><div class="muted">@problem.ProductId</div></td>
+                <td>@problem.Status</td>
+                <td class="num">@problem.Attempts</td>
+                <td>@AdminFormat.Time(problem.NextAttemptAt)</td>
+                <td class="wrap">@problem.FailureReason</td>
+            </tr>
+        }
+        </tbody>
+    </table></div>
+}
+
+<h2>Find a product</h2>
+<form method="get" class="card">
+    <label for="q">Product ID, slug, or <code>brand-slug/product-slug</code> (a slug alone can match several brands)</label>
+    <input id="q" type="text" name="q" value="@Model.Query" autocomplete="off">
+    <div class="actions"><button type="submit">Search</button></div>
+</form>
+@if (Model.Query is not null && Model.Matches.Count == 0 && Model.Product is null)
+{
+    <p class="muted">No product matches.</p>
+}
+@if (Model.Matches.Count > 0)
+{
+    <div class="tablewrap"><table>
+        <thead><tr><th>Product</th><th>Brand</th><th>Slug</th><th>Active</th></tr></thead>
+        <tbody>
+        @foreach (var match in Model.Matches)
+        {
+            <tr><td><a href="/admin/catalog?product=@match.Id">@match.Name</a></td><td>@match.Brand</td><td>@match.Slug</td><td>@(match.IsActive ? "yes" : "no")</td></tr>
+        }
+        </tbody>
+    </table></div>
+}
+@if (Model.Product is { } product)
+{
+    <div class="card">
+        <h2 style="margin-top:0">@product.Name</h2>
+        <div class="muted">@product.Brand · @product.Category · slug <code>@product.Slug</code> · @(product.IsActive ? "active" : "inactive") · embedding: @product.EmbeddingStatus</div>
+        <div class="muted">@product.Id</div>
+    </div>
+    <h2>Offers</h2>
+    <div class="tablewrap"><table>
+        <thead><tr><th>Seller</th><th class="num">Price</th><th>Stock</th><th>Active</th><th>Last seen</th><th>Seller URL (raw, admin only)</th></tr></thead>
+        <tbody>
+        @foreach (var offer in product.Offers)
+        {
+            <tr>
+                <td>@offer.Seller</td><td class="num">@AdminFormat.Money(offer.Price)</td><td>@offer.Stock</td><td>@(offer.IsActive ? "yes" : "no")</td>
+                <td>@AdminFormat.Time(offer.LastSeenAt)</td>
+                <td><a href="@offer.Url" rel="noreferrer noopener" target="_blank">@offer.Url</a></td>
+            </tr>
+        }
+        </tbody>
+    </table></div>
+    <h2>Price history (latest @CatalogModel.HistoryLimit observations)</h2>
+    <div class="tablewrap"><table>
+        <thead><tr><th>When</th><th>Seller</th><th class="num">Price</th><th>Stock</th></tr></thead>
+        <tbody>
+        @foreach (var point in product.History)
+        {
+            <tr><td>@AdminFormat.Time(point.ObservedAt)</td><td>@point.Seller</td><td class="num">@AdminFormat.Money(point.Price)</td><td>@point.Stock</td></tr>
+        }
+        @if (product.History.Count == 0)
+        {
+            <tr><td colspan="4" class="muted">No observations.</td></tr>
+        }
+        </tbody>
+    </table></div>
+}

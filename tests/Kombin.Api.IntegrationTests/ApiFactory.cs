@@ -1,10 +1,12 @@
 using Hangfire;
 using Kombin.Api.Common.Storage;
+using Kombin.Api.Features.Admin;
 using Kombin.Api.Features.Catalog.Jobs;
 using Kombin.Api.Features.Identity.ExternalTokens;
 using Kombin.Api.Features.Notification;
 using Kombin.Api.Features.Recommendation.Weather;
 using Kombin.Api.Features.Wardrobe;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -22,6 +24,11 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
     public const string InternalApiKey = "integration-test-internal-key-3c1d5e7f9a2b4d6e";
 
+    /// <summary>The admin panel's only configured account in the tests (<c>Admin:Users:0</c>).</summary>
+    public const string AdminEmail = "founder@kombin.test";
+
+    public const string AdminPassword = "Admin-test-passw0rd!";
+
     // The same image as compose: PostgreSQL 18 with the pgvector extension the Wardrobe migration creates.
     private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("pgvector/pgvector:pg18").Build();
 
@@ -33,6 +40,9 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 
     /// <summary>What was enqueued for Hangfire; the tests run the jobs themselves.</summary>
     internal RecordingJobClient Jobs => Services.GetRequiredService<RecordingJobClient>();
+
+    // One PBKDF2 hash for the whole run: hashing is deliberately slow.
+    private static readonly string AdminPasswordHash = AdminHashCommand.Hash(AdminPassword);
 
     public async ValueTask InitializeAsync()
     {
@@ -79,6 +89,9 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 
             services.RemoveAll<IWeatherProvider>();
             services.AddSingleton<IWeatherProvider, FakeWeatherProvider>();
+
+            // The in-memory server has no client address; the admin login throttle keys on it, so a test picks its own with a header.
+            services.AddTransient<IStartupFilter, TestRemoteIpStartupFilter>();
         });
 
         builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(new Dictionary<string, string?>
@@ -96,6 +109,29 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
             ["Hangfire:Enabled"] = "false",
             // The embedding job's one-request-per-host-per-second pace would make every test wait; PoliteScheduleTests pin the rule.
             ["CatalogEmbeddings:HostInterval"] = "00:00:00",
+            ["Admin:Users:0:Email"] = AdminEmail,
+            ["Admin:Users:0:PasswordHash"] = AdminPasswordHash,
         }));
     }
+}
+
+/// <summary>Lets a test set <c>HttpContext.Connection.RemoteIpAddress</c> with the <c>X-Test-Remote-Ip</c> header.</summary>
+internal sealed class TestRemoteIpStartupFilter : IStartupFilter
+{
+    public const string Header = "X-Test-Remote-Ip";
+
+    public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
+    {
+        app.Use((context, nextMiddleware) =>
+        {
+            if (context.Request.Headers.TryGetValue(Header, out var value) && System.Net.IPAddress.TryParse(value.ToString(), out var address))
+            {
+                context.Connection.RemoteIpAddress = address;
+            }
+
+            return nextMiddleware(context);
+        });
+
+        next(app);
+    };
 }

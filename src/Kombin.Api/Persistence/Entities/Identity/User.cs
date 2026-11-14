@@ -11,4 +11,10 @@ internal sealed class User : BaseEntity
     public string DisplayName { get; set; } = string.Empty;
 
     public DateTimeOffset? LastLoginAt { get; set; }
+
+    /// <summary>
+    /// Set when the founder disabled the account (admin panel, <c>AccountAccess</c>): sign-in and refresh are refused and the refresh tokens
+    /// are revoked. Nothing else is touched, so enabling it again restores the account as it was. Null for a normal account.
+    /// </summary>
+    public DateTimeOffset? DisabledAt { get; set; }
 }

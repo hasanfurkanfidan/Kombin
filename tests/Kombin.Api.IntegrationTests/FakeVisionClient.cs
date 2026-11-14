@@ -73,6 +73,8 @@ internal sealed partial class FakeVisionClient : IVisionClient
 
     public Task<string?> GetEmbeddingModelAsync(CancellationToken cancellationToken) => Task.FromResult<string?>(Model);
 
+    public Task<VisionHealth> CheckHealthAsync(CancellationToken cancellationToken) => Task.FromResult(new VisionHealth(true, Model, "HTTP 200"));
+
     /// <summary>What the stored feed image and preview contain after processing.</summary>
     public static readonly byte[] FeedImage = Encoding.UTF8.GetBytes("feed-jpeg-bytes");
 

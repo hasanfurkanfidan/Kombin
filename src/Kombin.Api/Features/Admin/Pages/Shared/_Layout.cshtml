@@ -1,0 +1,84 @@
+@{
+    var signedIn = User.Identity?.IsAuthenticated == true;
+    var pageModel = ViewContext.ViewData.Model as AdminPageModel;
+    string Active(string path) => Context.Request.Path.StartsWithSegments(path, StringComparison.OrdinalIgnoreCase) ? "active" : "";
+}
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex, nofollow">
+    <title>@(ViewData["Title"] ?? "Admin") · Kombin admin</title>
+    <style>
+        :root { --bg:#f6f6f4; --fg:#1d1d1b; --muted:#6b6b66; --line:#dcdcd6; --card:#fff; --accent:#1f5eff; --ok:#177245; --warn:#a15c00; --bad:#b3261e; }
+        @@media (prefers-color-scheme: dark) { :root { --bg:#161615; --fg:#ececea; --muted:#9a9a94; --line:#33332f; --card:#202020; --accent:#7aa2ff; --ok:#5fcf93; --warn:#f0b04a; --bad:#ff8a80; } }
+        * { box-sizing: border-box; }
+        body { margin:0; font:15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background:var(--bg); color:var(--fg); }
+        header { background:var(--card); border-bottom:1px solid var(--line); padding:10px 16px; display:flex; flex-wrap:wrap; gap:8px 16px; align-items:center; }
+        header strong { font-size:16px; }
+        nav { display:flex; flex-wrap:wrap; gap:4px; flex:1; }
+        nav a { color:var(--fg); text-decoration:none; padding:6px 10px; border-radius:6px; }
+        nav a.active, nav a:hover { background:var(--bg); color:var(--accent); }
+        main { max-width:1100px; margin:0 auto; padding:16px; }
+        h1 { font-size:22px; margin:8px 0 16px; } h2 { font-size:17px; margin:24px 0 8px; }
+        .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin-bottom:12px; }
+        .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:12px; }
+        .tablewrap { overflow-x:auto; border:1px solid var(--line); border-radius:8px; background:var(--card); }
+        table { border-collapse:collapse; width:100%; } th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; white-space:nowrap; }
+        td.wrap, th.wrap { white-space:normal; min-width:200px; } tr:last-child td { border-bottom:0; } th { color:var(--muted); font-weight:600; font-size:13px; }
+        td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+        .muted { color:var(--muted); } .ok { color:var(--ok); } .warn { color:var(--warn); } .bad { color:var(--bad); }
+        .flash { padding:10px 14px; border-radius:8px; margin-bottom:12px; background:var(--card); border:1px solid var(--ok); } .flash.error { border-color:var(--bad); }
+        label { display:block; font-size:13px; color:var(--muted); margin:8px 0 2px; }
+        input[type=text], input[type=email], input[type=password], input[type=number], textarea, select { width:100%; max-width:480px; padding:8px 10px; font:inherit; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); }
+        button, .btn { font:inherit; padding:7px 14px; border-radius:6px; border:1px solid var(--line); background:var(--card); color:var(--fg); cursor:pointer; text-decoration:none; display:inline-block; }
+        button.primary { background:var(--accent); border-color:var(--accent); color:#fff; } button.danger { border-color:var(--bad); color:var(--bad); }
+        .actions { display:flex; flex-wrap:wrap; gap:8px; align-items:flex-start; margin-top:8px; }
+        details { margin-top:6px; } summary { cursor:pointer; color:var(--muted); font-size:13px; } pre { overflow-x:auto; background:var(--bg); padding:8px; border-radius:6px; font-size:12px; margin:6px 0 0; white-space:pre-wrap; }
+        .post { display:grid; grid-template-columns:minmax(0, 220px) 1fr; gap:14px; } @@media (max-width:640px) { .post { grid-template-columns:1fr; } }
+        .post img { width:100%; max-height:340px; object-fit:contain; background:var(--bg); border-radius:6px; }
+        .pill { display:inline-block; padding:1px 8px; border-radius:99px; border:1px solid var(--line); font-size:12px; }
+        .big { font-size:26px; font-weight:600; font-variant-numeric:tabular-nums; } .pager { display:flex; gap:12px; align-items:center; margin-top:12px; }
+        form.inline { display:inline; }
+    </style>
+</head>
+<body>
+<header>
+    <strong>Kombin admin</strong>
+    @if (signedIn)
+    {
+        <nav>
+            <a href="/admin" class="@(Context.Request.Path.Value?.TrimEnd('/').Equals("/admin", StringComparison.OrdinalIgnoreCase) == true ? "active" : "")">Dashboard</a>
+            <a href="/admin/review" class="@Active("/admin/review")">Review</a>
+            <a href="/admin/creators" class="@Active("/admin/creators")">Creators</a>
+            <a href="/admin/catalog" class="@Active("/admin/catalog")">Catalog</a>
+            <a href="/admin/users" class="@Active("/admin/users")">Users</a>
+            <a href="/admin/audit" class="@Active("/admin/audit")">Audit</a>
+        </nav>
+        <form method="post" asp-page="/Logout" class="inline">
+            <span class="muted">@User.Identity!.Name</span>
+            <button type="submit">Sign out</button>
+        </form>
+    }
+</header>
+<main>
+    @if (pageModel?.Flash is { } flash)
+    {
+        <div class="flash" role="status">@flash</div>
+    }
+    @if (pageModel?.FlashError is { } flashError)
+    {
+        <div class="flash error" role="alert">@flashError</div>
+    }
+    @RenderBody()
+</main>
+<script>
+    // A confirm dialog for every form that asks for one: <form data-confirm="Really?">.
+    document.addEventListener('submit', function (event) {
+        var message = event.target.getAttribute('data-confirm');
+        if (message && !window.confirm(message)) { event.preventDefault(); }
+    });
+</script>
+</body>
+</html>
