@@ -51,8 +51,9 @@ controller is (a person, a company in formation?) is the first thing to settle.
 | D2 | Table, last row | The admin audit log is kept and holds no personal data except the deleted user's ID as a target (see P7). |
 | D3 | "Uygulamaya giremiyorsan" | The 30-day answer period for requests sent by e-mail (see P10), and that identity is checked by writing from the account's address. |
 
-The page also carries an HTML comment `<!-- CHECK-WITH-APP -->` where it names the app's menu path (Profil → Ayarlar → Hesabımı sil): confirm it with the app
-team; it is not a legal question. Google Play requires this page's URL in the data-safety form; the stores also want the privacy policy URL.
+The page names the app's menu path: the "Hesabımı sil" row in the "Hesap" section at the bottom of the Profil tab (checked against the app's
+`ProfileScreen`; the earlier draft said "Profil → Ayarlar", a screen the app does not have). If that section moves in the app, change this step and
+the copy on the public site (`kombin-site/hesap-silme.html`). Google Play requires this page's URL in the data-safety form; the stores also want the privacy policy URL.
 
 ## Not marked, but worth a question
 
