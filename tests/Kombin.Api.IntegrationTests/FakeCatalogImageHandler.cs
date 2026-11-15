@@ -26,6 +26,14 @@ internal sealed class FakeCatalogImageHandler : HttpMessageHandler
         var url = request.RequestUri!.ToString();
         Counts.AddOrUpdate(url, 1, (_, count) => count + 1);
 
+        // ".../redirect?to=<escaped URL>" answers 302 to that URL, to test what a redirect may lead to.
+        if (request.RequestUri.AbsolutePath.EndsWith("/redirect", StringComparison.Ordinal) && request.RequestUri.Query.StartsWith("?to=", StringComparison.Ordinal))
+        {
+            var redirect = new HttpResponseMessage(HttpStatusCode.Found);
+            redirect.Headers.Location = new Uri(Uri.UnescapeDataString(request.RequestUri.Query[4..]));
+            return Task.FromResult(redirect);
+        }
+
         if (url.Contains("busy", StringComparison.Ordinal))
         {
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));

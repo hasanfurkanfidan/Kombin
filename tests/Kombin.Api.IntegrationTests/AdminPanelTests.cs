@@ -249,7 +249,7 @@ public sealed class AdminPanelTests(ApiFactory factory)
 
         for (var index = 0; index < PostRules.HideAtReports; index++)
         {
-            using var reporter = await factory.CreateUserAsync(Ct);
+            using var reporter = await factory.CreateTrustedReporterAsync(Ct);
             using var report = await reporter.Client.ReportAsync(postId, index == 0 ? "Nudity" : "Spam", Ct);
             Assert.Equal(HttpStatusCode.Accepted, report.StatusCode);
         }

@@ -10,6 +10,20 @@ namespace Kombin.Api.IntegrationTests;
 
 internal static class SocialClientExtensions
 {
+    /// <summary>
+    /// A user whose reports count toward the automatic hide (security review M4): a persona, and an account made four days ago (72 h is the
+    /// default minimum; the creation time is moved back in the database).
+    /// </summary>
+    public static async Task<TestUser> CreateTrustedReporterAsync(this ApiFactory factory, CancellationToken cancellationToken)
+    {
+        var user = await factory.CreateUserAsync(cancellationToken);
+        await user.Client.CreatePersonaAsync("Ofis", cancellationToken: cancellationToken);
+        await factory.WithDbAsync(db => db.Users.Where(candidate => candidate.Id == user.Id)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(candidate => candidate.CreatedAt, DateTimeOffset.UtcNow.AddDays(-4)), cancellationToken));
+
+        return user;
+    }
+
     public static async Task AcceptConsentAsync(this HttpClient client, CancellationToken cancellationToken = default)
     {
         using var response = await client.PostAsJsonAsync("/api/v1/social/consent", new { version = PostingConsent.Current.Version }, cancellationToken);

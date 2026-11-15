@@ -27,6 +27,15 @@ jobs:
       - name: Restore
         run: dotnet restore Kombin.slnx
 
+      # Security review S1: any known-vulnerable package, direct or transitive, fails the build (the advisories come from nuget.org).
+      - name: Vulnerable packages
+        run: |
+          dotnet list Kombin.slnx package --vulnerable --include-transitive --format json > vulnerable-packages.json
+          if ! jq -e '[.projects[].frameworks[]? | (.topLevelPackages[]?, .transitivePackages[]?)] | length == 0' vulnerable-packages.json > /dev/null; then
+            dotnet list Kombin.slnx package --vulnerable --include-transitive
+            exit 1
+          fi
+
       - name: Verify formatting
         run: dotnet format Kombin.slnx --verify-no-changes --no-restore
 

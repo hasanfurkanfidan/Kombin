@@ -28,7 +28,7 @@ public sealed class NotificationFlowTests(ApiFactory factory)
         var pending = Assert.Single(await factory.NotificationsOfAsync(user.Id, Ct));
         Assert.Equal(NotificationStatus.Pending, pending.Status);
         Assert.Equal(NotificationKind.PriceDrop, pending.Kind);
-        Assert.Equal("Takip ettiğin blazer 100 ₺ düştü", pending.Title);
+        Assert.Equal("İzlediğin blazer 100 ₺ düştü", pending.Title);
         Assert.Equal($"{product.Brand} Blazer artık 400 ₺ — hedef fiyatının altında.", pending.Body);
         Assert.Equal($"pricedrop:{product.ProductId}", pending.DedupeKey);
         Assert.NotNull(pending.AlertTriggerId);
@@ -177,7 +177,7 @@ public sealed class NotificationFlowTests(ApiFactory factory)
 
         var notification = Assert.Single(await factory.NotificationsOfAsync(user.Id, Ct));
         Assert.Equal(NotificationKind.BackInStock, notification.Kind);
-        Assert.Equal("Takip ettiğin blazer tekrar stokta", notification.Title);
+        Assert.Equal("İzlediğin blazer tekrar stokta", notification.Title);
         Assert.Equal($"{product.Brand} Blazer yeniden satışta — M, L bedenleri mevcut, fiyatı 500 ₺.", notification.Body);
         Assert.Equal($"backinstock:{product.ProductId}", notification.DedupeKey);
     }

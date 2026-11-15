@@ -50,11 +50,11 @@ internal static class ReviewEndpoint
             .ProducesProblem(StatusCodes.Status409Conflict);
     }
 
-    /// <summary>Hidden (reported) and borderline posts, oldest first.</summary>
+    /// <summary>Hidden, borderline and reported live posts (<see cref="ReportRules.InReviewQueue"/>), oldest first.</summary>
     private static async Task<IResult> ListAsync(KombinDbContext db, IObjectStorage storage, CancellationToken cancellationToken)
     {
         var posts = await db.Posts.AsNoTracking()
-            .Where(post => post.Status == PostStatus.Hidden || post.Status == PostStatus.NeedsReview)
+            .Where(ReportRules.InReviewQueue)
             .OrderBy(post => post.UpdatedAt)
             .Take(QueueLimit)
             .ToListAsync(cancellationToken);

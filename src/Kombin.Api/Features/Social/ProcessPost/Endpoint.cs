@@ -53,6 +53,8 @@ internal static class ProcessPostEndpoint
 
             if (size > SocialLimits.MaxImageBytes)
             {
+                // The presigned PUT cannot cap the size, so an oversized object goes at once rather than at the hourly purge.
+                await storage.DeleteAsync([post.ImageOriginalKey!], cancellationToken);
                 return SocialErrors.ImageTooLarge.ToHttpResult();
             }
         }

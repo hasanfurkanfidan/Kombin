@@ -97,7 +97,7 @@ internal static class SocialCopy
 
     public const string HiddenAfterReports = "Gönderin şikâyetler nedeniyle incelemede; şimdilik başkalarına görünmüyor.";
 
-    public const string ProcessingFailed = "Fotoğraf işlenemedi; lütfen başka bir fotoğrafla tekrar dene.";
+    public const string ProcessingFailed = "Fotoğraf hazırlanamadı; lütfen başka bir fotoğrafla tekrar dene.";
 
     public const string CreatorDisclosure = "Bu içerikten komisyon kazanabilir";
 }

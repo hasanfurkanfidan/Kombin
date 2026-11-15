@@ -78,7 +78,7 @@ public sealed class WeeklyMatchesTests(ApiFactory factory)
         var notification = Assert.Single(await factory.NotificationsOfAsync(user.Id, Ct));
         Assert.Equal(NotificationKind.NewMatches, notification.Kind);
         Assert.Equal(NotificationStatus.Pending, notification.Status);
-        Assert.Equal("\"Hafta sonu\" tarzına %90 üzeri uyumlu 1 yeni parça", notification.Title);
+        Assert.Equal("\"Hafta sonu\" için 1 yeni parça: sana uygun %90 ve üzeri", notification.Title);
         Assert.Equal([productId], ProductIds(notification));
         Assert.StartsWith($"newmatches:{personaId}:", notification.DedupeKey, StringComparison.Ordinal);
 
@@ -112,7 +112,7 @@ public sealed class WeeklyMatchesTests(ApiFactory factory)
         await factory.SendWeeklyMatchesAsync(user.Id, products, Ct);
 
         var notification = Assert.Single(await factory.NotificationsOfAsync(user.Id, Ct));
-        Assert.Contains("uyumlu 3 yeni parça", notification.Title, StringComparison.Ordinal);
+        Assert.Contains("3 yeni parça: sana uygun", notification.Title, StringComparison.Ordinal);
 
         // Equal scores: the newest three.
         Assert.Equal(products.AsEnumerable().Reverse().Take(3).Order(), ProductIds(notification).Order());

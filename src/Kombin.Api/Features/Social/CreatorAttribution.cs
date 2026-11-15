@@ -44,6 +44,34 @@ internal static class CreatorAttribution
         return new Attribution(postId, match.TagId, isCreator ? match.AuthorId : null);
     }
 
+    /// <summary>How long one viewer's clicks on one post and product earn the creator only once.</summary>
+    public static readonly TimeSpan EarnWindow = TimeSpan.FromHours(24);
+
+    /// <summary>
+    /// Whether this viewer already earned the creator a click on this post and product within <see cref="EarnWindow"/>: the same signed-in user,
+    /// or, signed out, the same hashed address. A click with neither (no address known) is not deduplicated.
+    /// </summary>
+    public static Task<bool> AlreadyEarnedAsync(
+        KombinDbContext db, Attribution attribution, Guid productId, Guid? viewerId, string? ipHash, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(attribution);
+
+        if (viewerId is null && ipHash is null)
+        {
+            return Task.FromResult(false);
+        }
+
+        var since = now - EarnWindow;
+        var earned = db.ReferralEvents.AsNoTracking().Where(referral => referral.Kind == ReferralKind.Click
+            && referral.PostId == attribution.PostId
+            && referral.ProductId == productId
+            && referral.OccurredAt > since);
+
+        return viewerId is { } viewer
+            ? earned.AnyAsync(referral => referral.ViewerUserId == viewer, cancellationToken)
+            : earned.AnyAsync(referral => referral.ViewerUserId == null && db.Clicks.Any(click => click.Id == referral.ClickId && click.IpHash == ipHash), cancellationToken);
+    }
+
     /// <summary>The append-only referral row of a creator's click, with the share in force now.</summary>
     public static ReferralEvent ClickEvent(Attribution attribution, Click click, decimal sharePercent)
     {

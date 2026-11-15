@@ -115,6 +115,16 @@ internal static class ExternalSignInEndpoint
             case ExternalSignInStep.LinkByEmail:
                 user = userWithEmail!;
                 db.ExternalLogins.Add(NewLink(user, identity));
+
+                // Registration never proves the address, the provider just did. Whoever set the password may not own the mailbox (an
+                // attacker can register a victim's address first and wait): the password and every session made with it end here, so the
+                // owner of the address is the only one left signed in. Nothing is saved if the sign-in stops below (disabled, pending).
+                if (user.PasswordHash is not null && user.DisabledAt is null && user.DeletionRequestedAt is null)
+                {
+                    user.PasswordHash = null;
+                    await DropRefreshTokensAsync(db, user.Id, cancellationToken);
+                }
+
                 break;
 
             default:
@@ -148,6 +158,14 @@ internal static class ExternalSignInEndpoint
         return new SignedIn(user.Id, issued.Response);
     }
 
+    /// <summary>
+    /// Deletes every refresh token of the account, rotated ones included, instead of revoking them: a revoked token that is replayed ends
+    /// every session of the user (reuse detection), which would let the holder of the old password's tokens sign the rightful owner out again
+    /// and again. Tracked (not ExecuteDelete) so it commits in the sign-in's own SaveChanges, or not at all.
+    /// </summary>
+    private static async Task DropRefreshTokensAsync(KombinDbContext db, Guid userId, CancellationToken cancellationToken) =>
+        db.RefreshTokens.RemoveRange(await db.RefreshTokens.Where(token => token.UserId == userId).ToListAsync(cancellationToken));
+
     private static ExternalLogin NewLink(User user, ExternalIdentity identity) => new()
     {
         UserId = user.Id,
@@ -179,7 +197,8 @@ internal static class ExternalSignInRules
     /// <summary>
     /// 1. A link for (provider, subject) wins, whatever the email says now. 2. Otherwise the token must carry a verified email, because
     /// linking and creating are keyed on it (Google: <c>email_verified</c>; Apple verifies every email it shares). 3. An account with that
-    /// email gets the link; linking by email is safe only because the provider verified it. 4. Otherwise a new account.
+    /// email gets the link; linking by email is safe only because the provider verified it, and it ends the account's password (the caller
+    /// does that: registration never verified the address). 4. Otherwise a new account.
     /// </summary>
     public static Result<ExternalSignInStep> Decide(ExternalIdentity identity, bool linkExists, bool userWithEmailExists)
     {

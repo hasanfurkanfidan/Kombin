@@ -1,4 +1,5 @@
 using Hangfire;
+using Kombin.Api.Common.Http;
 using Kombin.Api.Common.Storage;
 using Kombin.Api.Features.Admin;
 using Kombin.Api.Features.Catalog.Jobs;
@@ -83,6 +84,10 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 
             services.AddHttpClient(WardrobeModule.CatalogImageClient).ConfigurePrimaryHttpMessageHandler(() => new FakeCatalogImageHandler());
             services.AddHttpClient(ProductEmbeddingJob.ImageClient).ConfigurePrimaryHttpMessageHandler(() => new FakeCatalogImageHandler());
+
+            // The outbound guard above the fake handlers stays real; only its DNS is faked (test hosts do not resolve).
+            services.RemoveAll<IOutboundResolver>();
+            services.AddSingleton<IOutboundResolver, FakeOutboundResolver>();
 
             services.RemoveAll<IExternalTokenVerifier>();
             services.AddSingleton<IExternalTokenVerifier, FakeExternalTokenVerifier>();

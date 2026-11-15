@@ -31,6 +31,16 @@ public sealed class OpenApiTests(ApiFactory factory)
         Assert.True(seller.TryGetProperty("slug", out _));
     }
 
+    // Security review M5: the API documentation must say that "Followers" is not private (anyone can follow without approval).
+    [Fact]
+    public async Task PublishingSaysFollowersIsNotPrivate()
+    {
+        var document = await DocumentAsync();
+        var operation = document.GetProperty("paths").GetProperty("/api/v1/posts/{id}/publish").GetProperty("put");
+
+        Assert.Contains("Followers is NOT a privacy boundary", operation.GetProperty("description").GetString(), StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task ThePairingsAreDocumentedWithTheirReasons()
     {

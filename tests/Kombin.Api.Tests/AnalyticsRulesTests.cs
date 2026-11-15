@@ -119,3 +119,19 @@ public class AnalyticsRulesTests
         Assert.Equal("SELECT 'a:b'::text, @cohort_end", queries["second"]);
     }
 }
+
+public class EventCapTests
+{
+    [Theory]
+    [InlineData("2026-11-15T22:30:00Z", "2026-11-15T21:00:00Z")]
+    [InlineData("2026-11-15T20:59:00Z", "2026-11-14T21:00:00Z")]
+    [InlineData("2026-11-15T21:00:00Z", "2026-11-15T21:00:00Z")]
+    public void TheDayStartsAtMidnightInIstanbul(string now, string expected) =>
+        Assert.Equal(DateTimeOffset.Parse(expected, System.Globalization.CultureInfo.InvariantCulture), EventCap.DayStart(DateTimeOffset.Parse(now, System.Globalization.CultureInfo.InvariantCulture), QuietHours.Zone));
+
+    [Theory]
+    [InlineData(0, 5000, 5000)]
+    [InlineData(4998, 5000, 2)]
+    [InlineData(6000, 5000, 0)]
+    public void WhatIsLeftOfTheCap(int storedToday, int cap, int remaining) => Assert.Equal(remaining, EventCap.Remaining(storedToday, cap));
+}

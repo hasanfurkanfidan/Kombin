@@ -1,4 +1,5 @@
 using System.Net;
+using Kombin.Api.Common.Http;
 using Kombin.Api.Common.Storage;
 using Kombin.Api.Features.Wardrobe;
 
@@ -117,6 +118,11 @@ internal sealed class CatalogImageFetcher(HttpClient http, PoliteSchedule schedu
             }
 
             return ImageFetch.Ok(new StoredObject(buffer.ToArray(), contentType!));
+        }
+        catch (OutboundRequestRefusedException)
+        {
+            // An internal address (or a redirect to one) is not a host that is down: retrying would only knock on the same door.
+            return new ImageFetch(ImageFetchStatus.Unusable, null, "image_refused_address");
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or IOException)
         {

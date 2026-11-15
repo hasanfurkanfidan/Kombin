@@ -137,11 +137,20 @@ namespace Kombin.Api.Persistence.Migrations
                         .HasDatabaseName("ix_events_anonymous_id")
                         .HasFilter("user_id is null and anonymous_id is not null");
 
+                    b.HasIndex("ReceivedAt")
+                        .HasDatabaseName("ix_events_received_at");
+
+                    b.HasIndex("AnonymousId", "ReceivedAt")
+                        .HasDatabaseName("ix_events_anonymous_id_received_at");
+
                     b.HasIndex("Name", "OccurredAt")
                         .HasDatabaseName("ix_events_name_occurred_at");
 
                     b.HasIndex("UserId", "OccurredAt")
                         .HasDatabaseName("ix_events_user_id_occurred_at");
+
+                    b.HasIndex("UserId", "ReceivedAt")
+                        .HasDatabaseName("ix_events_user_id_received_at");
 
                     b.ToTable("events", "analytics");
                 });
@@ -2541,6 +2550,10 @@ namespace Kombin.Api.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<bool>("CountsTowardHide")
+                        .HasColumnType("boolean")
+                        .HasColumnName("counts_toward_hide");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -2953,6 +2966,15 @@ namespace Kombin.Api.Persistence.Migrations
                     b.Property<DateOnly?>("LastWornAt")
                         .HasColumnType("date")
                         .HasColumnName("last_worn_at");
+
+                    b.Property<DateTimeOffset?>("ModeratedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("moderated_at");
+
+                    b.Property<string>("ModerationVerdict")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("moderation_verdict");
 
                     b.Property<string>("Name")
                         .HasMaxLength(100)

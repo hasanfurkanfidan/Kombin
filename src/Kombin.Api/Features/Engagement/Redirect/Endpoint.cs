@@ -20,7 +20,8 @@ internal static class RedirectEndpoint
     /// <see cref="Click"/> and answers 302 with the affiliate URL. Anonymous callers are fine; a valid bearer token adds the user. With
     /// <c>post=</c> (the social feed's tags) the click is attributed to that post, and to its creator with a referral event
     /// (<see cref="CreatorAttribution"/>).
-    /// There is deliberately no rate limiting yet (out of scope, see CLAUDE.md); bots and scrapers will need it before launch.
+    /// Rate limited per address by the <c>go</c> policy; a creator earns from one viewer once per post and product a day
+    /// (<see cref="CreatorAttribution.AlreadyEarnedAsync"/>).
     /// </summary>
     public static void Map(RouteGroupBuilder group) =>
         group.MapGet("/{offerId:guid}", Handle)
@@ -62,7 +63,22 @@ internal static class RedirectEndpoint
         }
 
         var source = ClickSources.Normalize(src);
-        var attribution = await CreatorAttribution.ResolveAsync(db, post, offer.ProductId, currentUser.UserIdOrNull, cancellationToken);
+        var viewerId = currentUser.UserIdOrNull;
+        var ipHash = HashIp(httpContext.Connection.RemoteIpAddress?.ToString(), options.Value.IpSalt);
+        var now = clock.UtcNow;
+        var attribution = await CreatorAttribution.ResolveAsync(db, post, offer.ProductId, viewerId, cancellationToken);
+
+        // A creator earns from a viewer once per post and product a day: repeats, reloads and scripted loops are recorded as plain post clicks.
+        if (attribution is { CreatorId: not null } && await CreatorAttribution.AlreadyEarnedAsync(db, attribution, offer.ProductId, viewerId, ipHash, now, cancellationToken))
+        {
+            attribution = attribution with { CreatorId = null };
+        }
+
+        // The persona is the caller's own or none: a forged one would teach someone else's persona later.
+        var personaGuid = Guid.TryParse(personaId, out var parsedPersona) && parsedPersona != Guid.Empty && viewerId is { } owner
+            && await db.Personas.AnyAsync(candidate => candidate.Id == parsedPersona && candidate.UserId == owner, cancellationToken)
+                ? parsedPersona
+                : (Guid?)null;
 
         // The click ID goes into the URL we redirect to, so it is reserved first and inserted explicitly: one append-only INSERT, no follow-up UPDATE.
         var clickId = await db.Database
@@ -75,19 +91,19 @@ internal static class RedirectEndpoint
         var click = new Click
         {
             Id = clickId,
-            UserId = currentUser.UserIdOrNull,
+            UserId = viewerId,
             OfferId = offer.Id,
             ProductId = offer.ProductId,
             SellerId = offer.SellerId,
             Source = source,
             PostId = attribution?.PostId,
             CreatorId = attribution?.CreatorId,
-            PersonaId = Guid.TryParse(personaId, out var persona) && persona != Guid.Empty ? persona : null,
+            PersonaId = personaGuid,
             CorrelationId = httpContext.GetCorrelationId() ?? Guid.NewGuid().ToString("N"),
             UserAgent = userAgent.Length == 0 ? null : userAgent[..Math.Min(userAgent.Length, MaxUserAgentLength)],
-            IpHash = HashIp(httpContext.Connection.RemoteIpAddress?.ToString(), options.Value.IpSalt),
+            IpHash = ipHash,
             RedirectUrl = redirectUrl,
-            ClickedAt = clock.UtcNow,
+            ClickedAt = now,
         };
         db.Clicks.Add(click);
 

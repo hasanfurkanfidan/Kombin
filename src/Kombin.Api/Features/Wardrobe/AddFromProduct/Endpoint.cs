@@ -6,6 +6,7 @@ using Kombin.Api.Common.Validation;
 using Kombin.Api.Features.Catalog;
 using Kombin.Api.Persistence;
 using Kombin.Api.Persistence.Entities.Catalog;
+using Kombin.Api.Persistence.Entities.Social;
 using Kombin.Api.Persistence.Entities.Wardrobe;
 
 namespace Kombin.Api.Features.Wardrobe.AddFromProduct;
@@ -73,6 +74,9 @@ internal static class AddFromProductEndpoint
             Size = string.IsNullOrWhiteSpace(request.Size) ? null : request.Size.Trim(),
             Status = WardrobeItemStatus.Ready,
             ConfirmedAt = clock.UtcNow,
+            // The image is the retailer's catalog picture, not a user photo: shareable like any product image.
+            ModerationVerdict = ModerationVerdict.Allow,
+            ModeratedAt = clock.UtcNow,
         };
 
         if (product.PrimaryImageUrl is { } imageUrl)

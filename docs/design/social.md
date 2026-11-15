@@ -20,7 +20,7 @@ search over posts.
 
 **Statuses.** `Processing` (job running) → `Blocked` (refused, `moderationReason` shown to the author) | `NeedsReview` (borderline) | `Draft`
 (safe, waiting for the author's confirmation). Confirm: `Draft` → `Live`; `NeedsReview` stays there with `confirmed_at` set until a reviewer
-decides. `Live` → `Hidden` at 3 reports. `Deleted` is a tombstone until the purge job removes objects and rows. `Draft` and `Failed` (the
+decides. `Live` → `Hidden` at 3 counting reports (trusted reporters, below). `Deleted` is a tombstone until the purge job removes objects and rows. `Draft` and `Failed` (the
 photo could not be processed: unparseable, or the vision service stayed down) were added to the brief's list: "safe but not yet confirmed"
 is a real state, and a post is never visible before its author confirmed tags and visibility.
 
@@ -80,7 +80,7 @@ the viewer owns exactly, or has a ready piece of the same category and colour; e
 
 ## Moderation & safety flow
 
-Report (`Nudity|Violence|Hate|Harassment|Spam|Scam|Other`, once per user and post) → the third distinct reporter hides a `Live` post. Hidden
+Report (`Nudity|Violence|Hate|Harassment|Spam|Scam|Other`, once per user and post) → every report puts the post in the queue, and the third **counting** report since the last review hides a `Live` post. A report counts only from a trusted reporter (`ReportRules.Counts`, `Reports:*`: account at least 72 h old, at least one persona, once per author in 24 h), so throwaway accounts cannot hide anyone (security review M4). Hidden, reported `Live`
 and `NeedsReview` posts wait in `GET /internal/social/review-queue`; `POST /internal/social/posts/{id}/review {decision: Approve|Remove|Keep,
 reason?}` restores (`Live`, or `Draft` if never confirmed), blocks with the removal reason (the reviewer's `reason`, else the standard text) or
 leaves the post as it is and moves it to the back of the queue (`Keep`). The transition lives in one class, `PostReviewer`, which the
@@ -91,7 +91,7 @@ Blocking removes follows both ways and hides each side's posts and profile from 
 
 The founder sets `PUT /internal/social/creators/{userId}` (handle, bio, link, active). A creator's posts carry `isCreator` and the
 disclosure line "Bu içerikten komisyon kazanabilir". `/go` with `post=` checks that the post is live, not private and tags the offer's
-product; it then stamps `post_id`, and `creator_id` when the author is an active creator and not the clicker, and appends a `Click` referral
+product; it then stamps `post_id`, and `creator_id` when the author is an active creator, not the clicker and not already earned from this viewer (same user, or signed out the same hashed address) on this post and product in the last 24 h (`CreatorAttribution.AlreadyEarnedAsync`), and appends a `Click` referral
 event with the `Creators:SharePercent` (40) snapshot. When conversions are imported (out of scope), each affiliate report row carries our
 `kombin_click` id → a `Conversion` row with order, commission and `creator_amount = commission × share`. `GET /me/creator/stats` returns clicks,
 top posts and **an estimate** `clicks × conversion rate × average order value × commission × share` (all `Creators:*` settings). The brief's

@@ -69,6 +69,8 @@ internal static class ProcessItemEndpoint
 
         if (size > WardrobeLimits.MaxImageBytes)
         {
+            // The presigned PUT cannot cap the size, so an oversized object goes at once rather than at the daily cleanup.
+            await storage.DeleteAsync([item.ImageOriginalKey], cancellationToken);
             return WardrobeErrors.ImageTooLarge.ToHttpResult();
         }
 

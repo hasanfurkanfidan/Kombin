@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Kombin.Api.Common.Text;
 using Kombin.Api.Common.Time;
 using Kombin.Api.Persistence;
 using Kombin.Api.Persistence.Entities.Recommendation;
@@ -43,10 +44,12 @@ internal sealed partial class AnthropicNarrator(
 
     public static readonly TimeSpan CacheLifetime = TimeSpan.FromDays(7);
 
-    private const string SystemPrompt =
+    internal static readonly string SystemPrompt =
         "Sen zevkli bir arkadaşsın ve Kombin uygulamasında kombin önerilerine tek cümlelik bir gerekçe yazıyorsun. "
         + "Her kombin için doğal, samimi (sen diliyle) tek bir Türkçe cümle yaz: neden işe yaradığını, verilen kurala (rule) dayanarak söyle, "
         + "en fazla iki parçadan bahset. En fazla 140 karakter. Emoji, hashtag, fiyat ve marka yok. Hava ve etkinlik verilmişse onlara uygun konuş. "
+        + "Gündelik Türkçe kullan: renk teorisi terimi yok (\"birbirine yakın renkler\", \"canlı bir renk\", \"sade renkler\" de). "
+        + "Uygulamanın sözlüğüne uy; şu kelimeleri hiç kullanma: " + string.Join(", ", CopyGlossary.Banned) + ", " + CopyGlossary.PeopleOnly + ". "
         + "Her id için bir satır döndür.";
 
     private static readonly JsonObject Schema = new()
@@ -180,8 +183,10 @@ internal sealed partial class AnthropicNarrator(
         }
     }
 
-    private static bool IsUsable(string text) =>
-        !string.IsNullOrWhiteSpace(text) && text.Trim().Length <= MaxLineLength && !text.Contains('\n', StringComparison.Ordinal);
+    /// <summary>One short line that keeps to the app glossary; anything else falls back to the template (<see cref="CopyGlossary"/>).</summary>
+    internal static bool IsUsable(string text) =>
+        !string.IsNullOrWhiteSpace(text) && text.Trim().Length <= MaxLineLength && !text.Contains('\n', StringComparison.Ordinal)
+        && CopyGlossary.Violations(text, aboutPeople: false).Count == 0;
 
     private static JsonObject Describe(OutfitSummary outfit, int index) => new()
     {

@@ -29,7 +29,7 @@ internal sealed class ReviewModel(KombinDbContext db, IObjectStorage storage, Po
     public async Task OnGetAsync(CancellationToken cancellationToken)
     {
         var posts = await db.Posts.AsNoTracking()
-            .Where(post => post.Status == PostStatus.Hidden || post.Status == PostStatus.NeedsReview)
+            .Where(ReportRules.InReviewQueue)
             .OrderBy(post => post.UpdatedAt)
             .ThenBy(post => post.Id)
             .Take(ReviewEndpoint.QueueLimit)

@@ -44,6 +44,12 @@ internal sealed class PostReport
     public ReportReason Reason { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; }
+
+    /// <summary>
+    /// Decided when the report is made (<c>ReportRules.Counts</c>): whether it counts toward the automatic hide. Every report reaches the review
+    /// queue either way (security review M4).
+    /// </summary>
+    public bool CountsTowardHide { get; set; }
 }
 
 /// <summary>

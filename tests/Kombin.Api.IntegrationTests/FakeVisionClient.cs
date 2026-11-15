@@ -33,6 +33,16 @@ internal sealed partial class FakeVisionClient : IVisionClient
 
     public static readonly byte[] Thumbnail = Encoding.UTF8.GetBytes("thumb-webp-bytes");
 
+    /// <summary>
+    /// The cutout of a wardrobe photo carries the photo's safety flavour, so moderating it answers like the photo would: <c>nsfw</c> blocks,
+    /// <c>borderline</c> needs review, <c>moderation-down</c> analyses fine but moderation is unreachable. Anything else is <see cref="Cutout"/>.
+    /// </summary>
+    public static byte[] CutoutFor(string photoText) =>
+        photoText.Contains("nsfw", StringComparison.Ordinal) ? Encoding.UTF8.GetBytes("cutout-png-bytes:nsfw")
+        : photoText.Contains("borderline", StringComparison.Ordinal) ? Encoding.UTF8.GetBytes("cutout-png-bytes:borderline")
+        : photoText.Contains("moderation-down", StringComparison.Ordinal) ? Encoding.UTF8.GetBytes("cutout-png-bytes:unreachable")
+        : Cutout;
+
     /// <summary>A unique "photo" whose <paramref name="flavor"/> tells the fake how to answer.</summary>
     public static byte[] Photo(string flavor = "ok") => Encoding.UTF8.GetBytes($"photo:{flavor}:{Guid.NewGuid():N}");
 
@@ -60,7 +70,7 @@ internal sealed partial class FakeVisionClient : IVisionClient
         embedding[0] = 1f;
 
         return Task.FromResult(VisionResult.Ok(new VisionAnalysis(
-            Convert.ToBase64String(Cutout),
+            Convert.ToBase64String(CutoutFor(text)),
             Convert.ToBase64String(Thumbnail),
             candidates[0],
             candidates,

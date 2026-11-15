@@ -325,7 +325,7 @@ public sealed class SocialTests(ApiFactory factory)
         {
             for (var index = 0; index < 3; index++)
             {
-                var reporter = await factory.CreateUserAsync(Ct);
+                var reporter = await factory.CreateTrustedReporterAsync(Ct);
                 reporters.Add(reporter);
                 using var report = await reporter.Client.ReportAsync(postId, index == 0 ? "Nudity" : "Spam", Ct);
                 Assert.Equal(HttpStatusCode.Accepted, report.StatusCode);

@@ -91,7 +91,8 @@ Identity rules).
   (`Identity.ExternalEmailMissing` otherwise) -> an account with that email gets linked (safe only because both providers verify the email:
   Google's `email_verified` must be true, Apple's counts as true unless it says `false`, as a boolean or the string); else a new account with
   `password_hash = null` and display name request -> token `name` -> email local part (cut to 50). Private-relay Apple emails are ordinary
-  emails. Two simultaneous first sign-ins rely on the unique indexes (`identity.external_logins (provider, subject)`, `users.email`): the
+  emails. **Linking by email to an account with a password clears the password and deletes all its refresh tokens** (registration never
+  proves the address, so the password may be an attacker's: security review H1). Two simultaneous first sign-ins rely on the unique indexes (`identity.external_logins (provider, subject)`, `users.email`): the
   loser clears its change tracker and retries the lookup once. After the commit it calls `IAnalyticsIdentityLinker.LinkAsync`, like register
   and login.
 - **Passwords are optional.** `users.password_hash` is nullable. A passwordless (Google/Apple-only) account answers `POST /auth/login` with
@@ -258,7 +259,7 @@ External Python workers (a separate repo) push the catalog through the internal 
   (`QuietHours.Zone`). The Docker runtime image installs `tzdata` for it. Stored instants are always UTC (`timestamptz`).
 - **Hangfire wiring:** `AddNotificationFeature` registers storage lazily; `UseNotificationJobs` (called in `Program.cs` after the EF
   migrations and the seeds) is what first creates the `hangfire` schema, registers the recurring jobs (`UseCatalogJobs` adds the
-  Catalog's `offer-sweep`, `UseAnalyticsJobs` the Analytics' `weekly-metrics`, `UseWardrobeJobs` the Wardrobe's `wardrobe-cleanup` and
+  Catalog's `offer-sweep`, `UseAnalyticsJobs` the Analytics' `weekly-metrics` and `analytics-retention`, `UseWardrobeJobs` the Wardrobe's `wardrobe-cleanup` and
   `UseSocialJobs` the Social's `social-purge` and `UseIdentityJobs` the Identity's `account-deletion` right after it, behind the same flag; `UseCatalogJobs` also registers `product-embeddings`; `outfit-narrate` and `post-process` are fire-and-forget,
   not recurring) and, **in Development only**
   (or wherever `Diagnostics:Expose` is true, then behind the `/admin` sign-in), maps the dashboard at `/hangfire` (open in Development, unmapped otherwise). Nothing happens unless `Hangfire:Enabled` is
@@ -268,6 +269,12 @@ External Python workers (a separate repo) push the catalog through the internal 
   the app reports `notification_open` for exactly that row. Keep both keys when changing the payload.
 - **Copy is Turkish and lives in `Features/Notification/Copy.cs`** (money as `2.149 ₺` / `849,90 ₺`, formatted by hand because the runtime
   image may run with invariant globalization). Clients read `Notification.Data.deepLink`; do not change its shape without the app team.
+- **All Turkish copy the backend writes follows the app glossary** (`../kombin-frontend/docs/design/glossary.md`; `Common/Text/CopyGlossary`):
+  notifications, narration, status messages, recommendation and gap messages, problem details. A match is "sana uygun %N", a persona a "tarz",
+  a watched price "izlenir" ("takip" is only for people), colours in everyday words; banned: persona, uyum (alone), komşu, vurgu, nötr, tonal,
+  eşleş-, akış in a sentence. `CopyGlossaryTests` scans the string literals of those sources (add a new copy file to its lists); the LLM
+  narrator's system prompt is built from `CopyGlossary.Banned` and a line that breaks it falls back to the template. Legal pages and the
+  posting consent's version 1 are outside the scan; consent texts from version 2 (`2026-11-v2`, current) on are checked as published text.
 
 ## Analytics rules
 
@@ -284,6 +291,12 @@ External Python workers (a separate repo) push the catalog through the internal 
   deduplicated). A rejected event does not use up a duplicate slot. 400 `Validation.Failed` is only for a malformed body (the validator
   checks the envelope: 1-50 events, no null event, `sessionId`, `platform`, `appVersion`, `occurredAt`, `anonymousId`); never move the
   name or property rules back into the request validator.
+- **The intake is capped and the raw table expires** (security review M6). `Analytics:DailyEventCapPerActor` (5,000) events per actor (the user, else
+  the `anonymousId`) per calendar day in `Europe/Istanbul`, counted on `received_at`; the excess is rejected as `daily_cap` in a 202 and counted by the
+  `kombin.analytics.events_capped` meter counter (`AnalyticsMetrics`). **`analytics-retention`** (`AnalyticsRetentionJob`, daily 03:30 `Europe/Istanbul`,
+  `[DisableConcurrentExecution(60)]`, `[AutomaticRetry(Attempts = 0)]`, registered by `UseAnalyticsJobs`) deletes events received more than
+  `Analytics:RetentionDays` (180, at least 60) ago in batches of 5,000; `weekly_metrics` stays. Tests call `PurgeAsync(anonymousIds, ct)` with their own
+  IDs only (the 2020 metric cohorts live in the shared database).
 - **Clock skew is clamped, not rejected** (`EventTiming`): `occurredAt` more than 7 days old or 5 minutes ahead becomes `ReceivedAt`.
   `OccurredAt`/`ReceivedAt` are always UTC.
 - **Identity is linked after the commit and never breaks a sign-in.** Login and Register take an optional `anonymousId` and call
@@ -328,9 +341,14 @@ External Python workers (a separate repo) push the catalog through the internal 
   `not_garment` warning. A permanent error fails the item at once; transient errors are counted on the item (`AnalysisAttempts`) and the
   4th makes it `Failed` (the count is ours, not Hangfire's, so tests drive it by calling `AnalyzeAsync`). `AnalysisJson` is the answer
   without images and embedding. A failed item can be filled in by hand (any PATCH makes it `Ready`) or processed again.
+- **Wardrobe photos are moderated** (`WardrobeModerator`, security review M3): right after the item is `Ready`, the cutout goes to `/v1/moderate`
+  and `moderation_verdict`/`moderated_at` are stored (catalog items: `Allow`). **Only `Allow` lets another user see the image** (`IsShareable`):
+  for anything else, or no verdict yet, viewers get a post's wardrobe tag without `imageUrl`; the owner keeps the piece everywhere. A failed
+  call leaves the verdict empty. A new surface that shows a wardrobe image to someone other than its owner must check `IsShareable`. Tests:
+  `FakeVisionClient.CutoutFor` (photo flavours `nsfw`, `borderline`, `moderation-down`).
 - **`wardrobe-cleanup`** (daily 05:00 `Europe/Istanbul`, `[DisableConcurrentExecution(60)]`, `[AutomaticRetry(Attempts = 0)]`, tests call
   `CleanupAsync(userId, ct)`): deletes the objects of items archived more than 30 days ago (rows and wear history stay, keys set to null)
-  and the abandoned uploads above.
+  and the abandoned uploads above, and asks the safety filter again for ready items without a verdict (`RetryMissingAsync`, 200 per run).
 - **From the catalog:** `POST /items/from-product` makes a `Ready`, already confirmed item (`FromCatalog`) and copies the product's primary
   image into storage as both cutout and thumbnail, unchanged (no background removal, no resizing: there is no image library here). A failed
   copy still creates the item, which then shows the catalog image. The same product twice returns the existing item.
@@ -420,7 +438,9 @@ External Python workers (a separate repo) push the catalog through the internal 
   whether it goes with what the viewer owns. No comments, DMs, stories, video, hashtags or search over posts, no payouts, no public web pages.
 - **No raw URL, ever.** Tags carry the product's current cheapest sellable offer (`OutfitSources.CheapestOffersAsync`) and a `goPath` with
   `src=feed&post=`; `PostResponses` is the only builder of post JSON. `/go` attributes only when the post is live, not private and tags the
-  clicked product (`CreatorAttribution`); a creator's own click earns nothing.
+  clicked product (`CreatorAttribution`); a creator's own click earns nothing, and one viewer (user, else hashed address) earns a creator once
+  per post and product a day (`AlreadyEarnedAsync`; later clicks keep `post_id`, not `creator_id`). `/go` keeps `personaId` only when it is the
+  caller's own.
 - **No tag without confirmation.** Detected regions and outfit pieces are proposals (`confirmed_at` null), shown to the author only.
   `PUT /posts/{id}/publish` replaces every tag and proposal with what the author sent, confirmed. Never return an unconfirmed tag to anyone
   else, and never auto-confirm.
@@ -428,7 +448,8 @@ External Python workers (a separate repo) push the catalog through the internal 
   - posting needs the current `PostingConsent` version; versions are append-only and their text hashes are pinned in `PostingConsentTests`
     (a new text is a new version; never edit a published one). The acceptance row stores the exact text shown.
   - posts are `Private` until the author chooses `Followers` or `Public`; others see only `Live` posts (`PostRules.CanView`, the one place
-    for visibility, plus `PostAccess`); a block in either direction hides everything both ways and removes follows.
+    for visibility, plus `PostAccess`); a block in either direction hides everything both ways and removes follows. `Followers` is **not
+    private** (anyone signed in may follow without approval): the API documentation says so (`PublishPostEndpoint.Description`, security review M5).
   - metadata is stripped before anything reads the photo (`ImageMetadata.Strip`, JPEG/PNG/WEBP only; unparseable → refused) and the stored
     original is replaced; renditions are re-encoded by the vision service from pixels; all post objects are private (presigned, 1 h).
   - delete = tombstone at once + `social-purge` (hourly) deletes objects and rows, so "within 24 h" holds. Clicks and referral events keep the
@@ -443,8 +464,12 @@ External Python workers (a separate repo) push the catalog through the internal 
   back of the queue. `ReviewedAt` and the report count stay: reports are counted since `ReviewedAt`). The internal endpoint and the admin panel
   both call it. Likewise `CreatorInvites` (put and revoke: `DELETE /internal/social/creators/{userId}` sets `IsActive = false`, the handle stays
   reserved) and `AccountAccess` (Identity); a new admin capability is first an internal use-case, never page code.
-- **Reports:** one per user and post; the 3rd distinct reporter since the last review hides a live post (`PostRules.HideAtReports`). Reviews go
-  through the internal endpoints (no admin UI); approval restarts the count.
+- **Reports:** one per user and post. **Every report reaches the review queue** (`ReportRules.InReviewQueue`: hidden, borderline, and live posts
+  with a report since their last review; the internal queue, `/admin/review` and the dashboard count share it, and a reviewer can approve, remove
+  or keep a reported live post). **Only a trusted reporter counts toward the automatic hide** (security review M4): `ReportRules.Counts`, decided
+  when the report is made and stored as `reports.counts_toward_hide`: account at least `Reports:MinAccountAge` (72 h) old, at least
+  `Reports:MinPersonas` (1) persona, and once per author per `Reports:PerAuthorWindow` (24 h). `Reports:HideAt` (3) counting reports since the
+  last review hide a live post; approval restarts the count. Tests that need a hide use `CreateTrustedReporterAsync`.
 - **Feed:** `FeedRanking` is pure and documented at the top of the file; its SQL twin is `FeedRanking.BaseSql`. Change a constant in both
   and in `docs/design/social.md`. SQL picks ≤ 200 candidates (14-day window, partial index `ix_posts_feed_window`), the rest is in memory;
   the persona "≥ 60" filter applies once the persona has learned (confidence > 0, `ViewerPersona.Learned`). `SeparateAuthors` keeps one author
@@ -571,6 +596,17 @@ External Python workers (a separate repo) push the catalog through the internal 
   `storage.$DOMAIN` to MinIO), `docker/.env.prod.example`, `scripts/gen-secrets.sh|.ps1`, `scripts/backup.sh` (pg_dump, gzip, age or openssl, bucket,
   7 days) and `scripts/restore.sh` (into a scratch database, `--compare` row counts), and `docs/deploy.md` (server steps, restore drill, update procedure,
   the closed-beta tunnel). Keep the variables of `.env.prod.example`, `compose.prod.yaml` and the validator in step.
+
+## Security rules
+
+- `docs/security-review.md` is the review's record (surface map, findings and their status). A fix or a newly accepted risk updates it.
+- **Every authenticated route has a case in `AuthorizationMatrixTests.Cases`** (user B against user A's IDs: a probe, a scoped read or an exemption
+  with its reason); the test fails for a route without one. Internal routes and admin pages are enumerated the same way.
+- **A URL someone else chose is fetched only through `.AddPublicOnlyGuard()`** (`Common/Http/OutboundGuard.cs`: http(s), public addresses after DNS,
+  re-checked at connect, at most 3 redirects, each checked). Fixed hosts in code (JWKS, Open-Meteo, Expo, Anthropic) and the vision service do not
+  need it. Tests fake its DNS with `FakeOutboundResolver` (`*.internal.test` resolves inside); never bypass it to make a test pass.
+- An upload whose stored size is over its limit is deleted when `process` refuses it (presigned PUTs cannot cap the size yet: review M2).
+- CI fails on any known-vulnerable package (`dotnet list package --vulnerable --include-transitive`); upgrade, do not suppress.
 
 ## Commands
 

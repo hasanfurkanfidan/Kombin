@@ -24,10 +24,10 @@ internal sealed partial class TemplateNarrator : IOutfitNarrator
         (OutfitRule.Gap, "Tek eksik {gap}; gerisi zaten dolabında."),
         (OutfitRule.Gap, "{gap} bu kombini tamamlıyor, diğer parçalar senden."),
         (OutfitRule.Complementary, "{colorA} ile {colorB} zıt renkler ama birbirini parlatıyor."),
-        (OutfitRule.Analogous, "{colorA} ve {colorB} komşu tonlar; göz yormadan renkli bir kombin."),
+        (OutfitRule.Analogous, "{colorA} ve {colorB} birbirine yakın renkler; göz yormadan renkli bir kombin."),
         (OutfitRule.Monochrome, "Baştan aşağı {color} tonları: zahmetsiz ve boyunu uzun gösteren bir görünüm."),
         (OutfitRule.OneStatement, "{statement} bugünün yıldızı, {base} ise ona sahneyi bırakıyor."),
-        (OutfitRule.OneStatement, "Tek renkli vurgu yeter: {statement} konuşsun, gerisi sakin kalsın."),
+        (OutfitRule.OneStatement, "Tek bir canlı renk yeter: {statement} öne çıksın, gerisi sakin kalsın."),
         (OutfitRule.Silhouette, "Bol kesim {top} {bottomWith} dengeleniyor; oranlar tam yerinde."),
         (OutfitRule.SmallPatterns, "İki ince desen yan yana ama birbirini bastırmıyor; gerisi sade."),
         (OutfitRule.Anchor, "{anchor} merkezde; {companions} onu sakin bir zeminde öne çıkarıyor."),
@@ -38,7 +38,7 @@ internal sealed partial class TemplateNarrator : IOutfitNarrator
         (OutfitRule.Sport, "Harekete hazır: {shoes} ve rahat bir {top} ile spora."),
         (OutfitRule.Event, "Davette göz dolduracak: {top}, {bottom} ve {shoes} aynı ciddiyette."),
         (OutfitRule.QuietNeutrals, "Koyu tonlar bir arada: {top} ve {bottom} sakin ve derli toplu."),
-        (OutfitRule.AllNeutral, "Nötr tonlarla güvenli liman: {top} ve {bottom} her yere uyar."),
+        (OutfitRule.AllNeutral, "Sade renklerle güvenli seçim: {top} ve {bottom} her yere uyar."),
         (OutfitRule.AllNeutral, "Sade ama özenli: {top}, {bottom} ve {shoes} birbirini tamamlıyor."),
     ];
 

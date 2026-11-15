@@ -60,10 +60,10 @@ cancelling inside the window, the admin buttons).
 | Data | Why | Where | Visible to | Retention |
 |---|---|---|---|---|
 | Audience (women/men/unisex), measurements, city, personas, swipes, sizes per brand | recommendations; the city fetches the weather | `profile.*` | the user only; the audience is copied onto posts for feed matching (never shown) | until account deletion (section 1a) |
-| Wardrobe photos: private original, public cutout and thumbnail, garment attributes, a CLIP embedding | the wardrobe and outfits | object storage `wardrobe/{user}/{item}/…`, `wardrobe.items` | the original: the user (15-minute presigned link); cutout/thumbnail: **anyone with the URL** (unguessable keys, public bucket policy) and anyone who sees an outfit post using that piece | archived items' images deleted after 30 days; abandoned uploads after 1 day |
+| Wardrobe photos: private original, public cutout and thumbnail, garment attributes, a CLIP embedding | the wardrobe and outfits | object storage `wardrobe/{user}/{item}/…`, `wardrobe.items` | the original: the user (15-minute presigned link); cutout/thumbnail: **anyone with the URL** (unguessable keys, public bucket policy); the URL is given to other users (a post's wardrobe tag, an outfit post) only after the safety filter allowed the cutout (`wardrobe.items.moderation_verdict`, security review M3) | archived items' images deleted after 30 days; abandoned uploads after 1 day |
 | Wear dates | wear tracking | `wardrobe.wears` | the user | until account deletion (section 1a) |
 
-The original wardrobe photo is sent to `kombin-vision`, which processes it in memory and stores nothing. Wardrobe originals are **not**
+The original wardrobe photo is sent to `kombin-vision`, which processes it in memory and stores nothing; the cutout then goes to its `/v1/moderate` (allow / review / block, only the verdict and its time are stored). Wardrobe originals are **not**
 metadata-stripped (they are private and never shown); see open questions.
 
 ## 3. Social posts (Task 14)
@@ -74,7 +74,9 @@ Before the first post the user accepts a versioned consent text (`PostingConsent
 and the time** (`social.posting_consents`, append-only). Every post records the consent version and time it was created under. A new text
 is a new version and everyone must accept again before posting. The text tells the user: they confirm everyone in the photo agreed; posts
 are private by default; EXIF/location is removed; every photo goes through an automatic safety check and doubtful ones are seen by a person;
-tag suggestions are never shown without their confirmation; deletion is permanent within 24 hours; creators may earn commission.
+tag suggestions are never shown without their confirmation; deletion is permanent within 24 hours; creators may earn commission. Current
+version: `2026-11-v2` (November 2026; the wording of `2026-11-v1` with "akışta" replaced by "uygulamada" per the app glossary; every poster
+accepts it again, v1 acceptances stay in history).
 
 ### 3.2 The photo
 
@@ -92,7 +94,7 @@ No face recognition, no biometric templates, no person identification, no age or
 
 - New posts are **Private**. The author chooses Private, Followers ("Takipçilerime") or Public ("Herkese açık") when publishing.
 - Public: anyone, including signed-out users of the app. Followers: users who follow the author (**follows are not approved in v1**:
-  anyone can follow; the author can block). Private: the author only.
+  anyone can follow; the author can block; the API documentation says so and the app words the option accordingly, security review M5). Private: the author only.
 - Not visible to anyone but the author unless `Live`: processing, drafts, posts under review, blocked and hidden posts.
 - A block (either direction) hides each side's posts and profile from the other and removes follows. The blocked user is not told.
 - There are no public web pages for posts (no indexing by search engines); everything is behind the app's API.
@@ -103,13 +105,13 @@ No face recognition, no biometric templates, no person identification, no age or
 |---|---|---|---|
 | Follows (who follows whom, when) | `social.follows` | follower/following counts are public; the lists are not exposed by the API | until unfollow, block or account deletion |
 | Likes | `social.likes` | the like count is public; who liked is not exposed (only "liked by me") | deleted with the post |
-| Reports (reporter, reason, time) | `social.reports` | the operator (review queue shows reasons and counts, not reporters); never the author | deleted with the post |
+| Reports (reporter, reason, time, whether it counts toward hiding: decided from the reporter's account age and persona count, which are not stored with it) | `social.reports` | the operator (review queue shows reasons and counts, not reporters); never the author | deleted with the post |
 | Blocks | `social.blocks` | the blocker (their own list) | until unblock or account deletion |
 | Captions (≤ 300 chars), unknown-tag labels (≤ 60 chars) | `social.posts`, `social.post_tags` | as the post | deleted with the post. Free text: may contain personal data the user types; it is never sent to analytics. |
 
 ### 3.5 Moderation by people
 
-Borderline photos and posts with 3 reports wait in `GET /internal/social/review-queue` (operator only, internal key; a 1-hour preview link,
+Borderline photos, hidden posts and live posts with any report since their last review wait in `GET /internal/social/review-queue` (operator only, internal key; a 1-hour preview link,
 the moderation scores, report reasons). The reviewer approves or removes; the author sees a fixed reason, not who decided. There is no admin
 UI: reviewers are the founder/operators with the internal key.
 
@@ -176,7 +178,7 @@ their `user_id` (section 1a). Social events: `post_view`,
 `post_tag_tap`, `post_like`, `post_create_start/done`, `post_report`, `creator_profile_view`, `try_with_wardrobe` — post and creator IDs,
 counts and enums; **no captions, handles or labels**. Visual-search events: counts, durations, result positions and match levels, **no
 image data**. Keys named like personal data are refused on every event. Anonymous events are linked to
-the account after sign-in (`IAnalyticsIdentityLinker`).
+the account after sign-in (`IAnalyticsIdentityLinker`). **Retention:** raw events are deleted 180 days after they were received (`analytics-retention`, nightly, `Analytics:RetentionDays`); the weekly aggregates (`analytics.weekly_metrics`, no personal data) stay. At most 5,000 events per user or device a day are stored (security review M6).
 
 ## 6a. Rate limiting and server logs (Task 16-A)
 

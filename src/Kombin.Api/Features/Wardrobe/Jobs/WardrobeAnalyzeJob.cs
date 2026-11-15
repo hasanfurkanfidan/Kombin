@@ -26,7 +26,8 @@ internal enum AnalyzeOutcome
 /// by Hangfire, and the <see cref="MaxAttempts"/>th failed call makes the item <c>Failed</c> (counted on the item, so the outcome does not
 /// depend on Hangfire's bookkeeping and the tests can drive it).
 /// </summary>
-internal sealed partial class WardrobeAnalyzeJob(KombinDbContext db, IObjectStorage storage, IVisionClient vision, IClock clock, ILogger<WardrobeAnalyzeJob> logger)
+internal sealed partial class WardrobeAnalyzeJob(
+    KombinDbContext db, IObjectStorage storage, IVisionClient vision, WardrobeModerator moderator, IClock clock, ILogger<WardrobeAnalyzeJob> logger)
 {
     public const string JobId = "wardrobe-analyze";
 
@@ -133,6 +134,9 @@ internal sealed partial class WardrobeAnalyzeJob(KombinDbContext db, IObjectStor
 
         await db.SaveChangesAsync(cancellationToken);
         LogReady(logger, itemId, attributes.CategorySlug ?? "(needs category)");
+
+        // After Ready, so the owner never waits for it: the verdict only decides whether others may see the image (security review M3).
+        await moderator.ModerateAsync(item, cutout, "image/png", cancellationToken);
 
         return AnalyzeOutcome.Ready;
     }

@@ -5,6 +5,7 @@ using Kombin.Api.Features.Analytics.GetWeeklyMetrics;
 using Kombin.Api.Features.Analytics.Jobs;
 using Kombin.Api.Features.Analytics.RecordEvents;
 using Kombin.Api.Features.Notification;
+using Microsoft.Extensions.Options;
 
 namespace Kombin.Api.Features.Analytics;
 
@@ -16,6 +17,11 @@ internal static class AnalyticsModule
 
         // A plain class with constructor injection, like the other jobs: Hangfire activates it from a scope, the tests resolve it directly.
         services.AddScoped<WeeklyMetricsJob>();
+        services.AddScoped<AnalyticsRetentionJob>();
+
+        // The intake's daily cap per actor and the retention of raw events (security review M6).
+        services.AddOptions<AnalyticsOptions>().BindConfiguration(AnalyticsOptions.SectionName).ValidateOnStart();
+        services.AddSingleton<IValidateOptions<AnalyticsOptions>, AnalyticsOptionsValidator>();
 
         return services;
     }
@@ -34,7 +40,7 @@ internal static class AnalyticsModule
     }
 
     /// <summary>
-    /// Registers the recurring analytics job. Call it after <c>UseNotificationJobs</c> and the database migrations; like that method it does
+    /// Registers the recurring analytics jobs (<c>weekly-metrics</c>, <c>analytics-retention</c>). Call it after <c>UseNotificationJobs</c> and the database migrations; like that method it does
     /// nothing unless <c>Hangfire:Enabled</c> is true, so tests and one-off tooling never touch the job tables.
     /// </summary>
     public static void UseAnalyticsJobs(this WebApplication app)
@@ -48,6 +54,12 @@ internal static class AnalyticsModule
             WeeklyMetricsJob.JobId,
             job => job.RunAsync(CancellationToken.None),
             WeeklyMetricsJob.Cron,
+            new RecurringJobOptions { TimeZone = QuietHours.Zone });
+
+        app.Services.GetRequiredService<IRecurringJobManager>().AddOrUpdate<AnalyticsRetentionJob>(
+            AnalyticsRetentionJob.JobId,
+            job => job.RunAsync(CancellationToken.None),
+            AnalyticsRetentionJob.Cron,
             new RecurringJobOptions { TimeZone = QuietHours.Zone });
     }
 }
