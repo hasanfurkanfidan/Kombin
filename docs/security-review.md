@@ -4,7 +4,7 @@ Branch `task-s1-security-review`, November 2026. A defensive review of our own c
 code, each area below read in full, each Critical/High finding proven by an integration test that failed before its fix. Findings are
 things that are true of this code, with where, how, and what was done.
 
-**Counts:** Critical 0 · High 2 · Medium 6 · Low 9 · Info 12. **Fixed in this branch:** both Highs, five Mediums (M1, M3, M4, M6 in full, M2
+**Counts:** Critical 0 · High 2 · Medium 6 · Low 9 · Info 13 (I13 added with Task P1). **Fixed in this branch:** both Highs, five Mediums (M1, M3, M4, M6 in full, M2
 in part: oversized uploads are deleted), one Low (L1). M2's size-limited upload ships with the mobile change before the public launch; M5 is
 accepted and documented (CEO decisions of 2026-11-15). Everything else is planned or accepted below, with the reason.
 
@@ -46,6 +46,7 @@ the caller chooses; every one of them is checked against the caller where it is 
 | `GET /api/v1/go/{offerId}?src=&personaId=&post=` | Opt | offer, persona (kept only if the caller's), post (attribution only if live, not private and tags the product) | writes `clicks`, `referral_events`; 302 to the **stored** offer URL | `go` |
 | `POST /api/v1/events` | Opt | `anonymousId` | writes `analytics.events` (allow-listed) | `events` |
 | `POST /api/v1/lens/search?audience=` | Opt | — (photo in memory only) | catalog embeddings; caller's own wardrobe | `lens` |
+| `POST /api/v1/outfits/budget` | Anon (a token is ignored) | — | catalog only, nothing written | `budget` |
 | `GET /api/v1/feed?mode=&personaId=&page=` | Opt | persona | live public posts (+ followed authors' followers-only posts) | global |
 | `GET /api/v1/posts/{id}?personaId=` | Opt | post, persona | `PostAccess.FindVisibleAsync` | global |
 | `GET /api/v1/users/{id}`, `/users/{id}/posts` | Opt | user, persona | profile summary (no e-mail), visible posts | global |
@@ -62,7 +63,7 @@ the caller chooses; every one of them is checked against the caller where it is 
 | Profile | `GET/PUT /profile`, `GET/POST /personas`, `PATCH/DELETE /personas/{id}`, `PUT /personas/{id}/activate`, `GET /personas/{id}/style`, `GET /personas/{id}/style-cards`, `POST /personas/{id}/swipes`, `GET/PUT /sizes`, `POST /sizes/confirm`, `GET /sizes/hint`, `DELETE /sizes/{id}` | persona, size entry, product/brand (public) |
 | Notification | `PUT /devices`, `DELETE /devices/{token}`, `GET/PUT /notification-preferences`, `GET /notifications`, `GET /notifications/unread-count`, `POST /notifications/read-all`, `POST /notifications/{id}/read` | push token, notification |
 | Wardrobe | `POST /wardrobe/items/upload-url`, `POST /wardrobe/items/from-product`, `GET /wardrobe/items`, `GET/PATCH/DELETE /wardrobe/items/{id}`, `POST /wardrobe/items/{id}/process`, `POST /wardrobe/items/{id}/wear`, `DELETE /wardrobe/items/{id}/wear/{date}`, `GET /wardrobe/items/{id}/pairings`, `GET /wardrobe/stats`, `GET /wardrobe/gaps` | item, product (public) |
-| Recommendation | `GET /outfits/daily`, `GET /outfits/how-to-wear`, `GET /outfits/saved`, `GET/DELETE /outfits/{id}`, `POST /outfits/{id}/save|worn|feedback` | outfit, wardrobe item, persona |
+| Recommendation | `GET /outfits/daily`, `GET /outfits/how-to-wear`, `GET /outfits/saved`, `GET/DELETE /outfits/{id}`, `POST /outfits/{id}/save|worn|feedback`, `POST /outfits/budget` (`budget`), `POST /trips/plan`, `POST /trips` (`trips`), `GET /trips`, `GET/DELETE /trips/{id}`, `POST /trips/{id}/replan` (`trips`) | outfit, wardrobe item, persona, trip |
 | Social | `GET/POST /api/v1/social/consent`, `POST /api/v1/posts/upload-url`, `POST /api/v1/posts/from-outfit`, `POST /api/v1/posts/{id}/process`, `PUT /api/v1/posts/{id}/publish`, `DELETE /api/v1/posts/{id}`, `POST/DELETE /api/v1/posts/{id}/like`, `POST /api/v1/posts/{id}/report`, `POST /api/v1/posts/{id}/try`, `GET /me/posts`, `GET /me/blocks`, `GET /me/creator/stats`, `POST/DELETE /api/v1/users/{id}/follow`, `POST/DELETE /api/v1/users/{id}/block` | post, outfit, wardrobe items in tags (must be the author's), user |
 
 ### Internal (`X-Internal-Key`)
@@ -264,6 +265,12 @@ the `events` rate limit per address (600 per 5 minutes), so one address can stil
   non-browser client.
 - **I11 · Dependencies:** `dotnet list package --vulnerable --include-transitive`: nothing flagged in any project (2026-11-14). CI now fails on
   any finding (`Vulnerable packages` step).
+- **I13 · Budget outfits and trips (Task P1, 2026-11-15):** the anonymous budget route reads only the catalog and writes nothing, and is rate
+  limited per address like visual search (`budget`); the signed-in routes take a persona (the catalog convention: someone else's is 404) and
+  trip IDs filtered by the caller (`GetTrip`, `DeleteTrip`, `ReplanTrip`: 404 for another user's, the harness proves it). A saved trip stores
+  the server's own plan, never a client-supplied snapshot, so nobody can store arbitrary JSON; at most 50 per user. The trip city goes to
+  Open-Meteo's fixed hosts (no `AddPublicOnlyGuard` needed: the host is ours to choose, the city is only a query parameter, escaped). Candidate
+  SQL is interpolated (parameterised). Buy links are `/go` with `src=budget` / `src=trip`; no response carries `Offer.Url`.
 - **I12 · Concurrency:** like and follow counts are recomputed from rows (`ON CONFLICT DO NOTHING`), refresh rotation has an `xmin` concurrency
   token, alert notifications are deduplicated for 24 h, external first sign-ins retry once on the unique indexes, publish refuses a post still
   `Processing`, the purge checks the deletion window. Two simultaneous third reports can miss the hide (each counts two); a later report or the

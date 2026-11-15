@@ -11,6 +11,7 @@ namespace Kombin.Api.IntegrationTests;
 /// <item><c>Istanbul</c>: a mild, dry day (10-17 °C).</item>
 /// <item>anything else: no forecast (the season decides).</item>
 /// </list>
+/// For a range (trips) the known cities answer the same day for every date: a forecast up to 15 days from today, the climate normals beyond.
 /// </summary>
 internal sealed class FakeWeatherProvider : IWeatherProvider
 {
@@ -23,4 +24,20 @@ internal sealed class FakeWeatherProvider : IWeatherProvider
             "Istanbul" => new WeatherSnapshot(city, date, 10, 17, 10, 0, 2),
             _ => null,
         });
+
+    public async Task<IReadOnlyList<DayWeather>> GetDaysAsync(string city, DateOnly start, DateOnly end, CancellationToken cancellationToken)
+    {
+        var lastForecastDay = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(15);
+        var days = new List<DayWeather>();
+
+        for (var day = start; day <= end; day = day.AddDays(1))
+        {
+            var snapshot = await GetAsync(city, day, cancellationToken);
+            days.Add(snapshot is null
+                ? new DayWeather(day, WeatherSource.Season, null)
+                : new DayWeather(day, day <= lastForecastDay ? WeatherSource.Forecast : WeatherSource.Normal, snapshot));
+        }
+
+        return days;
+    }
 }

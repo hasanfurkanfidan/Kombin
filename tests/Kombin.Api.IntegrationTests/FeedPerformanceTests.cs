@@ -26,6 +26,7 @@ namespace Kombin.Api.IntegrationTests;
 /// all on the path. Synthetic, seeded data on its own PostgreSQL container, like <see cref="OutfitPerformanceTests"/>, and gated the same
 /// way: it runs only with <c>KOMBIN_PERF=1</c>.
 /// </summary>
+[Collection(LatencyBudgets.Name)]
 public sealed class FeedPerformanceTests(FeedPerformanceTests.FeedPerformanceFactory factory) : IClassFixture<FeedPerformanceTests.FeedPerformanceFactory>
 {
     public const int Posts = 50_000;

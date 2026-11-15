@@ -10,6 +10,9 @@ internal enum OutfitKind
 
     /// <summary>Catalog-only ideas for a user whose wardrobe is empty.</summary>
     Shopping,
+
+    /// <summary>"Bütçeye göre kombin": at least one piece to buy, everything within the budget the user named.</summary>
+    Budget,
 }
 
 internal enum OutfitStatus

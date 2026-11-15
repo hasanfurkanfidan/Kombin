@@ -25,7 +25,9 @@ internal sealed record OutfitCandidate(IReadOnlyList<OutfitPiece> Pieces, Outfit
 
 /// <summary>
 /// The pieces to combine. <c>Catalog</c> is the narrow prefetch (already filtered by slot, colour family, band, stock, audience and
-/// budget). At most <c>MaxGaps</c> catalog pieces (the anchor not counted) go into one outfit.
+/// budget). At most <c>MaxGaps</c> catalog pieces (the anchor not counted) go into one outfit. <c>CatalogKept</c> is how many catalog
+/// pieces per slot survive the pruning (the budget search passes its own price-spread shortlist and keeps all of it); <c>CostCap</c>, when
+/// set, rejects every combination whose catalog pieces cost more (prices are never negative, so the cap rejects early like the hard rules).
 /// </summary>
 internal sealed record GenerationRequest(
     IReadOnlyList<OutfitPiece> Wardrobe,
@@ -33,7 +35,9 @@ internal sealed record GenerationRequest(
     OutfitContext Context,
     OutfitPiece? Anchor,
     int MaxGaps,
-    IReadOnlySet<string> ExcludedHashes);
+    IReadOnlySet<string> ExcludedHashes,
+    int CatalogKept = OutfitGenerator.CatalogKept,
+    decimal? CostCap = null);
 
 internal static class OutfitHash
 {
@@ -103,14 +107,15 @@ internal static class OutfitGenerator
             }
 
             var owned = Prune(request.Wardrobe.Where(piece => piece.Slot == slot), context, WardrobeKept[slot]);
-            var shop = request.MaxGaps > 0 ? Prune(request.Catalog.Where(piece => piece.Slot == slot), context, CatalogKept) : [];
+            var shop = request.MaxGaps > 0 ? Prune(request.Catalog.Where(piece => piece.Slot == slot), context, request.CatalogKept) : [];
 
             return [.. owned, .. shop];
         }
 
         var tops = Options(OutfitSlot.Top);
         var bottoms = Options(OutfitSlot.Bottom);
-        var shoes = Options(OutfitSlot.Shoes);
+        // Without shoes there is exactly one "choice" for the slot: none.
+        IReadOnlyList<OutfitPiece?> shoes = context.WithoutShoes ? [null] : [.. Options(OutfitSlot.Shoes).OfType<OutfitPiece>()];
         var outerwear = OuterwearOptions(Options(OutfitSlot.Outerwear), context, request.Anchor);
 
         // An accessory anchor ("how do I wear this bag?") is in every outfit; other accessories are added after picking.
@@ -118,29 +123,41 @@ internal static class OutfitGenerator
 
         var results = new List<OutfitCandidate>();
         var pieces = new List<OutfitPiece>(5);
+        var cap = request.CostCap ?? decimal.MaxValue;
 
         foreach (var top in tops.OfType<OutfitPiece>())
         {
             foreach (var bottom in bottoms.OfType<OutfitPiece>())
             {
-                if (!Compatible([top, bottom]) || !SilhouetteRules.Judge(top.Fit, bottom.Fit).Allowed)
+                var pairCost = Cost(top, anchorKey) + Cost(bottom, anchorKey);
+                if (pairCost > cap || !Compatible([top, bottom]) || !SilhouetteRules.Judge(top.Fit, bottom.Fit).Allowed)
                 {
                     continue;
                 }
 
-                foreach (var shoe in shoes.OfType<OutfitPiece>())
+                foreach (var shoe in shoes)
                 {
-                    if (!Compatible([top, bottom, shoe]))
+                    var coreCost = pairCost + (shoe is null ? 0 : Cost(shoe, anchorKey));
+                    if (coreCost > cap || (shoe is not null && !Compatible([top, bottom, shoe])))
                     {
                         continue;
                     }
 
                     foreach (var layer in outerwear)
                     {
+                        if (layer is not null && coreCost + Cost(layer, anchorKey) > cap)
+                        {
+                            continue;
+                        }
+
                         pieces.Clear();
                         pieces.Add(top);
                         pieces.Add(bottom);
-                        pieces.Add(shoe);
+                        if (shoe is not null)
+                        {
+                            pieces.Add(shoe);
+                        }
+
                         if (layer is not null)
                         {
                             pieces.Add(layer);
@@ -323,7 +340,11 @@ internal static class OutfitGenerator
         ];
     }
 
-    private static double? PieceScore(OutfitPiece piece, OutfitContext context)
+    /// <summary>
+    /// The piece score <see cref="Prune"/> ranks by, or null when the per-piece rules rule the piece out for this context (weather, avoided
+    /// colour, formality more than a step outside the band, the occasion's shoe). Budget and trip planning rank with it too.
+    /// </summary>
+    public static double? PieceScore(OutfitPiece piece, OutfitContext context)
     {
         var fit = WeatherRules.PieceFit(piece, context.Weather);
 
@@ -356,6 +377,10 @@ internal static class OutfitGenerator
             _ => [null, .. layers],
         };
     }
+
+    /// <summary>What a piece adds to the bill: a catalog piece's price (the anchor and owned pieces cost nothing here).</summary>
+    public static decimal Cost(OutfitPiece piece, string? anchorKey) =>
+        piece.Source == PieceSource.Catalog && piece.Key != anchorKey ? piece.Price ?? 0 : 0;
 
     /// <summary>The monotone hard rules on a partial outfit: if these fail, no added piece can rescue it.</summary>
     private static bool Compatible(OutfitPiece[] pieces) =>

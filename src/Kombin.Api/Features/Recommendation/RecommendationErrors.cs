@@ -20,6 +20,16 @@ internal static class RecommendationErrors
 
     public static readonly Error NothingToWear =
         Error.Conflict("Recommendation.NothingToWear", "None of the outfit's pieces is in the wardrobe.");
+
+    // Also the answer for someone else's trip.
+    public static readonly Error TripNotFound =
+        Error.NotFound("Recommendation.TripNotFound", "The trip does not exist.");
+
+    public static readonly Error TooManyTrips =
+        Error.Conflict("Recommendation.TooManyTrips", $"At most {TripPlanning.MaxSavedTrips} trips can be saved; delete one first.");
+
+    public static readonly Error TripOver =
+        Error.Conflict("Recommendation.TripOver", "The trip is over; it cannot be planned again.");
 }
 
 /// <summary>The <c>date</c> parameter: <c>today</c>, <c>tomorrow</c> or <c>yyyy-MM-dd</c>, from today up to a week ahead (Europe/Istanbul).</summary>

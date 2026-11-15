@@ -1,12 +1,20 @@
+using Kombin.Api.Features.Recommendation.DeleteTrip;
 using Kombin.Api.Features.Recommendation.DismissOutfit;
 using Kombin.Api.Features.Recommendation.GetDaily;
 using Kombin.Api.Features.Recommendation.GetHowToWear;
 using Kombin.Api.Features.Recommendation.GetOutfit;
+using Kombin.Api.Features.Recommendation.GetTrip;
 using Kombin.Api.Features.Recommendation.Jobs;
 using Kombin.Api.Features.Recommendation.ListSaved;
+using Kombin.Api.Features.Recommendation.ListTrips;
 using Kombin.Api.Features.Recommendation.Narration;
+using Kombin.Api.Features.Recommendation.PlanTrip;
 using Kombin.Api.Features.Recommendation.RecordFeedback;
+using Kombin.Api.Features.Recommendation.ReplanTrip;
 using Kombin.Api.Features.Recommendation.SaveOutfit;
+using Kombin.Api.Features.Recommendation.SaveTrip;
+using Kombin.Api.Features.Recommendation.SuggestBudget;
+using Kombin.Api.Features.Recommendation.SuggestBudgetAnonymous;
 using Kombin.Api.Features.Recommendation.WearOutfit;
 using Kombin.Api.Features.Recommendation.Weather;
 using Microsoft.Extensions.Options;
@@ -45,6 +53,7 @@ internal static class RecommendationModule
         var outfits = app.MapGroup("/api/v1/me/outfits").RequireAuthorization().WithTags("Recommendation");
 
         GetDailyEndpoint.Map(outfits);
+        SuggestBudgetEndpoint.Map(outfits);
         GetHowToWearEndpoint.Map(outfits);
         ListSavedEndpoint.Map(outfits);
         GetOutfitEndpoint.Map(outfits);
@@ -52,6 +61,19 @@ internal static class RecommendationModule
         WearOutfitEndpoint.Map(outfits);
         RecordFeedbackEndpoint.Map(outfits);
         DismissOutfitEndpoint.Map(outfits);
+
+        // "Valiz hazırlama": plan, save, list, read, delete, re-plan.
+        var trips = app.MapGroup("/api/v1/me/trips").RequireAuthorization().WithTags("Recommendation");
+        PlanTripEndpoint.Map(trips);
+        SaveTripEndpoint.Map(trips);
+        ListTripsEndpoint.Map(trips);
+        GetTripEndpoint.Map(trips);
+        DeleteTripEndpoint.Map(trips);
+        ReplanTripEndpoint.Map(trips);
+
+        // Public: "bütçeye göre kombin" for visitors (acquisition); rate limited like visual search.
+        var anonymous = app.MapGroup("/api/v1/outfits").WithTags("Recommendation");
+        SuggestBudgetAnonymousEndpoint.Map(anonymous);
 
         return app;
     }

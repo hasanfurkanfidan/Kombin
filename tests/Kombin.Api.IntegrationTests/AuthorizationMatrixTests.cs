@@ -156,6 +156,23 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
             [HttpStatusCode.NotFound],
             async (w, f) => Assert.NotEqual(OutfitStatus.Dismissed, await f.WithDbAsync(db => db.Outfits.Where(outfit => outfit.Id == w.OutfitId).Select(outfit => outfit.Status).SingleAsync(Ct)))),
 
+        ["POST /api/v1/me/outfits/budget"] = Probe(w => Json(HttpMethod.Post, "/api/v1/me/outfits/budget", new { budget = 1500, personaId = w.OwnerPersonaId }), [HttpStatusCode.NotFound]),
+        ["POST /api/v1/me/trips/plan"] = Probe(w => Json(HttpMethod.Post, "/api/v1/me/trips/plan", TripBody(w.OwnerPersonaId)), [HttpStatusCode.NotFound]),
+        ["POST /api/v1/me/trips"] = Probe(
+            w => Json(HttpMethod.Post, "/api/v1/me/trips", new { name = "Matrix probe", request = TripBody(w.OwnerPersonaId) }),
+            [HttpStatusCode.NotFound],
+            async (w, f) => Assert.False(await f.WithDbAsync(db => db.Trips.AnyAsync(trip => trip.UserId == w.Intruder.Id, Ct)))),
+        ["GET /api/v1/me/trips"] = ScopedRead("/api/v1/me/trips"),
+        ["GET /api/v1/me/trips/{id:guid}"] = Probe(w => new HttpRequestMessage(HttpMethod.Get, $"/api/v1/me/trips/{w.TripId}"), [HttpStatusCode.NotFound]),
+        ["DELETE /api/v1/me/trips/{id:guid}"] = Probe(
+            w => new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/me/trips/{w.TripId}"),
+            [HttpStatusCode.NotFound],
+            async (w, f) => Assert.True(await f.WithDbAsync(db => db.Trips.AnyAsync(trip => trip.Id == w.TripId, Ct)))),
+        ["POST /api/v1/me/trips/{id:guid}/replan"] = Probe(
+            w => new HttpRequestMessage(HttpMethod.Post, $"/api/v1/me/trips/{w.TripId}/replan"),
+            [HttpStatusCode.NotFound],
+            async (w, f) => Assert.Equal("{}", await f.WithDbAsync(db => db.Trips.Where(trip => trip.Id == w.TripId).Select(trip => trip.PlanJson).SingleAsync(Ct)))),
+
         // Social
         ["GET /api/v1/social/consent"] = ScopedRead("/api/v1/social/consent"),
         ["POST /api/v1/social/consent"] = Exempt("Records the caller's own consent."),
@@ -392,6 +409,13 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
 
     private static HttpRequestMessage Json(HttpMethod method, string url, object body) => new(method, url) { Content = JsonContent.Create(body) };
 
+    /// <summary>A valid trip plan request (two days from the day after tomorrow) naming <paramref name="personaId"/>.</summary>
+    private static object TripBody(Guid personaId)
+    {
+        var start = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(2);
+        return new { city = "Istanbul", startDate = start, endDate = start.AddDays(1), personaId };
+    }
+
     private async Task<World> WorldAsync()
     {
         await WorldGate.WaitAsync(Ct);
@@ -460,13 +484,31 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
         var followersPost = await factory.CreateLivePostAsync(owner.Client, "Followers", cancellationToken: cancellation);
         var draftPost = await factory.CreateProcessedPostAsync(owner.Client, cancellationToken: cancellation);
 
+        var tripId = await factory.WithDbAsync(async db =>
+        {
+            var trip = new Trip
+            {
+                UserId = owner.Id,
+                Name = "Matrix",
+                City = "Istanbul",
+                StartDate = new DateOnly(2030, 1, 1),
+                EndDate = new DateOnly(2030, 1, 2),
+                RequestJson = "{}",
+                PlanJson = "{}",
+                PlannedAt = DateTimeOffset.UtcNow,
+            };
+            db.Trips.Add(trip);
+            await db.SaveChangesAsync(cancellation);
+            return trip.Id;
+        });
+
         // A second session of the owner, whose refresh token the intruder tries to log out.
         using var login = await anonymous.LoginAsync(ownerEmail, ApiClientExtensions.DefaultPassword, cancellationToken: cancellation);
         var ownerRefresh = (await login.ReadTokensAsync(cancellation)).RefreshToken;
 
         return new World(
             owner.Id, ownerEmail, intruder, ownerPersona, itemId, product.ProductId, alertId, sizeId, outfitId, notificationId, deviceToken,
-            privatePost, followersPost, draftPost, ownerRefresh);
+            privatePost, followersPost, draftPost, ownerRefresh, tripId);
     }
 
     internal sealed record World(
@@ -484,13 +526,14 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
         Guid PrivatePostId,
         Guid FollowersPostId,
         Guid DraftPostId,
-        string OwnerRefreshToken)
+        string OwnerRefreshToken,
+        Guid TripId)
     {
         /// <summary>What must never appear in an answer to user B. The product is public and the notification ID numeric, so neither is listed.</summary>
         public IReadOnlyList<string> OwnerSecrets =>
         [
             OwnerId.ToString(), OwnerEmail, OwnerPersonaId.ToString(), ItemId.ToString(), AlertId.ToString(), SizeId.ToString(), OutfitId.ToString(),
-            OwnerDeviceToken, PrivatePostId.ToString(), FollowersPostId.ToString(), DraftPostId.ToString(),
+            OwnerDeviceToken, PrivatePostId.ToString(), FollowersPostId.ToString(), DraftPostId.ToString(), TripId.ToString(),
         ];
     }
 

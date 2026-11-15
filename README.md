@@ -299,6 +299,11 @@ or a bad `sessionId`, `platform`, `appVersion`, `occurredAt` or `anonymousId`.
   | `outfit_view` | `kind`, `status` (the outfit's completeness: `Complete`, `NeedsOne` or `CatalogOnly`), `occasion?` |
   | `outfit_shuffle`, `outfit_gap_click` | - |
   | `outfit_feedback` | `action` (`Save`, `Dismiss`, `Worn` or `Shuffle`), `reason?` (a dismiss reason) |
+  | `budget_outfit_view` | `budgetBand` (`under500`, `500to1500`, `1500to5000` or `over5000`), `outfitCount` (0-5), `result` (`fits`, `withoutShoes`, `overBudget` or `none`), `occasion?` |
+  | `budget_outfit_shuffle` | `seed` (0-1000) |
+  | `trip_plan_create` | `days` (1-14), `pieceCount` (0-60), `coveragePercent` (0-100), `gapCount` (0-20) |
+  | `trip_plan_view` | `days` (1-14), `source` (`plan` or `saved`) |
+  | `trip_gap_click` | `slot` (`Top`, `Bottom`, `Outerwear`, `Shoes` or `Accessory`) |
   | `wardrobe_pairings_view` | `companionTotal` (0-500), `hasUnlock` (`true` or `false`) |
   | `wardrobe_unlock_click` | - |
   | `post_view` | `postId`, `source` (`feed`, `profile`, `creator`, `mine`, `link`), optional `position` (0-500) |
@@ -425,6 +430,38 @@ Vision: `Vision:BaseUrl` (compose: `http://vision:8090`; `http://localhost:8092`
 |---|---|---|
 | `wardrobe-analyze` | per item, enqueued by `process` | the photo analysis above; 3 retries |
 | `wardrobe-cleanup` | daily 05:00 `Europe/Istanbul` | deletes the images of items archived more than 30 days ago (the row and its wear history stay), and uploads started but never processed for a day (row and object) |
+
+### Budget outfits and trips ("Bütçeye göre kombin", "Valiz hazırlama")
+
+Built on the outfit engine (scoring, the 60 floor, `Complete`/`NeedsOne`/`CatalogOnly`, seeds, narration); design in
+`docs/design/budget-and-trips.md`.
+
+| Method | Route | Success | Errors |
+|---|---|---|---|
+| POST | `/me/outfits/budget` | 200 `{ budget, date, occasion, audience, useWardrobe, seed, weather, overBudget, withoutShoes, message, outfits: [{ id, status, completeness, score, rule, pieces: [{ slot, role, source, wardrobeItemId, productId, name, categorySlug, color, imageUrl, price, offer: { offerId, seller, price, originalPrice, goPath }, size, sizeUnknown }], totalPrice, remainingBudget, ownedCount, withoutShoes, savings?, overBudgetBy?, narration }] }`; body `{ budget (100-100000 TRY), occasion?, date?, useWardrobe = true, includeShoes = true, seed?, count = 3 (1-5), personaId? }` | 400 validation; 404 `Profile.PersonaNotFound` |
+| POST | `/outfits/budget` (public) | 200 same shape without `id`/`status`; body `{ budget, audience (Women, Men or Unisex), occasion?, date?, includeShoes?, seed?, count? }`. No wardrobe, sizes or weather; nothing stored | 400 validation |
+| POST | `/me/trips/plan` | 200 `{ city, startDate, endDate, pieceCount, pieces: [{ slot, items: [{ wardrobeItemId, name, categorySlug, color, imageUrl, days, missing }] }], days: [{ date, occasion, weather: { source, tempMinC, tempMaxC, temperatureC, band, rain, precipitationProbability, season }, outfit }], coverage: { covered, total, percent }, gaps: [{ slot, reason, message, days, suggestion }], message }`; body `{ city, startDate, endDate (1-14 days, up to a year ahead), occasions?: [{ date, occasion }], maxPieces? (3-60), allowRepeatShoes = true, laundry = false, personaId? }` | 400 validation; 404 `Profile.PersonaNotFound` |
+| POST | `/me/trips` | 201 `{ id, name, request, plannedAt, createdAt, plan }`; body `{ name, request }` (the plan request); the server plans and stores its own result | 400; 404; 409 `Recommendation.TooManyTrips` (50) |
+| GET | `/me/trips` | 200 `{ items: [{ id, name, city, startDate, endDate, pieceCount, coverage, plannedAt, createdAt }] }`, newest first | - |
+| GET | `/me/trips/{id}` | 200 the saved trip; names and images are read live (a piece removed since is `missing`) | 404 `Recommendation.TripNotFound` |
+| POST | `/me/trips/{id}/replan` | 200 the trip with a new plan (from today when it has started) | 404; 409 `Recommendation.TripOver` |
+| DELETE | `/me/trips/{id}` | 204 | 404 |
+
+- **Budget**: every outfit buys at least one piece, costs at most `budget` (each piece at its cheapest in-stock offer in the caller's size, price
+  plus shipping; owned pieces cost 0) and scores at least 60. More owned pieces win at an equal score; two outfits share at most half of their
+  bought pieces. When no outfit with shoes fits, outfits without shoes (top, bottom, the layer the weather needs; same rules and floor) come
+  back with `withoutShoes: true` and "Bu bütçe ayakkabıya yetmedi; ayakkabısız bir kombin hazırladık." (never for a signed-in user who owns
+  shoes: theirs cost 0); `includeShoes: false` ("Ayakkabım var") leaves shoes out from the start, without the message. Only when even that fails,
+  the one outfit closest above the budget (up to 1.5 ×) comes back with `overBudget: true`, `overBudgetBy` and
+  "Bu bütçeyle tam bir kombin çıkmadı; en yakını X ₺."; `savings` appears only with a real crossed-out price. Sizes come from the size map
+  (the brand's own entry, else two other brands agreeing); without one a piece is `sizeUnknown`. Buy links are `/go/{offerId}?src=budget`.
+  Signed-in outfits are stored as kind `Budget`, so save, worn, feedback and dismiss work on them.
+- **Trips**: the smallest set of the caller's own pieces that dresses every day; a top never two days running and at most twice (no cap with
+  `laundry`), a bottom at most three times (no cap with `laundry`), shoes not two days running when `allowRepeatShoes` is false, never the same
+  outfit two days running. Weather per day: `forecast` (Open-Meteo, 16 days), `normal` (the climate normals of the calendar day, three past
+  years from the archive API), or `season`. Gaps (`Missing`, `Weather`, `Occasion`, `NoCombination`, `Repetition`) carry one catalog
+  suggestion with `goPath …?src=trip`; with no day covered the message is "Dolabında bu gezi için yeterli parça yok." Saved trips live in
+  `recommendation.trips` and go with the account.
 
 ### Social
 
@@ -554,6 +591,8 @@ switches them all off (the development settings and the test host do).
 |---|---|---|
 | `auth` | login, register, external sign-in, refresh, cancel-deletion, `DELETE /me` (one bucket) | 10 per 5 minutes per IP |
 | `lens` | `POST /lens/search` | 20 per hour per IP (anonymous), 60 per hour per user |
+| `budget` | `POST /me/outfits/budget`, `POST /outfits/budget` | 20 per hour per IP (anonymous), 60 per hour per user |
+| `trips` | `POST /me/trips/plan`, `POST /me/trips`, `POST /me/trips/{id}/replan` (one bucket) | 30 per hour per user |
 | `uploads` | wardrobe and post upload URLs (one bucket) | 60 per hour per user |
 | `events` | `POST /events` | 600 per 5 minutes per user (per IP while anonymous) |
 | `go` | `GET /go/{offerId}` | 120 per minute per IP |

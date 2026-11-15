@@ -90,6 +90,10 @@ internal static class OutfitResponses
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
+    /// <summary>The buy link of an outfit's catalog piece. Budget outfits say where the click came from (<c>src=budget</c>), as their own screen does.</summary>
+    public static string GoPath(Guid offerId, OutfitKind kind) =>
+        kind == OutfitKind.Budget ? $"/api/v1/go/{offerId}?src={BudgetOutfits.ClickSource}" : $"/api/v1/go/{offerId}";
+
     public static string? SerializeWeather(WeatherSnapshot? snapshot) => snapshot is null ? null : JsonSerializer.Serialize(snapshot, Json);
 
     public static WeatherSnapshot? ReadWeather(string? json) => string.IsNullOrEmpty(json) ? null : JsonSerializer.Deserialize<WeatherSnapshot>(json, Json);
@@ -126,7 +130,7 @@ internal static class OutfitResponses
             .Select(offer => new { offer.Id, offer.Seller.Name, offer.Seller.Slug })
             .ToDictionaryAsync(offer => offer.Id, offer => new SellerRef(offer.Name, offer.Slug), cancellationToken);
 
-        OutfitPieceResponse Piece(OutfitItem item)
+        OutfitPieceResponse Piece(Outfit outfit, OutfitItem item)
         {
             if (item.WardrobeItemId is { } wardrobeId)
             {
@@ -140,7 +144,7 @@ internal static class OutfitResponses
 
             var product = products.GetValueOrDefault(item.ProductId!.Value);
             var offer = item.OfferId is { } offerId && item.Price is { } price
-                ? new OutfitOfferResponse(offerId, sellers.GetValueOrDefault(offerId), price, $"/api/v1/go/{offerId}")
+                ? new OutfitOfferResponse(offerId, sellers.GetValueOrDefault(offerId), price, GoPath(offerId, outfit.Kind))
                 : null;
 
             return new OutfitPieceResponse(
@@ -180,7 +184,7 @@ internal static class OutfitResponses
                     outfit.Rule,
                     outfit.PersonaId,
                     weather is null ? null : OutfitWeatherResponse.From(weather),
-                    [.. ordered.Select(Piece)],
+                    [.. ordered.Select(item => Piece(outfit, item))],
                     completion,
                     anchorPrice,
                     total,

@@ -27,6 +27,7 @@ namespace Kombin.Api.IntegrationTests;
 /// A latency budget means something only on a quiet machine, so the tests run when <c>KOMBIN_PERF=1</c> is set: in CI, in a step of their
 /// own. Without it they are skipped and the fixture starts nothing.
 /// </summary>
+[Collection(LatencyBudgets.Name)]
 public sealed class OutfitPerformanceTests(OutfitPerformanceTests.PerformanceFactory factory) : IClassFixture<OutfitPerformanceTests.PerformanceFactory>
 {
     public const int Products = 50_000;
@@ -140,6 +141,8 @@ public sealed class OutfitPerformanceTests(OutfitPerformanceTests.PerformanceFac
         private readonly SemaphoreSlim _seedLock = new(1, 1);
 
         private (HttpClient Client, List<Guid> Anchors)? _seeded;
+
+        private Dictionary<string, Guid>? _categories;
 
         public async ValueTask InitializeAsync()
         {
@@ -296,13 +299,35 @@ public sealed class OutfitPerformanceTests(OutfitPerformanceTests.PerformanceFac
                 await analyze.ExecuteNonQueryAsync(cancellationToken);
             }
 
+            _categories = categories;
+            var client = await CreateUserWithWardrobeAsync(WardrobePieces, random, cancellationToken);
+
+            // Anchors: a spread of catalog products, the same ones every run.
+            var anchors = Enumerable.Range(0, 20).Select(index => productIds[(index * 2477) % Products]).ToList();
+
+            return (client, anchors);
+        }
+
+        /// <summary>
+        /// A new signed-in user in Istanbul with <paramref name="pieces"/> synthetic wardrobe pieces spread like a real wardrobe: tops and bottoms first,
+        /// then shoes, layers and a few accessories. Call after <see cref="SeedAsync"/> (it needs the categories).
+        /// </summary>
+        public async Task<HttpClient> CreateUserWithWardrobeAsync(int pieces, Random random, CancellationToken cancellationToken)
+        {
+            ArgumentNullException.ThrowIfNull(random);
+
+            var categories = _categories ?? throw new InvalidOperationException("Seed the catalog first.");
+            var leaves = categories.Keys.Order(StringComparer.Ordinal).ToArray();
+            var colours = Enum.GetValues<ProductColor>();
+            var fits = new[] { ProductFit.Slim, ProductFit.Regular, ProductFit.Relaxed, ProductFit.Oversized };
+            var patterns = new[] { ProductPattern.Solid, ProductPattern.Solid, ProductPattern.Solid, ProductPattern.Striped, ProductPattern.Checked, ProductPattern.Printed, ProductPattern.Textured };
+
             var client = CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
             var tokens = await client.RegisterAndReadAsync(cancellationToken: cancellationToken);
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", tokens.AccessToken);
             var userId = (await client.GetJsonAsync("/api/v1/me", cancellationToken)).GetProperty("id").GetGuid();
             await client.SetCityAsync("Istanbul", cancellationToken);
 
-            // 200 pieces spread like a real wardrobe: tops and bottoms first, then shoes, layers and a few accessories.
             var groups = new (string Root, int Share)[] { ("ust-giyim", 35), ("alt-giyim", 25), ("ayakkabi", 15), ("dis-giyim", 15), ("aksesuar", 10) };
             await using (var scope = Services.CreateAsyncScope())
             {
@@ -310,7 +335,7 @@ public sealed class OutfitPerformanceTests(OutfitPerformanceTests.PerformanceFac
                 foreach (var (root, share) in groups)
                 {
                     var rootLeaves = leaves.Where(leaf => leaf.StartsWith(root + "/", StringComparison.Ordinal)).ToArray();
-                    for (var index = 0; index < WardrobePieces * share / 100; index++)
+                    for (var index = 0; index < pieces * share / 100; index++)
                     {
                         db.WardrobeItems.Add(new WardrobeItem
                         {
@@ -329,10 +354,7 @@ public sealed class OutfitPerformanceTests(OutfitPerformanceTests.PerformanceFac
                 await db.SaveChangesAsync(cancellationToken);
             }
 
-            // Anchors: a spread of catalog products, the same ones every run.
-            var anchors = Enumerable.Range(0, 20).Select(index => productIds[(index * 2477) % Products]).ToList();
-
-            return (client, anchors);
+            return client;
         }
     }
 }

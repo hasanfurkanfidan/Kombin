@@ -8,7 +8,9 @@ namespace Kombin.Api.Features.Recommendation;
 // OUTFIT SCORE - rule-based, no ML. Read by the mobile team and by whoever tunes the engine; the rules themselves are in OutfitRules,
 // WeatherRules and Occasions.
 //
-//   An outfit is a top, a bottom and shoes, plus an optional layer (outerwear) and an optional accessory.
+//   An outfit is a top, a bottom and shoes, plus an optional layer (outerwear) and an optional accessory. In a WithoutShoes context (a
+//   budget that cannot pay for shoes, or a user who says they have them) it is a top and a bottom with no shoes at all; every other rule
+//   and the floor are unchanged, and the occasion's required shoe does not apply because there are no shoes to judge.
 //
 //   REJECTED (never suggested) when, for any piece except the how-to-wear anchor:
 //     - the weather bans it, or the layer is forbidden (hot day) / missing although required (cold or rainy day);
@@ -82,6 +84,9 @@ internal sealed record OutfitContext(
     IReadOnlySet<ProductColor> AvoidedColors,
     string? RequiredShoeLeaf)
 {
+    /// <summary>Outfits are judged without shoes (and may not have any): a top and a bottom, plus the layer the weather asks for.</summary>
+    public bool WithoutShoes { get; init; }
+
     /// <summary>The occasion decides the band when there is one (an "event" is formal even for a casual persona); else the persona does.</summary>
     public static OutfitContext Create(Occasion? occasion, PersonaTaste taste, WeatherConditions weather, DateOnly date)
     {
@@ -151,7 +156,8 @@ internal static class OutfitScoring
     public const double UnknownFamilyWeight = 0.5;
 
     /// <summary>
-    /// Scores one outfit. <paramref name="pieces"/> must hold exactly one top, bottom and shoes and at most one outerwear and accessory.
+    /// Scores one outfit. <paramref name="pieces"/> must hold exactly one top, bottom and shoes (no shoes at all when the context is
+    /// <see cref="OutfitContext.WithoutShoes"/>) and at most one outerwear and accessory.
     /// The piece with key <paramref name="anchorKey"/> (how-to-wear) is exempt from the per-piece rules: the user asked about it.
     /// </summary>
     public static OutfitEvaluation Evaluate(IReadOnlyList<OutfitPiece> pieces, OutfitContext context, string? anchorKey = null)
@@ -164,7 +170,8 @@ internal static class OutfitScoring
         var shoes = Single(pieces, OutfitSlot.Shoes);
         var outerwear = pieces.FirstOrDefault(piece => piece.Slot == OutfitSlot.Outerwear);
 
-        if (top is null || bottom is null || shoes is null)
+        var hasShoes = pieces.Any(piece => piece.Slot == OutfitSlot.Shoes);
+        if (top is null || bottom is null || (context.WithoutShoes ? hasShoes : shoes is null))
         {
             return OutfitEvaluation.Rejected;
         }
@@ -178,7 +185,7 @@ internal static class OutfitScoring
                 return OutfitEvaluation.Rejected;
         }
 
-        if (context.RequiredShoeLeaf is { } shoe && shoes.Leaf != shoe && !IsAnchor(shoes))
+        if (shoes is not null && context.RequiredShoeLeaf is { } shoe && shoes.Leaf != shoe && !IsAnchor(shoes))
         {
             return OutfitEvaluation.Rejected;
         }
@@ -238,7 +245,7 @@ internal static class OutfitScoring
         return new OutfitEvaluation(
             true,
             Math.Clamp(score, 0, 100),
-            Explain(pieces, colour, context, top, bottom, outerwear, gaps > 0, anchorKey is not null),
+            Explain(pieces, colour, context, top, bottom, outerwear, gaps == 1, anchorKey is not null),
             colour.Score,
             formality.Score,
             silhouette.Score,
@@ -260,7 +267,11 @@ internal static class OutfitScoring
     public static int WithPersona(int ruleScore, int personaScore) =>
         (int)Math.Round(((RuleShares * ruleScore) + (PersonaShare * personaScore)) / (RuleShares + PersonaShare), MidpointRounding.AwayFromZero);
 
-    /// <summary>The most telling reason the outfit works, in the priority of <see cref="OutfitRule"/>: weather first, then the gap, colour, cut and occasion.</summary>
+    /// <summary>
+    /// The most telling reason the outfit works, in the priority of <see cref="OutfitRule"/>: weather first, then the gap, colour, cut and
+    /// occasion. "The one missing piece" is the reason only when exactly one piece is missing: with two or more (shopping ideas, budget
+    /// outfits) the line would claim the rest is already in the wardrobe, so the colour or the cut speaks instead.
+    /// </summary>
     private static OutfitRule Explain(
         IReadOnlyList<OutfitPiece> pieces, ColorVerdict colour, OutfitContext context, OutfitPiece top, OutfitPiece bottom, OutfitPiece? outerwear, bool hasGap, bool hasAnchor)
     {
