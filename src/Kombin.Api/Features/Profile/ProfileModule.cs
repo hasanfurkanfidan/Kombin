@@ -1,4 +1,5 @@
 using Kombin.Api.Features.Profile.ActivatePersona;
+using Kombin.Api.Features.Profile.AnswerSizePrompt;
 using Kombin.Api.Features.Profile.ArchivePersona;
 using Kombin.Api.Features.Profile.ConfirmSize;
 using Kombin.Api.Features.Profile.CreatePersona;
@@ -7,6 +8,7 @@ using Kombin.Api.Features.Profile.GetProfile;
 using Kombin.Api.Features.Profile.GetSizeHint;
 using Kombin.Api.Features.Profile.GetStyle;
 using Kombin.Api.Features.Profile.ListPersonas;
+using Kombin.Api.Features.Profile.ListSizePrompts;
 using Kombin.Api.Features.Profile.ListSizes;
 using Kombin.Api.Features.Profile.ListStyleCards;
 using Kombin.Api.Features.Profile.SubmitSwipes;
@@ -42,6 +44,10 @@ internal static class ProfileModule
         DeleteSizeEndpoint.Map(sizes);
         GetSizeHintEndpoint.Map(sizes);
         ConfirmSizeEndpoint.Map(sizes);
+
+        var sizePrompts = me.MapGroup("/size-prompts").WithTags("Sizes");
+        ListSizePromptsEndpoint.Map(sizePrompts);
+        AnswerSizePromptEndpoint.Map(sizePrompts);
 
         return app;
     }

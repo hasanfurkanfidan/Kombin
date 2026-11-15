@@ -408,6 +408,10 @@ public sealed class AccountDeletionTests(ApiFactory factory)
         // Buy clicks through the creators' posts, both ways round, and analytics events of the signed-in user.
         await ClickAsync(bystander.Client, await GoPathAsync(anonymous, subjectPost));
         await ClickAsync(subject.Client, await GoPathAsync(anonymous, bystanderPost));
+
+        // The subject's click earned a size question five days later ("Aldın mı? Beden uydu mu?").
+        await factory.WithDbAsync(db => db.Clicks.Where(click => click.UserId == ownerId).ExecuteUpdateAsync(set => set.SetProperty(click => click.ClickedAt, DateTimeOffset.UtcNow.AddDays(-5)), Ct));
+        Assert.Single((await subject.Client.GetJsonAsync("/api/v1/me/size-prompts", Ct)).GetProperty("prompts").EnumerateArray());
         var anonymousId = AnalyticsClientExtensions.NewAnonymousId();
         await subject.Client.PostEventsOkAsync([AnalyticsClientExtensions.Event("app_open", anonymousId: anonymousId)], Ct);
 
@@ -545,6 +549,7 @@ public sealed class AccountDeletionTests(ApiFactory factory)
         ["profile.persona_style_profiles"] = await db.PersonaStyleProfiles.CountAsync(row => db.Personas.Any(persona => persona.Id == row.PersonaId && persona.UserId == userId), Ct),
         ["profile.style_swipes"] = await db.StyleSwipes.CountAsync(row => db.Personas.Any(persona => persona.Id == row.PersonaId && persona.UserId == userId), Ct),
         ["profile.size_entries"] = await db.SizeEntries.CountAsync(row => row.UserId == userId, Ct),
+        ["profile.size_prompts"] = await db.SizePrompts.CountAsync(row => row.UserId == userId, Ct),
         ["engagement.saved_products"] = await db.SavedProducts.CountAsync(row => row.UserId == userId, Ct),
         ["engagement.price_alerts"] = await db.PriceAlerts.CountAsync(row => row.UserId == userId, Ct),
         ["engagement.alert_triggers"] = await db.AlertTriggers.CountAsync(row => row.UserId == userId, Ct),

@@ -4,8 +4,10 @@ using System.Text.Json;
 using Hangfire;
 using Kombin.Api.Common.Storage;
 using Kombin.Api.Features.Recommendation.Weather;
+using Kombin.Api.Features.Wardrobe;
 using Kombin.Api.Persistence;
 using Kombin.Api.Persistence.Entities.Catalog;
+using Kombin.Api.Persistence.Entities.Recommendation;
 using Kombin.Api.Persistence.Entities.Wardrobe;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -101,6 +103,54 @@ public sealed class OutfitPerformanceTests(OutfitPerformanceTests.PerformanceFac
         Assert.True(Percentile(pairings, 95) <= Budget.TotalMilliseconds, $"pairings p95 {Percentile(pairings, 95):F1} ms");
         Assert.True(Percentile(list, 95) <= Budget.TotalMilliseconds, $"grid p95 {Percentile(list, 95):F1} ms");
     }
+
+    [Fact(Skip = SkipMessage, SkipUnless = nameof(Enabled))]
+    public async Task TheWardrobeSummaryStaysWithinThreeHundredMillisecondsAtP95()
+    {
+        var (_, anchors) = await factory.SeedAsync(Ct);
+
+        // A lived-in 200-piece wardrobe (priced, linked to products, worn, in saved outfits) and the worst case for the unlock: five tops that
+        // pair with nothing, so three catalog suggestions are looked up against 50,000 products.
+        var realistic = await factory.CreateUserWithWardrobeAsync(WardrobePieces, new Random(20261115), Ct);
+        await factory.PrepareSummaryWardrobeAsync(await UserIdAsync(realistic), anchors, Ct);
+        var lonely = await factory.CreateUserWithWardrobeAsync(0, new Random(1), Ct);
+        await factory.AddLonelyTopsAsync(await UserIdAsync(lonely), 5, Ct);
+
+        const string url = "/api/v1/me/wardrobe/summary";
+        for (var index = 0; index < 5; index++)
+        {
+            await MeasureAsync(realistic, url);
+            await MeasureAsync(lonely, url);
+        }
+
+        var lived = new List<double>();
+        var unlocks = new List<double>();
+        for (var index = 0; index < Samples; index++)
+        {
+            lived.Add((await MeasureAsync(realistic, url)).Milliseconds);
+            unlocks.Add((await MeasureAsync(lonely, url)).Milliseconds);
+        }
+
+        using var realisticBody = JsonDocument.Parse((await MeasureAsync(realistic, url)).Body);
+        using var lonelyBody = JsonDocument.Parse((await MeasureAsync(lonely, url)).Body);
+        var priced = realisticBody.RootElement.GetProperty("value").GetProperty("counts");
+        var unworn = realisticBody.RootElement.GetProperty("unworn");
+        var lonelyItems = lonelyBody.RootElement.GetProperty("unworn").GetProperty("items").EnumerateArray().ToList();
+
+        var output = TestContext.Current.TestOutputHelper;
+        output?.WriteLine($"summary (200 pieces: {priced.GetProperty("priced").GetInt32()} priced, {priced.GetProperty("estimated").GetInt32()} estimated, {unworn.GetProperty("totalCount").GetInt32()} unworn) p50 {Percentile(lived, 50):F1} ms  p95 {Percentile(lived, 95):F1} ms  max {lived.Max():F1} ms");
+        output?.WriteLine($"summary (3 unlock lookups)  p50 {Percentile(unlocks, 50):F1} ms  p95 {Percentile(unlocks, 95):F1} ms  max {unlocks.Max():F1} ms");
+
+        // The measurements mean something only when the heavy parts were really exercised.
+        Assert.True(unworn.GetProperty("totalCount").GetInt32() > 0);
+        Assert.True(priced.GetProperty("estimated").GetInt32() > 0);
+        Assert.Equal(WardrobeSummaryRules.UnlockLookups, lonelyItems.Count(item => item.GetProperty("unlock").ValueKind == JsonValueKind.Object));
+
+        Assert.True(Percentile(lived, 95) <= Budget.TotalMilliseconds, $"summary p95 {Percentile(lived, 95):F1} ms");
+        Assert.True(Percentile(unlocks, 95) <= Budget.TotalMilliseconds, $"summary with unlocks p95 {Percentile(unlocks, 95):F1} ms");
+    }
+
+    private static async Task<Guid> UserIdAsync(HttpClient client) => (await client.GetJsonAsync("/api/v1/me", Ct)).GetProperty("id").GetGuid();
 
     private static async Task<double> TimeAsync(HttpClient client, string url)
     {
@@ -306,6 +356,88 @@ public sealed class OutfitPerformanceTests(OutfitPerformanceTests.PerformanceFac
             var anchors = Enumerable.Range(0, 20).Select(index => productIds[(index * 2477) % Products]).ToList();
 
             return (client, anchors);
+        }
+
+        /// <summary>
+        /// Makes the wardrobe of <paramref name="userId"/> look lived in for the summary: every piece added 60 days ago, 60 % with a price, 20 %
+        /// linked to a catalog product (<paramref name="productIds"/>), 20 % worn, and 15 saved outfits of three pieces each.
+        /// </summary>
+        public async Task PrepareSummaryWardrobeAsync(Guid userId, IReadOnlyList<Guid> productIds, CancellationToken cancellationToken)
+        {
+            ArgumentNullException.ThrowIfNull(productIds);
+
+            await using var scope = Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<KombinDbContext>();
+            var items = await db.WardrobeItems.Where(item => item.UserId == userId).OrderBy(item => item.Id).ToListAsync(cancellationToken);
+
+            for (var index = 0; index < items.Count; index++)
+            {
+                var item = items[index];
+                switch (index % 10)
+                {
+                    case < 6:
+                        item.PurchasePrice = 199m + (index * 7 % 900);
+                        break;
+                    case 6 or 7:
+                        item.ProductId = productIds[index % productIds.Count];
+                        break;
+                    case 8:
+                        item.WearCount = 1 + (index % 5);
+                        item.LastWornAt = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-(index % 40));
+                        item.PurchasePrice = 349m;
+                        break;
+                }
+            }
+
+            for (var outfitIndex = 0; outfitIndex < 15; outfitIndex++)
+            {
+                var outfit = new Outfit
+                {
+                    UserId = userId,
+                    Kind = OutfitKind.Daily,
+                    Completeness = OutfitCompleteness.Complete,
+                    ForDate = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-outfitIndex),
+                    Rule = "perf",
+                    Hash = Guid.NewGuid().ToString("N"),
+                    Status = OutfitStatus.Saved,
+                    SavedAt = DateTimeOffset.UtcNow,
+                    Narration = "Perf",
+                    NarrationInput = "{}",
+                };
+                outfit.Items.AddRange(Enumerable.Range(0, 3).Select(position => new OutfitItem
+                {
+                    Slot = OutfitSlot.Top,
+                    Role = OutfitItemRole.Wardrobe,
+                    WardrobeItemId = items[(outfitIndex * 3) + position].Id,
+                    Position = position,
+                }));
+                db.Outfits.Add(outfit);
+            }
+
+            await db.SaveChangesAsync(cancellationToken);
+
+            // The audit interceptor owns CreatedAt: backdating goes around it.
+            await db.WardrobeItems.Where(item => item.UserId == userId).ExecuteUpdateAsync(set => set.SetProperty(item => item.CreatedAt, DateTimeOffset.UtcNow.AddDays(-60)), cancellationToken);
+        }
+
+        /// <summary>Adds <paramref name="count"/> white tops, added 60 days ago: two pieces of one slot never pair, so each has no companion.</summary>
+        public async Task AddLonelyTopsAsync(Guid userId, int count, CancellationToken cancellationToken)
+        {
+            await using var scope = Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<KombinDbContext>();
+            var categoryId = await db.Categories.Where(category => category.Slug == "ust-giyim/tisort").Select(category => category.Id).SingleAsync(cancellationToken);
+
+            db.WardrobeItems.AddRange(Enumerable.Range(0, count).Select(_ => new WardrobeItem
+            {
+                UserId = userId,
+                CategoryId = categoryId,
+                PrimaryColor = ProductColor.White,
+                Formality = 3,
+                Seasons = Season.AllYear,
+                Status = WardrobeItemStatus.Ready,
+            }));
+            await db.SaveChangesAsync(cancellationToken);
+            await db.WardrobeItems.Where(item => item.UserId == userId).ExecuteUpdateAsync(set => set.SetProperty(item => item.CreatedAt, DateTimeOffset.UtcNow.AddDays(-60)), cancellationToken);
         }
 
         /// <summary>

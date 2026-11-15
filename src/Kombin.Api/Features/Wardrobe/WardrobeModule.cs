@@ -8,6 +8,7 @@ using Kombin.Api.Features.Wardrobe.GetGaps;
 using Kombin.Api.Features.Wardrobe.GetItem;
 using Kombin.Api.Features.Wardrobe.GetPairings;
 using Kombin.Api.Features.Wardrobe.GetStats;
+using Kombin.Api.Features.Wardrobe.GetSummary;
 using Kombin.Api.Features.Wardrobe.Jobs;
 using Kombin.Api.Features.Wardrobe.ListItems;
 using Kombin.Api.Features.Wardrobe.ProcessItem;
@@ -53,6 +54,7 @@ internal static class WardrobeModule
         UndoWearEndpoint.Map(wardrobe);
         GetStatsEndpoint.Map(wardrobe);
         GetGapsEndpoint.Map(wardrobe);
+        GetSummaryEndpoint.Map(wardrobe);
 
         return app;
     }
