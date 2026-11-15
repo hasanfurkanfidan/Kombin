@@ -26,6 +26,12 @@ internal sealed class OfferConfiguration : IEntityTypeConfiguration<Offer>
         builder.HasIndex(offer => new { offer.SellerId, offer.ExternalId }).IsUnique();
         builder.HasIndex(offer => new { offer.ProductId, offer.IsActive, offer.CurrentPrice });
 
+        // A product's cheapest sellable offer (the budget search's price band): only active, in-stock rows, with what the effective price needs.
+        builder.HasIndex(offer => new { offer.ProductId, offer.CurrentPrice })
+            .HasDatabaseName("ix_offers_sellable_price")
+            .IncludeProperties(offer => new { offer.ShippingCost, offer.FreeShippingThreshold })
+            .HasFilter("is_active AND stock_status IN ('InStock', 'LowStock')");
+
         builder.HasOne(offer => offer.Seller)
             .WithMany()
             .HasForeignKey(offer => offer.SellerId)

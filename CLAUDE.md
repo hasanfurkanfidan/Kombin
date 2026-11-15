@@ -385,7 +385,9 @@ External Python workers (a separate repo) push the catalog through the internal 
 - **What exists:** the outfit engine (`Features/Recommendation`, design in `docs/design/outfit-engine.md`), schema `recommendation`
   (`outfits`, `outfit_items`, `outfit_feedback`, `narrations`), `UserProfile.City`, and `/api/v1/me/outfits`: `GET /daily?date=&occasion=&seed=
   &personaId=`, `GET /how-to-wear?productId=|wardrobeItemId=&count=&seed=&occasion=&personaId=`, `GET /saved`, `GET /{id}`, `POST /{id}/save`,
-  `POST /{id}/worn`, `POST /{id}/feedback`, `DELETE /{id}?reason=`.
+  `POST /{id}/worn`, `POST /{id}/feedback`, `DELETE /{id}?reason=`; budget outfits (`POST /me/outfits/budget`, public `POST /outfits/budget`) and
+  trip packing (`/api/v1/me/trips`: `POST /plan`, `POST /`, `GET /`, `GET /{id}`, `DELETE /{id}`, `POST /{id}/replan`, table `recommendation.trips`),
+  see Budget and trip rules.
 - **Rules + scores, no ML, no LLM in the generation path.** The rules are tables with a comment per entry (`OutfitRules.cs`: colour, formality,
   silhouette, pattern; `WeatherRules.cs`; `Occasions.cs`); the formula is the comment block at the top of `OutfitScoring.cs`. Change a table and its
   comment and `OutfitRulesTests` together. Everything in the engine is pure (`OutfitGenerator`, `OutfitCounter`, `OutfitScoring`); the I/O is in
@@ -427,7 +429,42 @@ External Python workers (a separate repo) push the catalog through the internal 
 - **Performance budget:** daily, how-to-wear, pairings and the wardrobe grid ≤ 300 ms p95 at 200 pieces / 50k products, measured by `OutfitPerformanceTests` on its own
   PostgreSQL container (50k rows would disturb the shared test database). Keep it passing. The tests run only with `KOMBIN_PERF=1` (skipped
   otherwise; the fixture starts nothing), which CI sets in a step of its own: a budget measured next to other tests or a local stack is noise.
+  Every latency-budget class carries `[Collection(LatencyBudgets.Name)]`, a collection that never runs in parallel, so the classes measure one
+  after another; a new one joins it.
   Never loosen the budget to make them pass.
+
+## Budget and trip rules
+
+- **Design: `docs/design/budget-and-trips.md`.** Neither feature has rules about what looks good: outfits come from `OutfitGenerator.Generate`,
+  scores from `OutfitScoring`, the floor (60), completeness, hashes and narration are the engine's. Never fork them; the generator's two optional
+  knobs (`CatalogKept`, `CostCap`) are how the budget search talks to it, and `OutfitGenerator.PieceScore` is the shared per-piece rule.
+- **Budget** (`BudgetSearch` pure, formula at the top of the file; `BudgetCandidates` SQL; `BudgetOutfits` shared by both routes). Hard rules:
+  never over the budget (prices are per piece, price plus that seller's shipping); never below the floor; at least one piece bought (otherwise it is
+  the daily outfit); order = score, more owned pieces, lower total, hash; two shown outfits share at most half of their bought pieces; `seed`
+  selects the window of a 12-entry diverse list; the one over-budget answer (cheapest acceptable outfit up to `OverBudgetReach` 1.5 × the budget)
+  only when nothing fits. Candidates: per slot ≤ 300 (newest 100 in each of 3 price bands up to 1.5 × the budget), through `ix_products_budget`
+  and `ix_offers_sellable_price`; then the shortlist keeps the best 3 per price quartile by piece score. The persona's own budget band is ignored.
+  Offers: the cheapest in the caller's size (`BudgetOffers.Choose`: own size-map entry for the brand, else `SizeInference`); offers listing other
+  sizes only are out; unknown size → `sizeUnknown`. `savings` only with a real crossed-out price. Buy links `/go/{offerId}?src=budget` (also on
+  `GET /me/outfits/{id}` of a `Budget` outfit, `OutfitResponses.GoPath`). Signed-in outfits are stored with `OutfitStore` as `OutfitKind.Budget`;
+  anonymous ones are not stored (template line or a cached LLM line) and use no wardrobe, sizes, persona or weather (`audience` is required).
+- **"The one missing piece" is narrated only for exactly one gap** (`OutfitScoring.Explain`): with two or more (shopping ideas, budget outfits)
+  the colour or the cut speaks, never a line claiming the rest is owned.
+- **Trips** (`TripPlanner` pure, rules and constants at the top of the file; `TripGaps` pure; `TripPlanning` I/O; `TripStore` rows). Wear rules
+  (`TripRules`): no outfit two days running; a top ≤ 2 wears and never two days running (no cap with `laundry`); a bottom ≤ 3 wears (no cap with
+  `laundry`); shoes not two days running when `allowRepeatShoes` is false. Search: per-day pools (piece score + versatility + coverage, the
+  generator's 10/10/6/5), greedy (most constrained day first, fewest new pieces), piece elimination and re-dressing (≤ 4 rounds), a bounded repair
+  (20,000 steps), then `maxPieces` drops days. `TripPlannerTests` compares it with an exact search on generated wardrobes (≤ +1 piece, optimal in
+  ≥ 90 %; the measured numbers are in the design doc): change the search and rerun it. Weather: `IWeatherProvider.GetDaysAsync` (forecast within 16
+  days, climate normals of three past years from Open-Meteo's archive beyond, else season), stated per day. Gaps (`Missing`, `Weather`, `Occasion`,
+  `NoCombination`, `Repetition`) carry one catalog suggestion (narrow prefetch, neutrals, `goPath …?src=trip`); nothing is ever invented.
+- **Saved trips** (`recommendation.trips`, cascade on the user, ≤ 50 per user): the server plans again on save and stores its own snapshot (wardrobe
+  item IDs, scores, weather, gap offers), never a client copy; names and images are read live, a removed or archived piece is `missing`. Re-plan
+  starts from today for a trip under way, 409 `Recommendation.TripOver` after it; a persona gone since falls back to the default one.
+- **Budgets:** budget p95 ≤ 600 ms (signed in with 200 pieces and anonymous, 50k products) and a 14-day trip p95 ≤ 800 ms with 150 pieces,
+  `BudgetAndTripPerformanceTests` (`KOMBIN_PERF=1`, the perf step, the outfit tests' container factory). Never loosen them.
+- **Tests:** the catalog is shared and full of cheap products, so budget integration tests seed their own capsule (`SeedCapsuleAsync`) and
+  assert invariants checked against the database, never which product wins; determinism belongs to `BudgetSearchTests`.
 
 ## Social rules
 
@@ -498,7 +535,8 @@ External Python workers (a separate repo) push the catalog through the internal 
   plus each crop's embedding, and the whole photo's for a photo without regions) and is dropped. "Dolabıma ekle" is the app cropping the
   region on the device and using the normal wardrobe upload flow; the backend has no lens-specific upload. `docs/privacy-notes.md` section 4.
 - **Everything is a `/go`.** Results carry the product list item (`ProductSummaries`), the cheapest sellable offer by effective price
-  (`OutfitSources.CheapestOffersAsync`) and `goPath = /api/v1/go/{offerId}?src=lens` (`lens` is a `ClickSources` value). Never `Offer.Url`.
+  (`OutfitSources.CheapestOffersAsync`) and `goPath = /api/v1/go/{offerId}?src=lens` (`lens` is a `ClickSources` value, like `budget` and
+  `trip`). Never `Offer.Url`.
 - **Audience:** `audience` = an `Audience` name or `all`; left out, a signed-in caller's profile audience applies when it is Women or Men
   (Unisex, the default, means no filter). Women/Men let Unisex through. The response says which filter was applied, so the app can offer to
   drop it.
@@ -566,7 +604,7 @@ External Python workers (a separate repo) push the catalog through the internal 
 - **Rate limiting** is ASP.NET Core's built-in `RateLimiter` (fixed windows, **in memory: per instance**, a second API instance would double every limit),
   set up in `Common/RateLimiting`. Policies (`RateLimitPolicies`, limits in `RateLimits:*`, defaults pinned by `RateLimitTests`): `auth` 10 per 5 min per IP
   (login, register, external, refresh, cancel-deletion and `DELETE /me`: one shared bucket); `lens` 20 per hour per IP when anonymous, 60 per hour per user
-  when signed in; `uploads` 60 per hour per user (wardrobe and post upload-url, one bucket); `events` 600 per 5 min (per user, else per IP); `go` 120 per
+  when signed in; `budget` the same shape for both budget routes (own buckets); `trips` 30 per hour per user (plan, save and re-plan: one bucket); `uploads` 60 per hour per user (wardrobe and post upload-url, one bucket); `events` 600 per 5 min (per user, else per IP); `go` 120 per
   min per IP; and a global fallback of 600 per min per IP under all of them (`/health*` exempt). Keys are the user ID when authenticated (the limiter
   runs after `UseAuthentication`), else the client address as resolved by the forwarded headers. A rejection is 429 `application/problem+json` with
   `errorCode: "RateLimited"`, `retryAfterSeconds`, the correlation ID and a `Retry-After` header. `RateLimits:Enabled=false` turns everything off:
@@ -616,7 +654,7 @@ dotnet format Kombin.slnx --verify-no-changes --no-restore     # drop --verify-n
 dotnet build Kombin.slnx --configuration Release --no-restore
 dotnet test --solution Kombin.slnx --configuration Release --no-build    # integration tests need Docker
 dotnet test --project tests/Kombin.Api.Tests                            # unit tests only, no Docker
-KOMBIN_PERF=1 dotnet test --project tests/Kombin.Api.IntegrationTests --configuration Release -- --filter-class "Kombin.Api.IntegrationTests.OutfitPerformanceTests" --filter-class "Kombin.Api.IntegrationTests.FeedPerformanceTests" --filter-class "Kombin.Api.IntegrationTests.LensPerformanceTests"    # latency budgets, on a quiet machine
+KOMBIN_PERF=1 dotnet test --project tests/Kombin.Api.IntegrationTests --configuration Release -- --filter-class "Kombin.Api.IntegrationTests.OutfitPerformanceTests" --filter-class "Kombin.Api.IntegrationTests.FeedPerformanceTests" --filter-class "Kombin.Api.IntegrationTests.LensPerformanceTests" --filter-class "Kombin.Api.IntegrationTests.BudgetAndTripPerformanceTests"    # latency budgets, on a quiet machine
 
 # Run the API against a local PostgreSQL (docker/.env must define JWT_SIGNING_KEY)
 docker compose --file docker/compose.yaml up --build --detach --wait db
@@ -672,7 +710,8 @@ history) and Profile (user profile and measurements, personas, swipe onboarding 
 rule-based match score, size map with hints) and Notification (devices, notification preferences, the notification feed, push
 delivery through Expo, and the Hangfire jobs above) and Analytics (the allow-listed event intake, identity linking, the weekly beta
 metrics and the operators' Metabase) and Wardrobe (photo items analysed by kombin-vision, catalog items, object storage, wears, stats, gap
-analysis, pairings) and Recommendation (the rule-based outfit engine: daily, how-to-wear, saved outfits, feedback, weather, narration) and
+analysis, pairings) and Recommendation (the rule-based outfit engine: daily, how-to-wear, saved outfits, feedback, weather, narration, budget outfits, trip packing
+and saved trips) and
 Social (versioned posting consent, photo and outfit posts with moderation, metadata stripping and confirmed shoppable tags, likes, follows,
 blocks, reports and review, the feed, try-with-wardrobe, creators with click attribution and earnings estimates) and Lens (visual search:
 catalog embeddings and their job, photo search with family, floor and audience guardrails, wardrobe matches) and Admin (the founder's

@@ -373,6 +373,9 @@ public sealed class AccountDeletionTests(ApiFactory factory)
             Assert.True(savedOutfit.IsSuccessStatusCode);
         }
 
+        var savedTrip = await subject.Client.SaveTripAsync("Gezi", TripClientExtensions.TripRequest("Istanbul", days: 2), Ct);
+        Assert.Equal(HttpStatusCode.Created, savedTrip.Status);
+
         await subject.Client.MakeCreatorAsync(ownerId, $"s{Guid.NewGuid():N}"[..12], Ct);
         await anonymous.MakeCreatorAsync(bystander.Id, $"b{Guid.NewGuid():N}"[..12], Ct);
         var subjectPost = await factory.CreateLivePostAsync(subject.Client, "Public", [SocialClientExtensions.ProductTag(product.ProductId), SocialClientExtensions.UnknownTag("Şapka")], Ct);
@@ -553,6 +556,7 @@ public sealed class AccountDeletionTests(ApiFactory factory)
         ["recommendation.outfits"] = await db.Outfits.CountAsync(row => row.UserId == userId, Ct),
         ["recommendation.outfit_items"] = await db.OutfitItems.CountAsync(row => db.Outfits.Any(outfit => outfit.Id == row.OutfitId && outfit.UserId == userId), Ct),
         ["recommendation.outfit_feedback"] = await db.OutfitFeedback.CountAsync(row => row.UserId == userId, Ct),
+        ["recommendation.trips"] = await db.Trips.CountAsync(row => row.UserId == userId, Ct),
         ["social.posts"] = await db.Posts.CountAsync(row => row.AuthorId == userId, Ct),
         ["social.post_tags"] = await db.PostTags.CountAsync(row => db.Posts.Any(post => post.Id == row.PostId && post.AuthorId == userId), Ct),
         ["social.likes"] = await db.PostLikes.CountAsync(row => row.UserId == userId || db.Posts.Any(post => post.Id == row.PostId && post.AuthorId == userId), Ct),

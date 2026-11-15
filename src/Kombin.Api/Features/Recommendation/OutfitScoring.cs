@@ -238,7 +238,7 @@ internal static class OutfitScoring
         return new OutfitEvaluation(
             true,
             Math.Clamp(score, 0, 100),
-            Explain(pieces, colour, context, top, bottom, outerwear, gaps > 0, anchorKey is not null),
+            Explain(pieces, colour, context, top, bottom, outerwear, gaps == 1, anchorKey is not null),
             colour.Score,
             formality.Score,
             silhouette.Score,
@@ -260,7 +260,11 @@ internal static class OutfitScoring
     public static int WithPersona(int ruleScore, int personaScore) =>
         (int)Math.Round(((RuleShares * ruleScore) + (PersonaShare * personaScore)) / (RuleShares + PersonaShare), MidpointRounding.AwayFromZero);
 
-    /// <summary>The most telling reason the outfit works, in the priority of <see cref="OutfitRule"/>: weather first, then the gap, colour, cut and occasion.</summary>
+    /// <summary>
+    /// The most telling reason the outfit works, in the priority of <see cref="OutfitRule"/>: weather first, then the gap, colour, cut and
+    /// occasion. "The one missing piece" is the reason only when exactly one piece is missing: with two or more (shopping ideas, budget
+    /// outfits) the line would claim the rest is already in the wardrobe, so the colour or the cut speaks instead.
+    /// </summary>
     private static OutfitRule Explain(
         IReadOnlyList<OutfitPiece> pieces, ColorVerdict colour, OutfitContext context, OutfitPiece top, OutfitPiece bottom, OutfitPiece? outerwear, bool hasGap, bool hasAnchor)
     {

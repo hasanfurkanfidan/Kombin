@@ -36,6 +36,12 @@ internal sealed class ProductConfiguration : IEntityTypeConfiguration<Product>
         // The outfit engine's gap prefetch: category + colour + formality band of active products, a few dozen rows out of 50k.
         builder.HasIndex(product => new { product.CategoryId, product.PrimaryColor, product.Formality }).HasFilter("is_active");
 
+        // The budget search's candidates: category family + audience + formality band of active products, newest first per price band.
+        builder.HasIndex(product => new { product.CategoryId, product.Audience, product.Formality })
+            .HasDatabaseName("ix_products_budget")
+            .IncludeProperties(product => new { product.PrimaryColor, product.CreatedAt })
+            .HasFilter("is_active");
+
         builder.HasOne(product => product.Brand)
             .WithMany()
             .HasForeignKey(product => product.BrandId)

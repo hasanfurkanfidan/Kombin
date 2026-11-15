@@ -32,6 +32,7 @@ namespace Kombin.Api.IntegrationTests;
 /// real CLIP embeddings (500 looks of 100 products, one category each), so every search has a full rail of 12 results above the floor.
 /// Synthetic data on its own PostgreSQL container, gated by <c>KOMBIN_PERF=1</c> like <see cref="FeedPerformanceTests"/>.
 /// </summary>
+[Collection(LatencyBudgets.Name)]
 public sealed class LensPerformanceTests(LensPerformanceTests.LensPerformanceFactory factory) : IClassFixture<LensPerformanceTests.LensPerformanceFactory>
 {
     public const int Products = 50_000;

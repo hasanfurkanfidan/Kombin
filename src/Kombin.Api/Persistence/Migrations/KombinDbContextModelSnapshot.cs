@@ -574,6 +574,12 @@ namespace Kombin.Api.Persistence.Migrations
                     b.HasKey("Id")
                         .HasName("pk_offers");
 
+                    b.HasIndex("ProductId", "CurrentPrice")
+                        .HasDatabaseName("ix_offers_sellable_price")
+                        .HasFilter("is_active AND stock_status IN ('InStock', 'LowStock')");
+
+                    NpgsqlIndexBuilderExtensions.IncludeProperties(b.HasIndex("ProductId", "CurrentPrice"), new[] { "ShippingCost", "FreeShippingThreshold" });
+
                     b.HasIndex("SellerId", "ExternalId")
                         .IsUnique()
                         .HasDatabaseName("ix_offers_seller_id_external_id");
@@ -730,6 +736,12 @@ namespace Kombin.Api.Persistence.Migrations
                     b.HasIndex("BrandId", "Slug")
                         .IsUnique()
                         .HasDatabaseName("ix_products_brand_id_slug");
+
+                    b.HasIndex("CategoryId", "Audience", "Formality")
+                        .HasDatabaseName("ix_products_budget")
+                        .HasFilter("is_active");
+
+                    NpgsqlIndexBuilderExtensions.IncludeProperties(b.HasIndex("CategoryId", "Audience", "Formality"), new[] { "PrimaryColor", "CreatedAt" });
 
                     b.HasIndex("CategoryId", "PrimaryColor", "Formality")
                         .HasDatabaseName("ix_products_category_id_primary_color_formality")
@@ -2279,6 +2291,82 @@ namespace Kombin.Api.Persistence.Migrations
                     b.ToTable("narrations", "recommendation");
                 });
 
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Recommendation.Trip", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("City")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("city");
+
+                    b.Property<int>("CoveredDays")
+                        .HasColumnType("integer")
+                        .HasColumnName("covered_days");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateOnly>("EndDate")
+                        .HasColumnType("date")
+                        .HasColumnName("end_date");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("name");
+
+                    b.Property<int>("PieceCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("piece_count");
+
+                    b.Property<string>("PlanJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("plan_json");
+
+                    b.Property<DateTimeOffset>("PlannedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("planned_at");
+
+                    b.Property<string>("RequestJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("request_json");
+
+                    b.Property<DateOnly>("StartDate")
+                        .HasColumnType("date")
+                        .HasColumnName("start_date");
+
+                    b.Property<int>("TotalDays")
+                        .HasColumnType("integer")
+                        .HasColumnName("total_days");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_trips");
+
+                    b.HasIndex("UserId", "CreatedAt")
+                        .HasDatabaseName("ix_trips_user_id_created_at");
+
+                    b.ToTable("trips", "recommendation", t =>
+                        {
+                            t.HasCheckConstraint("ck_trips_dates", "end_date >= start_date");
+                        });
+                });
+
             modelBuilder.Entity("Kombin.Api.Persistence.Entities.Social.CreatorProfile", b =>
                 {
                     b.Property<Guid>("UserId")
@@ -3511,6 +3599,16 @@ namespace Kombin.Api.Persistence.Migrations
                         .HasForeignKey("WardrobeItemId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .HasConstraintName("fk_outfit_items_wardrobe_items_wardrobe_item_id");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Recommendation.Trip", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_trips_users_user_id");
                 });
 
             modelBuilder.Entity("Kombin.Api.Persistence.Entities.Social.CreatorProfile", b =>

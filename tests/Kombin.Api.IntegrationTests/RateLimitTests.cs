@@ -93,6 +93,9 @@ public sealed class RateLimitTests(ApiFactory factory)
         Assert.Equal((10, 300), (limits.Auth.PermitLimit, limits.Auth.WindowSeconds));
         Assert.Equal((20, 3600), (limits.Lens.Anonymous.PermitLimit, limits.Lens.Anonymous.WindowSeconds));
         Assert.Equal((60, 3600), (limits.Lens.Authenticated.PermitLimit, limits.Lens.Authenticated.WindowSeconds));
+        Assert.Equal((20, 3600), (limits.Budget.Anonymous.PermitLimit, limits.Budget.Anonymous.WindowSeconds));
+        Assert.Equal((60, 3600), (limits.Budget.Authenticated.PermitLimit, limits.Budget.Authenticated.WindowSeconds));
+        Assert.Equal((30, 3600), (limits.Trips.PermitLimit, limits.Trips.WindowSeconds));
         Assert.Equal((60, 3600), (limits.Uploads.PermitLimit, limits.Uploads.WindowSeconds));
         Assert.Equal((600, 300), (limits.Events.PermitLimit, limits.Events.WindowSeconds));
         Assert.Equal((120, 60), (limits.Go.PermitLimit, limits.Go.WindowSeconds));
@@ -176,6 +179,50 @@ public sealed class RateLimitTests(ApiFactory factory)
         secondClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", second.AccessToken);
         using var secondResponse = await SendAsync(secondClient, HttpMethod.Post, "/api/v1/lens/search", content: Photo());
         Assert.NotEqual(HttpStatusCode.TooManyRequests, secondResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task BudgetOutfitsAreLimitedLikeVisualSearchAndTripsPerUser()
+    {
+        using var host = Limited(
+            ("RateLimits:Budget:Anonymous:PermitLimit", "2"), ("RateLimits:Budget:Authenticated:PermitLimit", "3"), ("RateLimits:Trips:PermitLimit", "2"));
+        using var anonymous = ClientAt(host);
+        var address = NewAddress();
+
+        // An invalid body is refused by the validator; the limiter counts the request all the same.
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            using var response = await SendAsync(anonymous, HttpMethod.Post, "/api/v1/outfits/budget", address, content: JsonContent.Create(new { budget = 1 }));
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        }
+
+        await AssertRateLimitedAsync(await SendAsync(anonymous, HttpMethod.Post, "/api/v1/outfits/budget", address, content: JsonContent.Create(new { budget = 1 })));
+
+        // Signed in, the same address counts as the user, with the larger limit, across both budget routes.
+        using var userClient = ClientAt(host, address);
+        var tokens = await userClient.RegisterAndReadAsync(cancellationToken: Ct);
+        userClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", tokens.AccessToken);
+
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            using var response = await SendAsync(userClient, HttpMethod.Post, "/api/v1/me/outfits/budget", content: JsonContent.Create(new { budget = 1 }));
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        }
+
+        await AssertRateLimitedAsync(await SendAsync(userClient, HttpMethod.Post, "/api/v1/outfits/budget", content: JsonContent.Create(new { budget = 1 })));
+
+        // Planning and saving trips share one bucket per user.
+        using (var plan = await SendAsync(userClient, HttpMethod.Post, "/api/v1/me/trips/plan", content: JsonContent.Create(new { city = "" })))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, plan.StatusCode);
+        }
+
+        using (var save = await SendAsync(userClient, HttpMethod.Post, "/api/v1/me/trips", content: JsonContent.Create(new { name = "" })))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, save.StatusCode);
+        }
+
+        await AssertRateLimitedAsync(await SendAsync(userClient, HttpMethod.Post, "/api/v1/me/trips/plan", content: JsonContent.Create(new { city = "" })));
     }
 
     [Fact]

@@ -77,6 +77,8 @@ internal sealed class KombinDbContext(DbContextOptions<KombinDbContext> options)
 
     public DbSet<OutfitNarration> OutfitNarrations => Set<OutfitNarration>();
 
+    public DbSet<Trip> Trips => Set<Trip>();
+
     public DbSet<Post> Posts => Set<Post>();
 
     public DbSet<PostTag> PostTags => Set<PostTag>();

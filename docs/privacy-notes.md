@@ -36,7 +36,8 @@ What happens to every table that holds data about a user:
 | `notification.devices` (push tokens) | deactivated at the request, deleted |
 | `notification.notifications`, `notification_preferences` | deleted |
 | `wardrobe.items`, `wardrobe.wears` | deleted; the objects (original, cutout, thumbnail) are deleted from storage first |
-| `recommendation.outfits`, `outfit_items`, `outfit_feedback` | deleted |
+| `recommendation.outfits`, `outfit_items`, `outfit_feedback` | deleted (budget outfits included) |
+| `recommendation.trips` (destination city, dates, plans per day, the packing plan) | deleted |
 | `social.posts`, `post_tags` | deleted; the objects (original, feed image, preview) are deleted from storage first |
 | `social.likes` | the user's likes and the likes on the user's posts are deleted; the like counters of other people's posts go down by one |
 | `social.reports` | the reports the user made are deleted (the report counter of the reported post is left as it is: the report was made); reports on the user's posts go with the posts |
@@ -62,6 +63,8 @@ cancelling inside the window, the admin buttons).
 | Audience (women/men/unisex), measurements, city, personas, swipes, sizes per brand | recommendations; the city fetches the weather | `profile.*` | the user only; the audience is copied onto posts for feed matching (never shown) | until account deletion (section 1a) |
 | Wardrobe photos: private original, public cutout and thumbnail, garment attributes, a CLIP embedding | the wardrobe and outfits | object storage `wardrobe/{user}/{item}/…`, `wardrobe.items` | the original: the user (15-minute presigned link); cutout/thumbnail: **anyone with the URL** (unguessable keys, public bucket policy); the URL is given to other users (a post's wardrobe tag, an outfit post) only after the safety filter allowed the cutout (`wardrobe.items.moderation_verdict`, security review M3) | archived items' images deleted after 30 days; abandoned uploads after 1 day |
 | Wear dates | wear tracking | `wardrobe.wears` | the user | until account deletion (section 1a) |
+| Saved trips: name, destination city, dates, plans per day (office, evening, ...), the packing plan (wardrobe item IDs, the weather used) | "Valiz hazırlama" | `recommendation.trips` | the user only (`/me/trips` is scoped to the caller; another user's ID is 404) | until the user deletes the trip or the account (section 1a); a plan that is only planned, not saved, is not stored |
+| Budget outfits: the outfits suggested for a budget (pieces, prices at suggestion time) | "Bütçeye göre kombin" | `recommendation.outfits` (kind `Budget`), only for signed-in callers; the anonymous route stores nothing, and the budget amount itself is not stored | the user | as other outfits (section 1a) |
 
 The original wardrobe photo is sent to `kombin-vision`, which processes it in memory and stores nothing; the cutout then goes to its `/v1/moderate` (allow / review / block, only the verdict and its time are stored). Wardrobe originals are **not**
 metadata-stripped (they are private and never shown); see open questions.
@@ -196,7 +199,7 @@ addresses or tokens. Neither is searched per user.
 | `kombin-vision` | photos for analysis, moderation and detection, visual-search query photos; stores nothing | our own service, same deployment |
 | Let's Encrypt | the domain names, for the TLS certificates (no user data) | Let's Encrypt |
 | Expo Push Service | push tokens and notification text | Expo (US) |
-| Open-Meteo | the profile's city (no user ID) | Open-Meteo (EU) |
+| Open-Meteo | the profile's city, and a trip's destination with its dates (forecast and archive APIs; no user ID) | Open-Meteo (EU) |
 | Anthropic (only if `Narration:Provider = Anthropic`) | outfit summaries (garment categories/colours, no photos, no user data) | Anthropic (US) |
 | Affiliate networks / sellers | the redirect with our click ID | the seller's site |
 

@@ -52,6 +52,29 @@ internal static partial class AnalyticsEventCatalog
         ["outfit_feedback"] = [Required("action", OneOf<OutfitFeedbackAction>()), Optional("reason", OneOf<DismissReason>())],
         ["outfit_gap_click"] = [],
 
+        // Budget outfits: the budget as a band, never the amount; `result` says whether outfits fit, only the closest one over the budget came
+        // back, or nothing did. Shuffling is the next seed.
+        ["budget_outfit_view"] =
+        [
+            Required("budgetBand", OneOf("under500", "500to1500", "1500to5000", "over5000")),
+            Required("outfitCount", Integer(0, 5)),
+            Required("result", OneOf("fits", "overBudget", "none")),
+            Optional("occasion", OneOf<Occasion>()),
+        ],
+        ["budget_outfit_shuffle"] = [Required("seed", Integer(0, 1000))],
+
+        // Trips: numbers only (never the destination or the dates). `source` says whether a plan was just made or a saved one opened; a gap
+        // click names the slot of the suggested piece.
+        ["trip_plan_create"] =
+        [
+            Required("days", Integer(1, 14)),
+            Required("pieceCount", Integer(0, 60)),
+            Required("coveragePercent", Integer(0, 100)),
+            Required("gapCount", Integer(0, 20)),
+        ],
+        ["trip_plan_view"] = [Required("days", Integer(1, 14)), Required("source", OneOf("plan", "saved"))],
+        ["trip_gap_click"] = [Required("slot", OneOf<OutfitSlot>())],
+
         // Pairings: how many pieces the wardrobe item goes with (capped like the engine's counts) and whether a catalog suggestion is shown.
         ["wardrobe_pairings_view"] = [Required("companionTotal", Integer(0, 500)), Required("hasUnlock", Boolean)],
         ["wardrobe_unlock_click"] = [],

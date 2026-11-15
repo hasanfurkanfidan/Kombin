@@ -5,7 +5,7 @@ internal static class ClickSources
 {
     public const string Unknown = "unknown";
 
-    public static readonly IReadOnlyList<string> Allowed = ["product_detail", "outfit", "saved", "alert", "feed", "lens", Unknown];
+    public static readonly IReadOnlyList<string> Allowed = ["product_detail", "outfit", "saved", "alert", "feed", "lens", "budget", "trip", Unknown];
 
     public static string Normalize(string? source)
     {

@@ -25,7 +25,8 @@ A **rule table + weighted score + diverse pick** pipeline, pure and in memory, f
    the anchor/outfit (neutrals + same/analogous/complementary), formality band, active with a sellable offer, persona audience
    and budget, newest 30. The cheapest seller is chosen with `GetProductEndpoint.EffectivePrice` (price + shipping), the
    catalog's own ordering. A partial index `(category_id, primary_color, formality) WHERE is_active` keeps it narrow at 50k.
-6. **Narrate.** `TemplateNarrator` writes the line synchronously (deterministic per outfit). When `Narration:Provider = Anthropic`,
+6. **Narrate.** `TemplateNarrator` writes the line synchronously (deterministic per outfit). The "one missing piece" rule (`Gap`) is chosen
+   only when exactly one piece is missing; shopping ideas and budget outfits (two or more) are explained by their colour or cut instead. When `Narration:Provider = Anthropic`,
    a cached LLM line is used if one exists; otherwise the response carries the template line and an `outfit-narrate` Hangfire job
    upgrades it in the background (one call per outfit set, cached by narration hash for 7 days in `recommendation.narrations`).
 

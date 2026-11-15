@@ -18,6 +18,10 @@ internal static class RateLimitPolicies
     public const string Events = "events";
 
     public const string Go = "go";
+
+    public const string Budget = "budget";
+
+    public const string Trips = "trips";
 }
 
 /// <summary>Who a request counts against: the signed-in user's ID, else the client address (after forwarded headers, so the real one behind the proxy).</summary>
@@ -37,9 +41,9 @@ internal static class RateLimitKeys
 }
 
 /// <summary>
-/// ASP.NET Core's built-in rate limiter, in memory (per instance), fixed windows. Policies: <c>auth</c> (per IP), <c>lens</c> (per user, else per
-/// IP, different limits), <c>uploads</c>, <c>events</c> (per user, else per IP), <c>go</c> (per IP) and a global fallback (per IP) under all of
-/// them. A rejected request is a 429 problem document with <c>errorCode: "RateLimited"</c> and a <c>Retry-After</c> header. Limits are read from
+/// ASP.NET Core's built-in rate limiter, in memory (per instance), fixed windows. Policies: <c>auth</c> (per IP), <c>lens</c> and <c>budget</c>
+/// (per user, else per IP, different limits), <c>uploads</c>, <c>events</c>, <c>trips</c> (per user, else per IP), <c>go</c> (per IP) and a
+/// global fallback (per IP) under all of them. A rejected request is a 429 problem document with <c>errorCode: "RateLimited"</c> and a <c>Retry-After</c> header. Limits are read from
 /// <see cref="RateLimitOptions"/> when a caller's limiter is first created, so configuration applied after Program.cs still wins.
 /// </summary>
 internal static class RateLimitingSetup
@@ -76,6 +80,13 @@ internal static class RateLimitingSetup
                     context,
                     "lens:" + RateLimitKeys.UserOrClient(context),
                     limits => RateLimitKeys.User(context) is null ? limits.Lens.Anonymous : limits.Lens.Authenticated));
+            options.AddPolicy(
+                RateLimitPolicies.Budget,
+                context => Policy(
+                    context,
+                    "budget:" + RateLimitKeys.UserOrClient(context),
+                    limits => RateLimitKeys.User(context) is null ? limits.Budget.Anonymous : limits.Budget.Authenticated));
+            options.AddPolicy(RateLimitPolicies.Trips, context => Policy(context, "trips:" + RateLimitKeys.UserOrClient(context), limits => limits.Trips));
         });
 
         return services;

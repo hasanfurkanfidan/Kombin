@@ -22,6 +22,8 @@ public sealed partial class CopyGlossaryTests
         "Features/Recommendation/GetDaily/Endpoint.cs",
         "Features/Recommendation/GetHowToWear/Endpoint.cs",
         "Features/Recommendation/OutfitResponses.cs",
+        "Features/Recommendation/BudgetOutfits.cs",
+        "Features/Recommendation/TripPlanning.cs",
         "Features/Wardrobe/GapAnalysis.cs",
     ];
 

@@ -22,8 +22,11 @@ internal sealed class RateLimitWindow
     public TimeSpan Window => TimeSpan.FromSeconds(WindowSeconds);
 }
 
-/// <summary>Visual search has two limits: the anonymous caller's (per IP) and the signed-in user's (per user).</summary>
-internal sealed class LensRateLimits
+/// <summary>
+/// An endpoint with two limits: the anonymous caller's (per IP) and the signed-in user's (per user). Visual search and budget outfits (both an
+/// acquisition screen and an expensive query) have one each.
+/// </summary>
+internal sealed class TwoTierRateLimits
 {
     public RateLimitWindow Anonymous { get; set; } = new(20, 3600);
 
@@ -44,7 +47,13 @@ internal sealed class RateLimitOptions
     /// <summary>Login, register, external sign-in, refresh, cancel-deletion and <c>DELETE /me</c>: 10 per 5 minutes per IP.</summary>
     public RateLimitWindow Auth { get; set; } = new(10, 300);
 
-    public LensRateLimits Lens { get; set; } = new();
+    public TwoTierRateLimits Lens { get; set; } = new();
+
+    /// <summary>Budget outfits, signed in or not: like visual search, 20 per hour per IP anonymously, 60 per hour per user signed in (own buckets).</summary>
+    public TwoTierRateLimits Budget { get; set; } = new();
+
+    /// <summary>Trip planning (plan, save, re-plan: one bucket): 30 per hour per user.</summary>
+    public RateLimitWindow Trips { get; set; } = new(30, 3600);
 
     /// <summary>Upload URLs of the wardrobe and of posts: 60 per hour per user.</summary>
     public RateLimitWindow Uploads { get; set; } = new(60, 3600);
@@ -68,6 +77,9 @@ internal sealed class RateLimitOptionsValidator : IValidateOptions<RateLimitOpti
         Check("Auth", options.Auth, failures);
         Check("Lens:Anonymous", options.Lens.Anonymous, failures);
         Check("Lens:Authenticated", options.Lens.Authenticated, failures);
+        Check("Budget:Anonymous", options.Budget.Anonymous, failures);
+        Check("Budget:Authenticated", options.Budget.Authenticated, failures);
+        Check("Trips", options.Trips, failures);
         Check("Uploads", options.Uploads, failures);
         Check("Events", options.Events, failures);
         Check("Go", options.Go, failures);
