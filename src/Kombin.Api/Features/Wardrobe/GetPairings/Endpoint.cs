@@ -112,8 +112,11 @@ internal static class GetPairingsEndpoint
             unlock));
     }
 
-    /// <summary>Goes through the slots emptiest first and stops at the first with something to suggest; usually that is one catalog query.</summary>
-    private static async Task<PairingUnlock?> FindUnlockAsync(
+    /// <summary>
+    /// Goes through the slots emptiest first and stops at the first with something to suggest; usually that is one catalog query. Also used by the
+    /// wardrobe summary for the pieces with no companion.
+    /// </summary>
+    internal static async Task<PairingUnlock?> FindUnlockAsync(
         KombinDbContext db,
         Guid userId,
         OutfitPiece item,

@@ -1835,6 +1835,71 @@ namespace Kombin.Api.Persistence.Migrations
                     b.ToTable("size_entries", "profile");
                 });
 
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Profile.SizePrompt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Answer")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("answer");
+
+                    b.Property<DateTimeOffset?>("AnsweredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("answered_at");
+
+                    b.Property<string>("AnsweredSize")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("answered_size");
+
+                    b.Property<long>("ClickId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("click_id");
+
+                    b.Property<DateTimeOffset>("ClickedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("clicked_at");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("OfferId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("offer_id");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("product_id");
+
+                    b.Property<Guid>("SellerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("seller_id");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_size_prompts");
+
+                    b.HasIndex("ProductId")
+                        .HasDatabaseName("ix_size_prompts_product_id");
+
+                    b.HasIndex("UserId", "ProductId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_size_prompts_user_id_product_id");
+
+                    b.ToTable("size_prompts", "profile");
+                });
+
             modelBuilder.Entity("Kombin.Api.Persistence.Entities.Profile.StyleCard", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2000,6 +2065,10 @@ namespace Kombin.Api.Persistence.Migrations
                         .HasPrecision(4, 1)
                         .HasColumnType("numeric(4,1)")
                         .HasColumnName("shoe_size_eu");
+
+                    b.Property<bool>("SizePromptsEnabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("size_prompts_enabled");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
@@ -3509,6 +3578,23 @@ namespace Kombin.Api.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_size_entries_users_user_id");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Profile.SizePrompt", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.Catalog.Product", null)
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_size_prompts_products_product_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_size_prompts_users_user_id");
                 });
 
             modelBuilder.Entity("Kombin.Api.Persistence.Entities.Profile.StyleSwipe", b =>

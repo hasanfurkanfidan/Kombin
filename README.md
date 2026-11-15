@@ -124,10 +124,12 @@ A provider with no client ID answers 503 `Identity.ExternalProviderDisabled`; bl
 
 | Method | Route | Auth | Success | Errors |
 |---|---|---|---|---|
-| GET | `/me/profile` | Bearer | 200 `{ audience, birthYear, heightCm, weightKg, chestCm, waistCm, hipCm, shoeSizeEu, city, activePersona, personaCount, onboardingCompleted, onboardingCompletedAt }`; created on first use | 401 |
-| PUT | `/me/profile` | Bearer | 200 same shape; body any of `{ audience, birthYear, heightCm, weightKg, chestCm, waistCm, hipCm, shoeSizeEu, city }` | 400 validation, 401 |
+| GET | `/me/profile` | Bearer | 200 `{ audience, birthYear, heightCm, weightKg, chestCm, waistCm, hipCm, shoeSizeEu, city, activePersona, personaCount, onboardingCompleted, onboardingCompletedAt, sizePromptsEnabled }`; created on first use | 401 |
+| PUT | `/me/profile` | Bearer | 200 same shape; body any of `{ audience, birthYear, heightCm, weightKg, chestCm, waistCm, hipCm, shoeSizeEu, city, sizePromptsEnabled }` | 400 validation, 401 |
+| GET | `/me/size-prompts` | Bearer | 200 `{ prompts: [{ id, product { id, name, imageUrl }, brand, seller { name, slug }, group, knownSize { size, source, confidence }?, availableSizes, clickedAt, expiresAt }] }`: the open "Aldın mı? Beden uydu mu?" questions (a click through `/go` earns one 3 days later, until answered or 30 days), newest first, at most 3; empty while `sizePromptsEnabled` is false | 401 |
+| POST | `/me/size-prompts/{id}` | Bearer | 200 `{ answer, sizeEntry? }`; body `{ answer: BoughtFits \| BoughtTooSmall \| BoughtTooLarge \| NotBought \| NeverAsk, size? }` (`size` required for `BoughtFits`). A fit stores the size as `Confirmed` (confidence 1); too small / too large only lowers the stored size's confidence to 0.5, never picks a size; the others change no size | 400 validation, 401, 404 `Profile.SizePromptNotFound`, 409 `Profile.SizePromptExpired` / `Profile.SizePromptAnswered` |
 
-`PUT /me/profile` follows the seller PUT: **a field left out is unchanged, an explicit null clears it**, so a client can send only what it
+`sizePromptsEnabled` ("beden sorularını kapat", default true; a missing or null value keeps it) switches the size questions off. `PUT /me/profile` follows the seller PUT: **a field left out is unchanged, an explicit null clears it**, so a client can send only what it
 changes. `audience` is the exception: a null keeps it too, a profile always has one. `city` (at most 80 characters of letters, spaces, dots,
 apostrophes and hyphens; a blank clears it like a null) is where the outfit engine reads the weather; without one, outfits go by the season.
 
@@ -306,6 +308,9 @@ or a bad `sessionId`, `platform`, `appVersion`, `occurredAt` or `anonymousId`.
   | `trip_gap_click` | `slot` (`Top`, `Bottom`, `Outerwear`, `Shoes` or `Accessory`) |
   | `wardrobe_pairings_view` | `companionTotal` (0-500), `hasUnlock` (`true` or `false`) |
   | `wardrobe_unlock_click` | - |
+  | `wardrobe_summary_view` | `pieceCount` (0-2000), `unwornCount` (0-2000), `hasEstimate` (`true` or `false`) |
+  | `size_prompt_view` | `promptId` |
+  | `size_prompt_answer` | `promptId`, `answer` (`BoughtFits`, `BoughtTooSmall`, `BoughtTooLarge`, `NotBought`, `NeverAsk`) |
   | `post_view` | `postId`, `source` (`feed`, `profile`, `creator`, `mine`, `link`), optional `position` (0-500) |
   | `post_tag_tap` | `postId`, `tagKind` (`Wardrobe`, `Product`, `Unknown`), `hasOffer` (`true` or `false`) |
   | `post_like` | `postId`, `liked` (`true` or `false`) |
@@ -385,6 +390,7 @@ A good first dashboard is `analytics.weekly_metrics` (a line per `metric`, `week
 | DELETE | `/items/{id}/wear/{yyyy-MM-dd}` | 200 same shape with `wornOn: null`, idempotent | 404 |
 | GET | `/stats` | 200 `{ itemCount, byCategory: [{ slug, count }], byColor: [{ color, count }], unwornFor180Days, mostWorn: [3], leastWorn: [3], possibleOutfits, unmatchedCount }`; `possibleOutfits` is the outfit engine's count of complete core outfits, capped at 999; `unmatchedCount` the wearable pieces that pair with nothing (`companionCount` 0) | - |
 | GET | `/gaps` | 200 `{ personaId, gaps: [{ kind, message, categorySlug, color, formality, band, unlocksEstimate }], suggestedProducts: [3] }` | - |
+| GET | `/summary` | 200 `{ pieceCount, message? }` with fewer than 5 ready pieces (nothing else); otherwise `{ pieceCount, value: { currency, total?, knownTotal, estimatedTotal, isEstimate, counts: { priced, estimated, unpriced }, byCategory: [{ slug, name, pieceCount, unpricedCount, total?, estimatedTotal, isEstimate }], note? }, costPerWear: [{ item, price, priceIsEstimate, wearCount, costPerWear }], unworn: { totalCount, items: [{ item, daysInWardrobe, reason?: NoPartner \| OutOfSeason, reasonText?, unlock? }], message? } }`. Own prices are facts, catalog prices of linked pieces are estimates (`isEstimate`, the app says "tahmini"); design in `docs/design/wardrobe-summary-and-size-memory.md` | - |
 
 **Photo flow.** `upload-url` → the app PUTs the photo straight to storage → `process` → the `wardrobe-analyze` job (Hangfire, started at
 once through PostgreSQL LISTEN/NOTIFY) sends the original to `kombin-vision` (`POST /v1/garment/analyze`), stores the cutout (PNG) and

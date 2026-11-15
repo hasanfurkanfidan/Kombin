@@ -79,6 +79,13 @@ internal static partial class AnalyticsEventCatalog
         ["wardrobe_pairings_view"] = [Required("companionTotal", Integer(0, 500)), Required("hasUnlock", Boolean)],
         ["wardrobe_unlock_click"] = [],
 
+        // Wardrobe summary ("Dolap değeri", "Giymediklerin"): counts only, never a price. `hasEstimate` is whether the total shown includes estimated prices.
+        ["wardrobe_summary_view"] = [Required("pieceCount", Integer(0, 2000)), Required("unwornCount", Integer(0, 2000)), Required("hasEstimate", Boolean)],
+
+        // Size memory ("Aldın mı? Beden uydu mu?"): the question by ID, the answer by enum name; the size itself is never an event property.
+        ["size_prompt_view"] = [Required("promptId", Id)],
+        ["size_prompt_answer"] = [Required("promptId", Id), Required("answer", OneOf<SizePromptAnswer>())],
+
         // Social: posts are referred to by ID only (never the caption). `position` is the card's index in the feed; `status` how a post
         // flow ended (`Cancelled` when the user backed out); a tag tap says what kind of tag it was and whether it had a price.
         ["post_view"] = [Required("postId", Id), Required("source", OneOf("feed", "profile", "creator", "mine", "link")), Optional("position", Integer(0, 500))],

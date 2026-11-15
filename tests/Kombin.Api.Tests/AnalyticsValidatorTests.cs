@@ -78,6 +78,9 @@ public class AnalyticsValidatorTests
             ["trip_gap_click"] = """{"slot":"Shoes"}""",
             ["wardrobe_pairings_view"] = """{"companionTotal":12,"hasUnlock":true}""",
             ["wardrobe_unlock_click"] = null,
+            ["wardrobe_summary_view"] = """{"pieceCount":24,"unwornCount":5,"hasEstimate":true}""",
+            ["size_prompt_view"] = $$"""{"promptId":"{{ProductId}}"}""",
+            ["size_prompt_answer"] = $$"""{"promptId":"{{ProductId}}","answer":"BoughtTooSmall"}""",
             ["post_view"] = $$"""{"postId":"{{ProductId}}","source":"feed","position":2}""",
             ["post_tag_tap"] = $$"""{"postId":"{{ProductId}}","tagKind":"Product","hasOffer":true}""",
             ["post_like"] = $$"""{"postId":"{{ProductId}}","liked":true}""",
@@ -193,6 +196,13 @@ public class AnalyticsValidatorTests
     [InlineData("wardrobe_pairings_view", """{"companionTotal":3}""", "hasUnlock")]
     [InlineData("wardrobe_pairings_view", """{"companionTotal":3,"hasUnlock":"true"}""", "hasUnlock")]
     [InlineData("wardrobe_pairings_view", """{"companionTotal":3,"hasUnlock":1}""", "hasUnlock")]
+    [InlineData("wardrobe_summary_view", """{"pieceCount":-1,"unwornCount":0,"hasEstimate":false}""", "pieceCount")]
+    [InlineData("wardrobe_summary_view", """{"pieceCount":3,"unwornCount":0}""", "hasEstimate")]
+    [InlineData("wardrobe_summary_view", """{"pieceCount":3,"unwornCount":0,"hasEstimate":false,"total":1200}""", "total")]
+    [InlineData("size_prompt_view", """{"promptId":"not-a-guid"}""", "promptId")]
+    [InlineData("size_prompt_view", """{}""", "promptId")]
+    [InlineData("size_prompt_answer", """{"promptId":"00000000-0000-0000-0000-000000000001","answer":"Sort of"}""", "answer")]
+    [InlineData("size_prompt_answer", """{"promptId":"00000000-0000-0000-0000-000000000001","answer":"BoughtFits","size":"M"}""", "size")]
     [InlineData("auth_external", """{"provider":"facebook","isNewUser":false}""", "provider")]
     [InlineData("auth_external", """{"isNewUser":true}""", "provider")]
     [InlineData("auth_external", """{"provider":"apple"}""", "isNewUser")]

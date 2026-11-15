@@ -88,6 +88,11 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
         ["PUT /api/v1/me/sizes"] = Exempt("Records a size of the caller for a brand (public slug)."),
         ["POST /api/v1/me/sizes/confirm"] = Exempt("Records a size of the caller for a catalog product (public ID)."),
         ["GET /api/v1/me/sizes/hint"] = ScopedRead("/api/v1/me/sizes/hint?productId={product}"),
+        ["GET /api/v1/me/size-prompts"] = ScopedRead("/api/v1/me/size-prompts"),
+        ["POST /api/v1/me/size-prompts/{id:guid}"] = Probe(
+            w => Json(HttpMethod.Post, $"/api/v1/me/size-prompts/{w.SizePromptId}", new { answer = "NeverAsk" }),
+            [HttpStatusCode.NotFound],
+            async (w, f) => Assert.Null(await f.WithDbAsync(db => db.SizePrompts.Where(prompt => prompt.Id == w.SizePromptId).Select(prompt => prompt.Answer).SingleAsync(Ct)))),
         ["DELETE /api/v1/me/sizes/{id:guid}"] = Probe(
             w => new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/me/sizes/{w.SizeId}"),
             [HttpStatusCode.NotFound],
@@ -118,6 +123,7 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
         ["GET /api/v1/me/wardrobe/items"] = ScopedRead("/api/v1/me/wardrobe/items"),
         ["GET /api/v1/me/wardrobe/stats"] = ScopedRead("/api/v1/me/wardrobe/stats"),
         ["GET /api/v1/me/wardrobe/gaps"] = ScopedRead("/api/v1/me/wardrobe/gaps"),
+        ["GET /api/v1/me/wardrobe/summary"] = ScopedRead("/api/v1/me/wardrobe/summary"),
         ["GET /api/v1/me/wardrobe/items/{id:guid}"] = Probe(w => new HttpRequestMessage(HttpMethod.Get, $"/api/v1/me/wardrobe/items/{w.ItemId}"), [HttpStatusCode.NotFound]),
         ["GET /api/v1/me/wardrobe/items/{id:guid}/pairings"] = Probe(w => new HttpRequestMessage(HttpMethod.Get, $"/api/v1/me/wardrobe/items/{w.ItemId}/pairings"), [HttpStatusCode.NotFound]),
         ["PATCH /api/v1/me/wardrobe/items/{id:guid}"] = Probe(
@@ -458,6 +464,21 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
             await db.SaveChangesAsync(cancellation);
             return entry.Id;
         });
+        var sizePromptId = await factory.WithDbAsync(async db =>
+        {
+            var prompt = new SizePrompt
+            {
+                UserId = owner.Id,
+                ProductId = product.ProductId,
+                SellerId = await db.Offers.Where(candidate => candidate.Id == product.OfferId).Select(candidate => candidate.SellerId).SingleAsync(cancellation),
+                OfferId = product.OfferId,
+                ClickId = 1,
+                ClickedAt = DateTimeOffset.UtcNow.AddDays(-5),
+            };
+            db.SizePrompts.Add(prompt);
+            await db.SaveChangesAsync(cancellation);
+            return prompt.Id;
+        });
         var outfitId = await factory.WithDbAsync(async db =>
         {
             var outfit = new Outfit
@@ -507,7 +528,7 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
         var ownerRefresh = (await login.ReadTokensAsync(cancellation)).RefreshToken;
 
         return new World(
-            owner.Id, ownerEmail, intruder, ownerPersona, itemId, product.ProductId, alertId, sizeId, outfitId, notificationId, deviceToken,
+            owner.Id, ownerEmail, intruder, ownerPersona, itemId, product.ProductId, alertId, sizeId, sizePromptId, outfitId, notificationId, deviceToken,
             privatePost, followersPost, draftPost, ownerRefresh, tripId);
     }
 
@@ -520,6 +541,7 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
         Guid ProductId,
         Guid AlertId,
         Guid SizeId,
+        Guid SizePromptId,
         Guid OutfitId,
         long NotificationId,
         string OwnerDeviceToken,
@@ -532,7 +554,7 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
         /// <summary>What must never appear in an answer to user B. The product is public and the notification ID numeric, so neither is listed.</summary>
         public IReadOnlyList<string> OwnerSecrets =>
         [
-            OwnerId.ToString(), OwnerEmail, OwnerPersonaId.ToString(), ItemId.ToString(), AlertId.ToString(), SizeId.ToString(), OutfitId.ToString(),
+            OwnerId.ToString(), OwnerEmail, OwnerPersonaId.ToString(), ItemId.ToString(), AlertId.ToString(), SizeId.ToString(), SizePromptId.ToString(), OutfitId.ToString(),
             OwnerDeviceToken, PrivatePostId.ToString(), FollowersPostId.ToString(), DraftPostId.ToString(), TripId.ToString(),
         ];
     }

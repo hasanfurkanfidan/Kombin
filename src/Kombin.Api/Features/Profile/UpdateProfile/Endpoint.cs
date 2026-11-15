@@ -10,12 +10,15 @@ namespace Kombin.Api.Features.Profile.UpdateProfile;
 /// <summary>
 /// The measurements and the city, the same way as the seller PUT: left out = unchanged, an explicit null = cleared. The <c>*Set</c> flags
 /// record which of them the body contained; the JSON reader only calls an init accessor for a property that is present. <c>Audience</c> is
-/// the exception, a null keeps the current one too (a profile always has an audience). <c>City</c> (at most 80 characters; blank clears it)
+/// the exception, a null keeps the current one too (a profile always has an audience), and so is <c>SizePromptsEnabled</c> ("beden sorularını kapat":
+/// false stops the "did the size fit?" questions, a flag is never cleared). <c>City</c> (at most 80 characters; blank clears it)
 /// is where the outfit engine reads the weather.
 /// </summary>
 internal sealed record UpdateProfileRequest
 {
     public string? Audience { get; init; }
+
+    public bool? SizePromptsEnabled { get; init; }
 
     public int? BirthYear
     {
@@ -139,6 +142,11 @@ internal static class UpdateProfileEndpoint
         if (request.Audience is not null)
         {
             profile.Audience = Enum.Parse<Audience>(request.Audience, ignoreCase: true);
+        }
+
+        if (request.SizePromptsEnabled is { } sizePromptsEnabled)
+        {
+            profile.SizePromptsEnabled = sizePromptsEnabled;
         }
 
         if (request.BirthYearSet)

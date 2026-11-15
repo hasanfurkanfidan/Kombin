@@ -55,6 +55,8 @@ internal sealed class KombinDbContext(DbContextOptions<KombinDbContext> options)
 
     public DbSet<SizeEntry> SizeEntries => Set<SizeEntry>();
 
+    public DbSet<SizePrompt> SizePrompts => Set<SizePrompt>();
+
     public DbSet<Device> Devices => Set<Device>();
 
     public DbSet<NotificationPreference> NotificationPreferences => Set<NotificationPreference>();

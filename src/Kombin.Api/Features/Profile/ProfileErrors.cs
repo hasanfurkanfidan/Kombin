@@ -20,6 +20,16 @@ internal static class ProfileErrors
     public static readonly Error SizeEntryNotFound =
         Error.NotFound("Profile.SizeEntryNotFound", "The size entry does not exist.");
 
+    // Also the answer for someone else's question.
+    public static readonly Error SizePromptNotFound =
+        Error.NotFound("Profile.SizePromptNotFound", "The size question does not exist.");
+
+    public static readonly Error SizePromptExpired =
+        Error.Conflict("Profile.SizePromptExpired", "The size question has expired.");
+
+    public static readonly Error SizePromptAnswered =
+        Error.Conflict("Profile.SizePromptAnswered", "The size question has already been answered.");
+
     public static readonly Error PersonaRequiresAuth =
         Error.Validation("Profile.PersonaRequiresAuth", "A style can only be chosen by a signed-in user.");
 }

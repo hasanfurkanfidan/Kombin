@@ -230,6 +230,15 @@ External Python workers (a separate repo) push the catalog through the internal 
 - Sizes: `SizeEntry` is unique per (user, brand, group); the group comes from the top-level category slug
   (`SizeGroups`). A hint's inferred `suggestion` (needs 2 agreeing entries at other brands) is computed per request and
   never stored; nothing may persist a size with source `Inferred` without a decision to do so.
+- **Size memory ("Beden hafızası", design: `docs/design/wardrobe-summary-and-size-memory.md`).** `GET /me/size-prompts` and `POST /me/size-prompts/{id}`
+  (`Features/Profile`, `SizePrompts`, pure `SizePromptRules`, table `profile.size_prompts`, one row per (user, product), ever). `/go` is never touched:
+  the questions are created by the **GET** from the user's own clicks (the first click per product in the last 30 days, at least 3 days old, a product with a
+  size, not an accessory), like `GET /me/profile` creates the profile; the click stays the append-only revenue record and the prompt holds the mutable
+  answer (that is why there is a table). Open = unanswered and 3 to 30 days after the click; newest first, at most 3 shown. `BoughtFits` (size required) stores
+  the size as `Confirmed`, confidence 1, replacing what the user typed (`POST /me/sizes/confirm`'s rule); `BoughtTooSmall`/`BoughtTooLarge` never choose a size,
+  they only lower the stored size's confidence to `ConfirmSizeEndpoint.DoubtedConfidence` when it is the size bought (or none is named); `NotBought` and
+  `NeverAsk` change no size. `UserProfile.SizePromptsEnabled` ("beden sorularını kapat", default true, `PUT /me/profile`) empties the list and creates nothing.
+  The rows are personal data: they cascade with the user (`AccountDeletionTests`' matrix, `docs/privacy-notes.md` 1a and 5). No push notification.
 
 ## Notification rules
 
@@ -368,6 +377,13 @@ External Python workers (a separate repo) push the catalog through the internal 
   from the outfit engine (see Recommendation rules).
 - **Pairings:** `GET /items/{id}/pairings` and `companionCount` on `GET /items` (only there: the record is shared, the field is absent elsewhere)
   come from the engine too (see Recommendation rules). The app leads with them; wear tracking stays in the data but out of the foreground.
+- **Summary** (`GET /me/wardrobe/summary`, `Features/Wardrobe/GetSummary`, pure `WardrobeSummaryRules`, copy in `WardrobeSummaryCopy`, design in
+  `docs/design/wardrobe-summary-and-size-memory.md`). Ready, not archived pieces only. Fewer than `MinPieces` (5): `{ pieceCount, message }` and nothing else, never
+  zeros. A piece's price is its own `purchasePrice` (a fact), else the lowest price of its linked catalog product (an **estimate**: `isEstimate` /
+  `priceIsEstimate`, the app says "tahmini"), else none (counted as unpriced, out of every sum). "Giymediklerin" = added at least 30 days ago, no recorded wear,
+  in no outfit with status `Saved` or `Worn`; the reason is `NoPartner` ("eşi yok", the grid's `companionCount` 0 via `OutfitCounts`), else `OutOfSeason`
+  ("mevsimi değil", `WeatherRules.SeasonOf` today), else none; the catalog `unlock` (the pairings route's `FindUnlockAsync`) is looked up for the first
+  `UnlockLookups` (3) "eşi yok" pieces only, so the route never costs a query per piece. No new matching or scoring rule. Budget 300 ms p95 in `OutfitPerformanceTests`.
 - **Gap analysis** is the pure `GapAnalysis.Analyze` (rules at the top of the file, unit-tested with synthetic wardrobes). Change a rule there
   and in that comment block together. Suggested products for the first gap follow the catalog persona convention (match score ≥ 60 with a
   persona; `GetGapsEndpoint.MinMatchScore`).

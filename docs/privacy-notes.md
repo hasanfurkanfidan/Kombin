@@ -32,6 +32,7 @@ What happens to every table that holds data about a user:
 | `profile.user_profiles` (audience, measurements, city) | deleted |
 | `profile.personas`, `profile.persona_style_profiles`, `profile.style_swipes` | deleted |
 | `profile.size_entries` | deleted |
+| `profile.size_prompts` (which products the user left the app for, from which seller, and how they answered "did you buy it, did the size fit?") | deleted (cascade). The click it came from is kept anonymised like every click |
 | `engagement.saved_products`, `price_alerts`, `alert_triggers` | deleted |
 | `notification.devices` (push tokens) | deactivated at the request, deleted |
 | `notification.notifications`, `notification_preferences` | deleted |
@@ -153,6 +154,7 @@ the catalog's embeddings; they are sellers' product shots, not personal data, an
 |---|---|---|---|
 | Click: user (or none), offer/product/seller, source (`feed`), post ID, creator ID, persona ID, user agent, **salted SHA-256 of the IP** (never the IP), correlation ID, time | affiliate revenue, fraud checks, creator attribution | `engagement.clicks` (append-only) | kept; the user ID is set to null if the account is deleted |
 | Referral event: creator, post, tag, click, product/offer/seller, clicker's user ID (or none), share %, later order/commission amounts | creator commission | `social.referral_events` (append-only) | kept (financial record); clicker set to null on account deletion |
+| Size question: user, product, seller and offer of the user's first click on the product, the click's time, the answer (fits, too small, too large, did not buy, do not ask again) and the size named in it. Created from the user's own clicks 3 days after the click when the user has not switched the questions off (`profile.sizePromptsEnabled`); expires after 30 days; one per product | remembering the user's size per brand ("Beden hafızası"); no push, no e-mail | `profile.size_prompts` | until the account is deleted (cascade); the size it taught is in `profile.size_entries` |
 | Creator profile: handle, bio, link, active flag | the creator page | `social.creator_profiles` | until the founder deactivates it or the account is deleted |
 
 Creators see aggregate numbers only (`GET /me/creator/stats`: clicks, an estimate, top posts) — never who clicked. Creator posts show "Bu

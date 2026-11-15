@@ -29,6 +29,9 @@ internal sealed class UserProfile : IAuditable
     /// <summary>Set by the app; the outfit engine reads the weather for it. Null means no weather component.</summary>
     public string? City { get; set; }
 
+    /// <summary>"Beden sorularını kapat": false stops every "did the size fit?" question (<c>SizePrompt</c>). On by default.</summary>
+    public bool SizePromptsEnabled { get; set; } = true;
+
     public Guid? ActivePersonaId { get; set; }
 
     /// <summary>Set once, when a persona first reaches the like threshold in the swipe onboarding.</summary>

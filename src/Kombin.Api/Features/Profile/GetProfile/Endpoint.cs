@@ -18,7 +18,8 @@ internal sealed record ProfileResponse(
     PersonaRef? ActivePersona,
     int PersonaCount,
     bool OnboardingCompleted,
-    DateTimeOffset? OnboardingCompletedAt)
+    DateTimeOffset? OnboardingCompletedAt,
+    bool SizePromptsEnabled)
 {
     public static async Task<ProfileResponse> BuildAsync(KombinDbContext db, UserProfile profile, CancellationToken cancellationToken)
     {
@@ -46,7 +47,8 @@ internal sealed record ProfileResponse(
             active,
             personaCount,
             profile.OnboardingCompletedAt is not null,
-            profile.OnboardingCompletedAt);
+            profile.OnboardingCompletedAt,
+            profile.SizePromptsEnabled);
     }
 }
 
