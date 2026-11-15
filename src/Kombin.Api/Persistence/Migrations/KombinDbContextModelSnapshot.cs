@@ -672,6 +672,10 @@ namespace Kombin.Api.Persistence.Migrations
                         .HasColumnType("smallint")
                         .HasColumnName("formality");
 
+                    b.Property<Guid?>("ImageSourceOfferId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("image_source_offer_id");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean")
                         .HasColumnName("is_active");

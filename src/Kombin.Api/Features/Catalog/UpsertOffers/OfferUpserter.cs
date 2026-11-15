@@ -92,6 +92,9 @@ internal sealed partial class OfferUpserter(KombinDbContext db, IClock clock, Al
 
         public required Dictionary<Guid, PriceSnapshot> LastSnapshots { get; init; }
 
+        /// <summary>Tracked gallery rows by product, loaded once per group for the existing offers' products and filled lazily for any other.</summary>
+        public Dictionary<Guid, List<ProductImage>> Images { get; } = [];
+
         /// <summary>Changed offers by ID, each with the effective price and stock it had before the group touched it.</summary>
         public Dictionary<Guid, ChangedOffer> Changes { get; } = [];
     }
@@ -196,7 +199,21 @@ internal sealed partial class OfferUpserter(KombinDbContext db, IClock clock, Al
                     .ToDictionary(snapshots => snapshots.Key, snapshots => snapshots.OrderByDescending(snapshot => snapshot.Id).First());
             }
 
-            return new GroupState { Seller = seller, Offers = offers, LastSnapshots = lastSnapshots };
+            var state = new GroupState { Seller = seller, Offers = offers, LastSnapshots = lastSnapshots };
+
+            // One query for the galleries of every existing offer's product, so refreshing images costs nothing per item.
+            var productIds = offers.Values.Select(offer => offer.ProductId).Distinct().ToList();
+            if (productIds.Count > 0)
+            {
+                var images = await db.ProductImages.Where(image => productIds.Contains(image.ProductId)).ToListAsync(cancellationToken);
+
+                foreach (var productId in productIds)
+                {
+                    state.Images[productId] = [.. images.Where(image => image.ProductId == productId).OrderBy(image => image.SortOrder).ThenBy(image => image.Id)];
+                }
+            }
+
+            return state;
         }
 
         private async Task<ItemOutcome> ProcessItemAsync(GroupState state, IndexedItem entry, DateTimeOffset now, CancellationToken cancellationToken)
@@ -236,7 +253,7 @@ internal sealed partial class OfferUpserter(KombinDbContext db, IClock clock, Al
 
                 offer = new Offer { ProductId = product.Id, SellerId = state.Seller.Id, ExternalId = externalId };
                 db.Offers.Add(offer);
-                await AddMissingImagesAsync(product, item.ImageUrls, cancellationToken);
+                await ApplyGalleryAsync(state, product, offer, item.ImageUrls, isUpdate: false, cancellationToken);
             }
             else
             {
@@ -256,7 +273,18 @@ internal sealed partial class OfferUpserter(KombinDbContext db, IClock clock, Al
                     offer.Product = target;
                     product = target;
                     ApplyMutableAttributes(product, info);
-                    await AddMissingImagesAsync(product, item.ImageUrls, cancellationToken);
+
+                    // The listing leaves its old product, so it no longer owns that gallery: the next offer of that product to be upserted claims it.
+                    if (previousProduct.ImageSourceOfferId == offer.Id)
+                    {
+                        previousProduct.ImageSourceOfferId = null;
+                    }
+
+                    await ApplyGalleryAsync(state, product, offer, item.ImageUrls, isUpdate: false, cancellationToken);
+                }
+                else
+                {
+                    await ApplyGalleryAsync(state, product, offer, item.ImageUrls, isUpdate: true, cancellationToken);
                 }
             }
 
@@ -393,29 +421,79 @@ internal sealed partial class OfferUpserter(KombinDbContext db, IClock clock, Al
             return product;
         }
 
-        private async Task AddMissingImagesAsync(Product product, IReadOnlyList<string>? imageUrls, CancellationToken cancellationToken)
+        /// <summary>
+        /// Images belong to the product (<c>product_images</c> and <c>products.primary_image_url</c>), never to the offer. The gallery has one owner,
+        /// <see cref="Product.ImageSourceOfferId"/>, so sellers cannot make it flip back and forth. The incoming list (the order the worker sends is the
+        /// order that is stored, the first URL is the primary image) is applied when:
+        /// <list type="bullet">
+        /// <item>the product has no images yet: this offer supplies the gallery and owns it;</item>
+        /// <item>this offer is the owner (an update): a list that differs, compared as an ordered list, replaces the gallery;</item>
+        /// <item>nobody owns it yet (a product from before the column) and this is an update: the offer claims it, and replaces the gallery if it differs.</item>
+        /// </list>
+        /// Otherwise the stored gallery stays, including when another seller's new offer attaches to the product. An empty or missing list never
+        /// clears anything. Rows whose URL stays keep their ID (the embedding row points at one); an identical list changes nothing.
+        /// </summary>
+        private async Task ApplyGalleryAsync(
+            GroupState state, Product product, Offer offer, IReadOnlyList<string>? imageUrls, bool isUpdate, CancellationToken cancellationToken)
         {
-            var urls = imageUrls?.Select(url => url.Trim()).Distinct(StringComparer.Ordinal).ToList() ?? [];
+            var urls = imageUrls?.Select(url => url.Trim()).Where(url => url.Length > 0).Distinct(StringComparer.Ordinal).ToList() ?? [];
             if (urls.Count == 0)
             {
                 return;
             }
 
-            var isNewProduct = db.Entry(product).State == EntityState.Added;
-            var existing = isNewProduct
-                ? []
-                : await db.ProductImages.Where(image => image.ProductId == product.Id).Select(image => image.Url).ToListAsync(cancellationToken);
-            var nextSortOrder = isNewProduct ? 0 : await NextSortOrderAsync(product.Id, cancellationToken);
+            var images = await GalleryOfAsync(state, product, cancellationToken);
+            var isOwner = product.ImageSourceOfferId == offer.Id;
+            var mayReplace = images.Count == 0 || isOwner || (isUpdate && product.ImageSourceOfferId is null);
 
-            foreach (var url in urls.Where(url => !existing.Contains(url)))
+            if (!mayReplace)
             {
-                db.ProductImages.Add(new ProductImage { ProductId = product.Id, Url = url, SortOrder = nextSortOrder++ });
-                product.PrimaryImageUrl ??= url;
+                return;
             }
+
+            product.ImageSourceOfferId = offer.Id;
+
+            if (images.Select(image => image.Url).SequenceEqual(urls, StringComparer.Ordinal))
+            {
+                return;
+            }
+
+            var stored = images.ToDictionary(image => image.Url, StringComparer.Ordinal);
+            var gallery = new List<ProductImage>(urls.Count);
+
+            for (var index = 0; index < urls.Count; index++)
+            {
+                if (stored.Remove(urls[index], out var kept))
+                {
+                    kept.SortOrder = index;
+                    gallery.Add(kept);
+                    continue;
+                }
+
+                var added = new ProductImage { ProductId = product.Id, Url = urls[index], SortOrder = index };
+                db.ProductImages.Add(added);
+                gallery.Add(added);
+            }
+
+            db.ProductImages.RemoveRange(stored.Values);
+            state.Images[product.Id] = gallery;
+            product.PrimaryImageUrl = urls[0];
         }
 
-        private async Task<int> NextSortOrderAsync(Guid productId, CancellationToken cancellationToken) =>
-            await db.ProductImages.Where(image => image.ProductId == productId).MaxAsync(image => (int?)image.SortOrder, cancellationToken) + 1 ?? 0;
+        private async Task<List<ProductImage>> GalleryOfAsync(GroupState state, Product product, CancellationToken cancellationToken)
+        {
+            if (state.Images.TryGetValue(product.Id, out var cached))
+            {
+                return cached;
+            }
+
+            var images = db.Entry(product).State == EntityState.Added
+                ? []
+                : await db.ProductImages.Where(image => image.ProductId == product.Id).OrderBy(image => image.SortOrder).ThenBy(image => image.Id).ToListAsync(cancellationToken);
+
+            state.Images[product.Id] = images;
+            return images;
+        }
     }
 
     private static decimal EffectivePrice(Offer offer) =>

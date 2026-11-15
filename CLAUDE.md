@@ -143,6 +143,15 @@ External Python workers (a separate repo) push the catalog through the internal 
   `brandLogoUrl`: they are set when the brand is created and filled in later only while the brand has none, never overwritten (this
   also happens on an existing offer). `imageUrls` holds at most 6 entries. Image, brand website and seller website URLs must be
   absolute http(s) with a host, no credentials and no whitespace (`UpsertOfferItemValidator.IsPublicHttpUrl`).
+- **Images belong to the product** (`catalog.product_images` and `products.primary_image_url`), never to the offer. **The gallery has one owner**,
+  `products.image_source_offer_id`: only the offer that supplied the current gallery may replace it, so sellers can not make it flip back and forth. An
+  upsert's non-empty `imageUrls` replaces the gallery when it differs as an ordered list (stored order = sent order, the first URL is the primary
+  image; rows whose URL stays keep their ID); an empty or missing list never clears anything; an identical list writes nothing. A product without images
+  takes the first offer's gallery and that offer owns it; another seller's new offer on the same product (same model code) changes nothing. A product from
+  before the column has no owner: the next *update* of any of its offers claims it. A listing re-linked by `canonicalProductId` gives up ownership of
+  its old product. A gallery whose owner stops being listed stays as it is (valid images, just frozen). All of it is in `OfferUpserter.ApplyGalleryAsync`;
+  the galleries of a group's existing offers are loaded in one query. Nothing else is recomputed: `product-embeddings` is pull-based and `IsDue` sees a
+  new primary image URL, so a changed primary image is embedded again by the next nightly run (or `POST /internal/catalog/embeddings/run`).
 - **`PUT /internal/catalog/sellers/{slug}`** with `{ name, kind, websiteUrl, affiliateNetwork?, affiliateUrlTemplate?, affiliateParams?,
   isActive }` registers or updates a seller before the first upsert. `name`, `kind`, `websiteUrl` and `isActive` (default
   true) are replaced on every call; the affiliate fields are not: **left out = unchanged, explicit null = cleared**, so a worker that only

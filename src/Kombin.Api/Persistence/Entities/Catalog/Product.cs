@@ -37,6 +37,13 @@ internal sealed class Product : BaseEntity
 
     public string? PrimaryImageUrl { get; set; }
 
+    /// <summary>
+    /// The offer that supplied the current gallery (<see cref="Images"/> and <see cref="PrimaryImageUrl"/>). Only that offer's upserts may
+    /// replace the gallery; null means "nobody yet" (products that existed before this column), and the next upsert of any of its offers claims it.
+    /// Deliberately no foreign key: the value only decides who may write, and a stale one just freezes the gallery.
+    /// </summary>
+    public Guid? ImageSourceOfferId { get; set; }
+
     public Brand Brand { get; set; } = null!;
 
     public Category Category { get; set; } = null!;
