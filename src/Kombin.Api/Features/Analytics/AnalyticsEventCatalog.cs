@@ -52,13 +52,13 @@ internal static partial class AnalyticsEventCatalog
         ["outfit_feedback"] = [Required("action", OneOf<OutfitFeedbackAction>()), Optional("reason", OneOf<DismissReason>())],
         ["outfit_gap_click"] = [],
 
-        // Budget outfits: the budget as a band, never the amount; `result` says whether outfits fit, only the closest one over the budget came
-        // back, or nothing did. Shuffling is the next seed.
+        // Budget outfits: the budget as a band, never the amount; `result` says whether outfits fit, fit only without shoes, only the closest
+        // one over the budget came back, or nothing did. Shuffling is the next seed.
         ["budget_outfit_view"] =
         [
             Required("budgetBand", OneOf("under500", "500to1500", "1500to5000", "over5000")),
             Required("outfitCount", Integer(0, 5)),
-            Required("result", OneOf("fits", "overBudget", "none")),
+            Required("result", OneOf("fits", "withoutShoes", "overBudget", "none")),
             Optional("occasion", OneOf<Occasion>()),
         ],
         ["budget_outfit_shuffle"] = [Required("seed", Integer(0, 1000))],

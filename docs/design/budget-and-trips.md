@@ -28,9 +28,16 @@ case 22 × 22 × 18 × 14 combinations, in practice a few thousand evaluations a
 (`BudgetSearch.Pick`): sort, keep a diverse list of up to 12 greedily, and `seed` selects the window `[seed·count, seed·count+count)`
 (mod length), so "başka öneriler" is the next seed and always fits the budget.
 
-**Over budget.** When nothing fits but an acceptable outfit costs at most 1.5 × budget, the cheapest one (higher score on ties) is
-returned alone with `overBudgetBy` and the message "Bu bütçeyle tam bir kombin çıkmadı; en yakını X ₺." Never more than one, never
-below the floor. Prices are per piece (price plus that seller's shipping), so two pieces from one shop can only cost less than shown.
+**Without shoes.** Shoes are the dearest slot (in the dev catalog every pair costs over 3,000 ₺), so a low budget must not dead-end.
+When no outfit with shoes fits, the search runs again in a `WithoutShoes` context: the engine judges a top and a bottom (plus the layer
+the weather requires) with every rule and the floor unchanged; only the occasion's required shoe has nothing to judge. Those outfits come
+back with `withoutShoes: true` and "Bu bütçe ayakkabıya yetmedi; ayakkabısız bir kombin hazırladık." A signed-in user who owns shoes and
+uses the wardrobe never gets this: their shoes cost 0, so the first search already answers. `includeShoes: false` ("Ayakkabım var")
+skips shoes from the start (no shoe query, no message).
+
+**Over budget.** Only when even the outfits without shoes do not fit: if an acceptable outfit with shoes costs at most 1.5 × budget, the
+cheapest one (higher score on ties) is returned alone with `overBudgetBy` and the message "Bu bütçeyle tam bir kombin çıkmadı; en yakını
+X ₺." Never more than one, never below the floor. Prices are per piece (price plus that seller's shipping), so two pieces from one shop can only cost less than shown.
 
 **Limits.** The shortlist is a heuristic: an outfit made of a quartile's fourth-best piece is never seen. Prices move after the answer
 (the stored item keeps the price at suggestion time, the `/go` page shows today's). The persona's own budget band is ignored: the request
@@ -86,7 +93,7 @@ Nothing is invented: pieces come only from the wardrobe.
 - `POST /me/outfits/budget`, `POST /outfits/budget` → `{ budget, date, occasion, audience, weather?, overBudget, message?, outfits: [{ id?,
   status?, completeness, score, rule, pieces: [{ slot, role, source, wardrobeItemId?, productId?, name, categorySlug, color, imageUrl,
   price, offer?: { offerId, seller, price, originalPrice?, goPath }, size?, sizeUnknown? }], totalPrice, remainingBudget, ownedCount,
-  savings?, overBudgetBy?, narration }] }`. Signed-in outfits are stored (kind `Budget`), so save, worn, feedback and dismiss work on them.
+  savings?, overBudgetBy?, withoutShoes, narration }], withoutShoes }`; the body takes `includeShoes` (default true). Signed-in outfits are stored (kind `Budget`), so save, worn, feedback and dismiss work on them.
 - `POST /me/trips/plan` → `{ city, startDate, endDate, pieceCount, pieces: [{ slot, items: [{ wardrobeItemId, name, categorySlug, color,
   imageUrl, days }] }], days: [{ date, occasion?, weather: { source, … }, outfit? }], coverage: { covered, total, percent }, gaps, message? }`.
 - `POST /me/trips` (name + the plan request; the server plans again and stores its own result, never a client snapshot), `GET /me/trips`,

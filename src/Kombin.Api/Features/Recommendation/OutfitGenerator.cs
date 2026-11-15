@@ -114,7 +114,8 @@ internal static class OutfitGenerator
 
         var tops = Options(OutfitSlot.Top);
         var bottoms = Options(OutfitSlot.Bottom);
-        var shoes = Options(OutfitSlot.Shoes);
+        // Without shoes there is exactly one "choice" for the slot: none.
+        IReadOnlyList<OutfitPiece?> shoes = context.WithoutShoes ? [null] : [.. Options(OutfitSlot.Shoes).OfType<OutfitPiece>()];
         var outerwear = OuterwearOptions(Options(OutfitSlot.Outerwear), context, request.Anchor);
 
         // An accessory anchor ("how do I wear this bag?") is in every outfit; other accessories are added after picking.
@@ -134,10 +135,10 @@ internal static class OutfitGenerator
                     continue;
                 }
 
-                foreach (var shoe in shoes.OfType<OutfitPiece>())
+                foreach (var shoe in shoes)
                 {
-                    var coreCost = pairCost + Cost(shoe, anchorKey);
-                    if (coreCost > cap || !Compatible([top, bottom, shoe]))
+                    var coreCost = pairCost + (shoe is null ? 0 : Cost(shoe, anchorKey));
+                    if (coreCost > cap || (shoe is not null && !Compatible([top, bottom, shoe])))
                     {
                         continue;
                     }
@@ -152,7 +153,11 @@ internal static class OutfitGenerator
                         pieces.Clear();
                         pieces.Add(top);
                         pieces.Add(bottom);
-                        pieces.Add(shoe);
+                        if (shoe is not null)
+                        {
+                            pieces.Add(shoe);
+                        }
+
                         if (layer is not null)
                         {
                             pieces.Add(layer);

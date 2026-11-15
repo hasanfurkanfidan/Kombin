@@ -17,8 +17,9 @@ namespace Kombin.Api.Features.Recommendation.SuggestBudget;
 /// <c>Budget</c> in TRY (100-100,000). <c>Occasion</c>: office, weekend, evening, sport or event. <c>Date</c>: today (default), tomorrow or
 /// <c>yyyy-MM-dd</c> up to a week ahead. <c>UseWardrobe</c> (default true): owned pieces cost nothing and come first. <c>Seed</c> (default 0): the next
 /// seed shows other outfits. <c>Count</c> 1-5 (default 3). <c>PersonaId</c> follows the catalog convention.
+/// <c>IncludeShoes</c> (default true): false ("Ayakkabım var") builds outfits without shoes.
 /// </summary>
-internal sealed record BudgetOutfitsRequest(decimal? Budget, string? Occasion, string? Date, bool? UseWardrobe, int? Seed, int? Count, Guid? PersonaId);
+internal sealed record BudgetOutfitsRequest(decimal? Budget, string? Occasion, string? Date, bool? UseWardrobe, int? Seed, int? Count, Guid? PersonaId, bool? IncludeShoes = null);
 
 internal static class SuggestBudgetEndpoint
 {
@@ -56,7 +57,8 @@ internal static class SuggestBudgetEndpoint
             OutfitDates.Resolve(request.Date, OutfitSources.Today(now))!.Value,
             request.UseWardrobe ?? true,
             request.Seed ?? 0,
-            request.Count ?? BudgetOutfits.DefaultCount);
+            request.Count ?? BudgetOutfits.DefaultCount,
+            request.IncludeShoes ?? true);
 
         var profile = await db.UserProfiles.AsNoTracking().SingleOrDefaultAsync(candidate => candidate.UserId == userId, cancellationToken);
         var persona = await OutfitSources.ChoosePersonaAsync(db, userId, request.PersonaId, profile?.ActivePersonaId, now, cancellationToken);

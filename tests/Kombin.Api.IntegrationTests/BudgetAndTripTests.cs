@@ -229,20 +229,111 @@ public sealed class BudgetAndTripTests(ApiFactory factory)
             Assert.Equal(HttpStatusCode.OK, profile.StatusCode);
         }
 
-        // An event outfit for men: nothing in the catalog dresses it for 100 ₺, these three come to 135 ₺.
-        await user.Client.SeedProductAsync("ust-giyim/gomlek", "White", 5, 45m, audience: "Men", cancellationToken: Ct);
-        await user.Client.SeedProductAsync("alt-giyim/pantolon", "Black", 5, 45m, audience: "Men", cancellationToken: Ct);
-        await user.Client.SeedProductAsync("ayakkabi/loafer", "Black", 5, 45m, audience: "Men", cancellationToken: Ct);
+        // An event outfit for men: nothing in the catalog dresses it for 100 ₺, not even without shoes (the shirt and trousers alone are
+        // 120 ₺); with the shoes these three come to 150 ₺, the most the over-budget answer may cost.
+        await user.Client.SeedProductAsync("ust-giyim/gomlek", "White", 5, 60m, audience: "Men", cancellationToken: Ct);
+        await user.Client.SeedProductAsync("alt-giyim/pantolon", "Black", 5, 60m, audience: "Men", cancellationToken: Ct);
+        await user.Client.SeedProductAsync("ayakkabi/loafer", "Black", 5, 30m, audience: "Men", cancellationToken: Ct);
 
         var body = await user.Client.BudgetOkAsync(new { budget = 100, occasion = "event", useWardrobe = false }, Ct);
 
         Assert.True(body.GetProperty("overBudget").GetBoolean());
+        Assert.False(body.GetProperty("withoutShoes").GetBoolean());
         var outfit = Assert.Single(Outfits(body));
         AssertBudgetOutfit(outfit, 100);
         var total = outfit.GetProperty("totalPrice").GetDecimal();
         Assert.InRange(total, 100.01m, 150m);
         Assert.Equal(total - 100, outfit.GetProperty("overBudgetBy").GetDecimal());
         Assert.StartsWith("Bu bütçeyle tam bir kombin çıkmadı; en yakını ", body.GetProperty("message").GetString(), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A men's office outfit (band 3-4): a 100 ₺ top and a 120 ₺ bottom, shoes at 2,500 ₺. Men and the office band keep the shared catalog's cheap
+    /// (women's, casual) products out, so 300 ₺ cannot buy any shoes.
+    /// </summary>
+    private static async Task SeedShoelessCapsuleAsync(HttpClient client)
+    {
+        await client.SeedProductAsync("ust-giyim/gomlek", "White", 4, 100m, audience: "Men", cancellationToken: Ct);
+        await client.SeedProductAsync("alt-giyim/pantolon", "Navy", 4, 120m, audience: "Men", cancellationToken: Ct);
+        await client.SeedProductAsync("ayakkabi/loafer", "Black", 4, 2500m, audience: "Men", cancellationToken: Ct);
+    }
+
+    [Fact]
+    public async Task ALowBudgetThatCannotPayForShoesGetsOutfitsWithoutShoes()
+    {
+        using var anonymous = factory.CreateAnonymousClient();
+        await SeedShoelessCapsuleAsync(anonymous);
+
+        var body = await anonymous.BudgetOkAsync(new { budget = 300, occasion = "office", audience = "Men" }, Ct, anonymous: true);
+
+        Assert.True(body.GetProperty("withoutShoes").GetBoolean());
+        Assert.False(body.GetProperty("overBudget").GetBoolean());
+        Assert.Equal(BudgetOutfits.WithoutShoesMessage, body.GetProperty("message").GetString());
+        Assert.NotEmpty(Outfits(body));
+        Assert.All(Outfits(body), outfit =>
+        {
+            AssertBudgetOutfit(outfit, 300);
+            Assert.True(outfit.GetProperty("withoutShoes").GetBoolean());
+            Assert.Null(outfit.Slot("Shoes"));
+            Assert.NotNull(outfit.Slot("Top"));
+            Assert.NotNull(outfit.Slot("Bottom"));
+        });
+
+        // With room for the shoes, the outfits have them again and say nothing about it.
+        var roomy = await anonymous.BudgetOkAsync(new { budget = 3000, occasion = "office", audience = "Men" }, Ct, anonymous: true);
+        Assert.False(roomy.GetProperty("withoutShoes").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, roomy.GetProperty("message").ValueKind);
+        Assert.All(Outfits(roomy), outfit => Assert.NotNull(outfit.Slot("Shoes")));
+    }
+
+    [Fact]
+    public async Task IncludeShoesFalseLeavesThemOutWhateverTheBudget()
+    {
+        using var user = await factory.CreateUserAsync(Ct);
+        await SeedShoelessCapsuleAsync(user.Client);
+        await factory.InsertWardrobeAsync(user.Id, [new WardrobeSeed("own loafers", "ayakkabi/loafer", Persistence.Entities.Catalog.ProductColor.Brown, 4)], Ct);
+
+        var anonymous = await user.Client.BudgetOkAsync(new { budget = 3000, occasion = "office", audience = "Men", includeShoes = false }, Ct, anonymous: true);
+        var signedIn = await user.Client.BudgetOkAsync(new { budget = 3000, occasion = "office", includeShoes = false }, Ct);
+
+        foreach (var body in new[] { anonymous, signedIn })
+        {
+            Assert.True(body.GetProperty("withoutShoes").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, body.GetProperty("message").ValueKind);
+            Assert.NotEmpty(Outfits(body));
+            Assert.All(Outfits(body), outfit =>
+            {
+                AssertBudgetOutfit(outfit, 3000);
+                Assert.Null(outfit.Slot("Shoes"));
+            });
+        }
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await user.Client.PostJsonAsync(Budget, new { budget = 500, includeShoes = "maybe" }, Ct)).Status);
+    }
+
+    [Fact]
+    public async Task ASignedInUserWithShoesKeepsWearingThemOnALowBudget()
+    {
+        using var user = await factory.CreateUserAsync(Ct);
+        using (var profile = await user.Client.PutAsJsonAsync("/api/v1/me/profile", new { audience = "Men" }, Ct))
+        {
+            Assert.Equal(HttpStatusCode.OK, profile.StatusCode);
+        }
+
+        await SeedShoelessCapsuleAsync(user.Client);
+        var shoes = await factory.InsertWardrobeAsync(user.Id, [new WardrobeSeed("own loafers", "ayakkabi/loafer", Persistence.Entities.Catalog.ProductColor.Brown, 4)], Ct);
+
+        var body = await user.Client.BudgetOkAsync(new { budget = 300, occasion = "office" }, Ct);
+
+        Assert.False(body.GetProperty("withoutShoes").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, body.GetProperty("message").ValueKind);
+        Assert.NotEmpty(Outfits(body));
+        Assert.All(Outfits(body), outfit =>
+        {
+            AssertBudgetOutfit(outfit, 300);
+            Assert.False(outfit.GetProperty("withoutShoes").GetBoolean());
+            Assert.Equal(shoes["own loafers"], outfit.Slot("Shoes")!.Value.GetProperty("wardrobeItemId").GetGuid());
+        });
     }
 
     [Fact]

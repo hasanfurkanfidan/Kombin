@@ -10,10 +10,10 @@ using Kombin.Api.Persistence.Entities.Recommendation;
 namespace Kombin.Api.Features.Recommendation.SuggestBudgetAnonymous;
 
 /// <summary>
-/// The acquisition variant: no wardrobe, no sizes, no persona, nothing stored. <c>Audience</c> (Women, Men or Unisex) is required; the rest is as
-/// in <c>POST /me/outfits/budget</c>.
+/// The acquisition variant: no wardrobe, no sizes, no persona, nothing stored. <c>Audience</c> (Women, Men or Unisex) is required; the rest, <c>IncludeShoes</c>
+/// included, is as in <c>POST /me/outfits/budget</c>.
 /// </summary>
-internal sealed record AnonymousBudgetOutfitsRequest(decimal? Budget, string? Audience, string? Occasion, string? Date, int? Seed, int? Count);
+internal sealed record AnonymousBudgetOutfitsRequest(decimal? Budget, string? Audience, string? Occasion, string? Date, int? Seed, int? Count, bool? IncludeShoes = null);
 
 internal static class SuggestBudgetAnonymousEndpoint
 {
@@ -42,7 +42,8 @@ internal static class SuggestBudgetAnonymousEndpoint
             OutfitDates.Resolve(request.Date, OutfitSources.Today(now))!.Value,
             UseWardrobe: false,
             request.Seed ?? 0,
-            request.Count ?? BudgetOutfits.DefaultCount);
+            request.Count ?? BudgetOutfits.DefaultCount,
+            request.IncludeShoes ?? true);
 
         var caller = BudgetCaller.Anonymous(audience);
         var result = await BudgetOutfits.SearchAsync(db, caller, ask, cancellationToken);

@@ -269,5 +269,41 @@ public class BudgetSearchTests
         Assert.Null(BudgetOffers.SizeFor([(Guid.NewGuid(), "M", now)], Guid.NewGuid()));
     }
 
+    [Fact]
+    public void WithoutShoesTheEngineBuildsTopAndBottomOutfitsAboveTheFloorAndNeverAddsShoes()
+    {
+        var context = Context() with { WithoutShoes = true };
+        var shortlist = new[] { OutfitSlot.Top, OutfitSlot.Bottom }.SelectMany(slot => BudgetSearch.Shortlist(Catalog.Where(piece => piece.Slot == slot), context)).ToList();
+
+        var acceptable = OutfitGenerator.Generate(new GenerationRequest(
+            [.. Owned, Sneaker(ProductColor.White, name: "owned-sneaker")], [.. shortlist, .. Catalog.Where(piece => piece.Slot == OutfitSlot.Shoes)], context, null,
+            BudgetSearch.MaxGaps, NoExclusions, BudgetSearch.CatalogPerSlot, BudgetSearch.Reach(300)));
+
+        Assert.NotEmpty(acceptable);
+        Assert.All(acceptable, candidate =>
+        {
+            Assert.DoesNotContain(candidate.Pieces, piece => piece.Slot == OutfitSlot.Shoes);
+            Assert.Single(candidate.Pieces, piece => piece.Slot == OutfitSlot.Top);
+            Assert.Single(candidate.Pieces, piece => piece.Slot == OutfitSlot.Bottom);
+            Assert.True(candidate.Score >= OutfitScoring.AcceptanceThreshold);
+        });
+        Assert.All(BudgetSearch.Pick(acceptable, 300, 3, 0).Outfits, outfit => Assert.True(outfit.TotalPrice <= 300));
+    }
+
+    [Fact]
+    public void TheShoeRuleDependsOnTheContextOnly()
+    {
+        var withShoes = new[] { Tee(ProductColor.White, name: "t"), Jeans(name: "j"), Sneaker(ProductColor.White, name: "s") };
+        var withoutShoes = withShoes[..2];
+
+        Assert.True(OutfitScoring.Evaluate(withShoes, Context()).Allowed);
+        Assert.False(OutfitScoring.Evaluate(withoutShoes, Context()).Allowed);
+        Assert.True(OutfitScoring.Evaluate(withoutShoes, Context() with { WithoutShoes = true }).Allowed);
+        Assert.False(OutfitScoring.Evaluate(withShoes, Context() with { WithoutShoes = true }).Allowed);
+
+        // Sport requires sneakers, which cannot be judged without shoes; the rest of the occasion (its band) still applies.
+        Assert.True(OutfitScoring.Evaluate([Tee(ProductColor.Grey, 1, "sport-t"), Jeans(ProductColor.Black, 1, "sport-j")], Context(Occasion.Sport) with { WithoutShoes = true }).Allowed);
+    }
+
     private static OfferOption Offer(string name, decimal price, string[] sizes) => new(IdOf(name), price, price, null, name, sizes);
 }

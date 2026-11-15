@@ -441,8 +441,11 @@ External Python workers (a separate repo) push the catalog through the internal 
 - **Budget** (`BudgetSearch` pure, formula at the top of the file; `BudgetCandidates` SQL; `BudgetOutfits` shared by both routes). Hard rules:
   never over the budget (prices are per piece, price plus that seller's shipping); never below the floor; at least one piece bought (otherwise it is
   the daily outfit); order = score, more owned pieces, lower total, hash; two shown outfits share at most half of their bought pieces; `seed`
-  selects the window of a 12-entry diverse list; the one over-budget answer (cheapest acceptable outfit up to `OverBudgetReach` 1.5 × the budget)
-  only when nothing fits. Candidates: per slot ≤ 300 (newest 100 in each of 3 price bands up to 1.5 × the budget), through `ix_products_budget`
+  selects the window of a 12-entry diverse list. A low budget never dead-ends: when no outfit with shoes fits (and the caller does not use a
+  wardrobe with shoes, whose shoes cost 0), the search runs again with `OutfitContext.WithoutShoes` (top + bottom + the layer the weather needs, the
+  scorer rejects any shoes, every other rule and the floor hold) and answers `withoutShoes: true` with `BudgetOutfits.WithoutShoesMessage`;
+  `includeShoes: false` builds shoeless outfits from the start, without the message. Only then the one over-budget answer (cheapest acceptable outfit
+  with shoes up to `OverBudgetReach` 1.5 × the budget), then the empty one. Candidates: per slot ≤ 300 (newest 100 in each of 3 price bands up to 1.5 × the budget), through `ix_products_budget`
   and `ix_offers_sellable_price`; then the shortlist keeps the best 3 per price quartile by piece score. The persona's own budget band is ignored.
   Offers: the cheapest in the caller's size (`BudgetOffers.Choose`: own size-map entry for the brand, else `SizeInference`); offers listing other
   sizes only are out; unknown size → `sizeUnknown`. `savings` only with a real crossed-out price. Buy links `/go/{offerId}?src=budget` (also on

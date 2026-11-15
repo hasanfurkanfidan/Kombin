@@ -12,7 +12,7 @@ using Kombin.Api.Persistence.Entities.Recommendation;
 namespace Kombin.Api.Features.Recommendation;
 
 /// <summary>What the caller asked for, validated. <c>Date</c> is resolved (today by default).</summary>
-internal sealed record BudgetAsk(decimal Budget, Occasion? Occasion, DateOnly Date, bool UseWardrobe, int Seed, int Count);
+internal sealed record BudgetAsk(decimal Budget, Occasion? Occasion, DateOnly Date, bool UseWardrobe, int Seed, int Count, bool IncludeShoes = true);
 
 /// <summary>Who is asking: a signed-in user (wardrobe, persona, sizes, weather of their city) or an anonymous visitor (none of it).</summary>
 internal sealed record BudgetCaller(
@@ -28,8 +28,12 @@ internal sealed record BudgetCaller(
         new(null, audience, PersonaChoice.None, [], [], new HashSet<string>(StringComparer.Ordinal), null);
 }
 
-/// <summary>The outfits to show (accessory added) and what they are; <c>Closest</c> is true for the one over-budget answer.</summary>
-internal sealed record BudgetResult(OutfitContext Context, IReadOnlyList<OutfitCandidate> Outfits, bool OverBudget, BudgetCatalog Catalog);
+/// <summary>
+/// The outfits to show (accessory added) and what they are. <c>OverBudget</c>: the one over-budget answer. <c>WithoutShoes</c>: the outfits have no
+/// shoes, either because the caller said so or because no outfit with shoes fit (<c>ShoesDidNotFit</c>). <c>Context</c> is the one they were built in.
+/// </summary>
+internal sealed record BudgetResult(
+    OutfitContext Context, IReadOnlyList<OutfitCandidate> Outfits, bool OverBudget, bool WithoutShoes, bool ShoesDidNotFit, BudgetCatalog Catalog);
 
 internal sealed record BudgetOfferResponse(Guid OfferId, SellerRef? Seller, decimal Price, decimal? OriginalPrice, string GoPath);
 
@@ -66,13 +70,15 @@ internal sealed record BudgetOutfitResponse(
     decimal TotalPrice,
     decimal RemainingBudget,
     int OwnedCount,
+    bool WithoutShoes,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] decimal? Savings,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] decimal? OverBudgetBy,
     OutfitNarrationResponse Narration);
 
 /// <summary>
-/// <c>Outfits</c> fit <c>Budget</c>; when none does, <c>OverBudget</c> is true and the single outfit is the closest one (<c>Message</c> says by how much),
-/// or the list is empty and <c>Message</c> says so. <c>Weather</c> is the forecast used, if any (signed-in callers with a city).
+/// <c>Outfits</c> fit <c>Budget</c>. <c>WithoutShoes</c>: they have no shoes (the request said <c>includeShoes: false</c>, or no outfit with shoes fit and
+/// <c>Message</c> says so). When nothing fits at all, <c>OverBudget</c> is true and the single outfit is the closest one (<c>Message</c> says by how
+/// much), or the list is empty and <c>Message</c> says so. <c>Weather</c> is the forecast used, if any (signed-in callers with a city).
 /// </summary>
 internal sealed record BudgetOutfitsResponse(
     decimal Budget,
@@ -83,6 +89,7 @@ internal sealed record BudgetOutfitsResponse(
     int Seed,
     OutfitWeatherResponse? Weather,
     bool OverBudget,
+    bool WithoutShoes,
     string? Message,
     IReadOnlyList<BudgetOutfitResponse> Outfits);
 
@@ -102,6 +109,8 @@ internal static class BudgetOutfits
 
     public const string NothingFitsMessage = "Bu bütçeyle sana uygun bir kombin çıkmadı; bütçeyi biraz artırmayı dene.";
 
+    public const string WithoutShoesMessage = "Bu bütçe ayakkabıya yetmedi; ayakkabısız bir kombin hazırladık.";
+
     public static string OverBudgetMessage(decimal total) => $"Bu bütçeyle tam bir kombin çıkmadı; en yakını {Copy.Money(total)}.";
 
     public static async Task<BudgetResult> SearchAsync(KombinDbContext db, BudgetCaller caller, BudgetAsk ask, CancellationToken cancellationToken)
@@ -111,31 +120,56 @@ internal static class BudgetOutfits
 
         var taste = caller.Persona.Taste;
         var weather = caller.Weather is null ? WeatherRules.FromSeason(ask.Date) : WeatherRules.From(caller.Weather);
-        var context = OutfitContext.Create(ask.Occasion, taste, weather, ask.Date);
+        var withShoes = OutfitContext.Create(ask.Occasion, taste, weather, ask.Date);
+        var shoeless = withShoes with { WithoutShoes = true };
 
-        // The request names the budget, so the persona's own budget band does not apply here.
-        var slots = context.Weather.Outerwear == OuterwearPolicy.Forbidden ? OutfitSlots.Core : [.. OutfitSlots.Core, OutfitSlot.Outerwear];
+        // The request names the budget, so the persona's own budget band does not apply here. Shoes are looked up only when they may be bought.
+        var slots = (withShoes.Weather.Outerwear == OuterwearPolicy.Forbidden ? OutfitSlots.Core : [.. OutfitSlots.Core, OutfitSlot.Outerwear])
+            .Where(slot => ask.IncludeShoes || slot != OutfitSlot.Shoes)
+            .ToList();
         var cap = BudgetSearch.Reach(ask.Budget);
         var catalog = await BudgetCandidates.LoadAsync(
             db,
-            [.. slots.Select(slot => new BudgetQuery(slot, context.BandMin, context.BandMax, caller.Audience, taste.AvoidedColors, cap, caller.Owned))],
+            [.. slots.Select(slot => new BudgetQuery(slot, withShoes.BandMin, withShoes.BandMax, caller.Audience, taste.AvoidedColors, cap, caller.Owned))],
             caller.UserId,
             caller.Persona.Scoring,
             cancellationToken);
 
-        var shortlist = slots.SelectMany(slot => BudgetSearch.Shortlist(catalog.Pieces.Where(piece => piece.Slot == slot), context)).ToList();
         var wardrobe = ask.UseWardrobe ? caller.Wardrobe : [];
 
-        var acceptable = OutfitGenerator.Generate(new GenerationRequest(
-            wardrobe, shortlist, context, null, BudgetSearch.MaxGaps, caller.Dismissed, BudgetSearch.CatalogPerSlot, cap));
-        var pick = BudgetSearch.Pick(acceptable, ask.Budget, ask.Count, ask.Seed);
+        BudgetPick Search(OutfitContext context)
+        {
+            var shortlist = slots
+                .Where(slot => !context.WithoutShoes || slot != OutfitSlot.Shoes)
+                .SelectMany(slot => BudgetSearch.Shortlist(catalog.Pieces.Where(piece => piece.Slot == slot), context))
+                .ToList();
+            var acceptable = OutfitGenerator.Generate(new GenerationRequest(
+                wardrobe, shortlist, context, null, BudgetSearch.MaxGaps, caller.Dismissed, BudgetSearch.CatalogPerSlot, cap));
+
+            return BudgetSearch.Pick(acceptable, ask.Budget, ask.Count, ask.Seed);
+        }
+
+        // A low budget must not dead-end: when no outfit with shoes fits, outfits without shoes do (the floor and every other rule still hold).
+        // Someone who owns shoes and uses the wardrobe pays nothing for them, so their answer never changes. Only when even that fails do the
+        // over-budget and empty answers of the search with shoes apply.
+        var context = ask.IncludeShoes ? withShoes : shoeless;
+        var pick = Search(context);
+        var shoesDidNotFit = false;
+        if (ask.IncludeShoes && pick.Outfits.Count == 0 && !wardrobe.Any(piece => piece.Slot == OutfitSlot.Shoes))
+        {
+            var fallback = Search(shoeless);
+            if (fallback.Outfits.Count > 0)
+            {
+                (pick, context, shoesDidNotFit) = (fallback, shoeless, true);
+            }
+        }
 
         var chosen = pick.Outfits.Count > 0 ? pick.Outfits : pick.Closest is { } closest ? [closest] : [];
         var outfits = chosen
             .Select(outfit => wardrobe.Count == 0 ? outfit.Candidate : OutfitGenerator.WithAccessory(outfit.Candidate, wardrobe, context, null))
             .ToList();
 
-        return new BudgetResult(context, outfits, pick.Outfits.Count == 0 && pick.Closest is not null, catalog);
+        return new BudgetResult(context, outfits, pick.Outfits.Count == 0 && pick.Closest is not null, context.WithoutShoes, shoesDidNotFit, catalog);
     }
 
     /// <summary>Template lines (or LLM lines cached for the same summary) for outfits that are not stored: the anonymous answer.</summary>
@@ -241,12 +275,16 @@ internal static class BudgetOutfits
                 total,
                 Math.Max(0, ask.Budget - total),
                 candidate.Pieces.Count(piece => piece.Source == PieceSource.Wardrobe),
+                result.WithoutShoes,
                 savings > 0 ? savings : null,
                 total > ask.Budget ? total - ask.Budget : null,
                 narration));
         }
 
-        var message = result.OverBudget ? OverBudgetMessage(outfits[0].TotalPrice) : outfits.Count == 0 ? NothingFitsMessage : null;
+        var message = result.OverBudget ? OverBudgetMessage(outfits[0].TotalPrice)
+            : outfits.Count == 0 ? NothingFitsMessage
+            : result.ShoesDidNotFit ? WithoutShoesMessage
+            : null;
 
         return new BudgetOutfitsResponse(
             ask.Budget,
@@ -257,6 +295,7 @@ internal static class BudgetOutfits
             ask.Seed,
             caller.Weather is null ? null : OutfitWeatherResponse.From(caller.Weather),
             result.OverBudget,
+            result.WithoutShoes,
             message,
             outfits);
     }
