@@ -74,7 +74,9 @@ Before the first post the user accepts a versioned consent text (`PostingConsent
 and the time** (`social.posting_consents`, append-only). Every post records the consent version and time it was created under. A new text
 is a new version and everyone must accept again before posting. The text tells the user: they confirm everyone in the photo agreed; posts
 are private by default; EXIF/location is removed; every photo goes through an automatic safety check and doubtful ones are seen by a person;
-tag suggestions are never shown without their confirmation; deletion is permanent within 24 hours; creators may earn commission.
+tag suggestions are never shown without their confirmation; deletion is permanent within 24 hours; creators may earn commission. Current
+version: `2026-11-v2` (November 2026; the wording of `2026-11-v1` with "akışta" replaced by "uygulamada" per the app glossary; every poster
+accepts it again, v1 acceptances stay in history).
 
 ### 3.2 The photo
 

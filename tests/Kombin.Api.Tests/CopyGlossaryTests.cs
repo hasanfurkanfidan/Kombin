@@ -2,13 +2,14 @@ using System.Text;
 using System.Text.RegularExpressions;
 using Kombin.Api.Common.Text;
 using Kombin.Api.Features.Recommendation.Narration;
+using Kombin.Api.Features.Social;
 
 namespace Kombin.Api.Tests;
 
 /// <summary>
 /// The app glossary for the Turkish copy the backend writes (<see cref="CopyGlossary"/>): every string literal of the sources below that can
 /// reach a user is scanned for the banned words. Legal pages are excluded (their own review), and so are validator messages (they name request
-/// fields), and so is the versioned posting consent. Interpolation holes and placeholders (<c>{personaName}</c>) are not copy and are dropped before the check.
+/// fields). The posting consent is checked as published text, from version 2 on (<see cref="TheConsentKeepsToTheGlossaryFromVersionTwoOn"/>). Interpolation holes and placeholders (<c>{personaName}</c>) are not copy and are dropped before the check.
 /// </summary>
 public sealed partial class CopyGlossaryTests
 {
@@ -25,8 +26,8 @@ public sealed partial class CopyGlossaryTests
     ];
 
     /// <summary>
-    /// Status messages, post copy and every problem detail. The posting consent is left out like the legal pages: its versions are pinned by hash
-    /// and a new wording is a new version every poster accepts again (version 1 says "akışta"; the next version should say "uygulamada").
+    /// Status messages, post copy and every problem detail. The posting consent's source holds version 1 too, which stays in history as published
+    /// ("akışta"), so its versions are checked as texts instead of scanning the file.
     /// </summary>
     public static TheoryData<string> AboutAnything =>
     [
@@ -63,6 +64,23 @@ public sealed partial class CopyGlossaryTests
     [InlineData("Sana uygun %94")]
     [InlineData("Takip et")]
     public void WhatTheGlossaryAllowsPasses(string text) => Assert.Empty(CopyGlossary.Violations(text));
+
+    /// <summary>
+    /// The posting consent follows the glossary from version 2 (2026-11-v2) on. Version 1 predates the rule and stays in history unchanged:
+    /// published texts are pinned (<c>PostingConsentTests</c>) and every acceptance row stores the exact text that was shown.
+    /// </summary>
+    [Fact]
+    public void TheConsentKeepsToTheGlossaryFromVersionTwoOn()
+    {
+        var checkedVersions = PostingConsent.Versions.Skip(1).ToList();
+        Assert.NotEmpty(checkedVersions);
+
+        foreach (var version in checkedVersions)
+        {
+            var words = CopyGlossary.Violations(version.Text);
+            Assert.True(words.Count == 0, $"Consent {version.Version} uses banned words: {string.Join(", ", words)}");
+        }
+    }
 
     [Fact]
     public void TakipIsOnlyForPeople() => Assert.Equal(["takip"], CopyGlossary.Violations("Takip ettiğin ceket indirimde", aboutPeople: false));

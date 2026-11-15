@@ -56,7 +56,7 @@ team; it is not a legal question. Google Play requires this page's URL in the da
 
 ## Not marked, but worth a question
 
-- The posting consent text (`Features/Social/PostingConsent.cs`, version `2026-11-v1`) is versioned and pinned by a test; the terms refer to it. Lawyers may change
+- The posting consent text (`Features/Social/PostingConsent.cs`, current version `2026-11-v2`, the wording of `2026-11-v1` with "akışta" replaced per the app glossary) is versioned and pinned by a test; the terms refer to it. Lawyers may change
   it only by adding a new version.
 - Visual search processes photos of strangers in memory only. The legal pages say the photo is not stored; whether an in-app notice on the lens screen is needed
   is privacy notes, open question 9.

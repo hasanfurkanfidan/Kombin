@@ -33,6 +33,23 @@ internal static class PostingConsent
             6. Bir gönderiyi istediğin an silebilirsin; fotoğraf ve türetilmiş kopyaları en geç 24 saat içinde kalıcı olarak silinir.
             7. Kreatör gönderilerinden yapılan alışverişlerde Kombin ve kreatör komisyon kazanabilir; bu durum gönderide belirtilir.
             """),
+
+        // Version 1 with the app glossary's wording: "akış" is only the feed tab's name, never a word in a sentence. Nothing else changed.
+        Published(
+            "2026-11-v2",
+            """
+            Paylaşım onayı
+
+            Kombin'de paylaştığın fotoğraflar seni veya başkalarını gösterebilir; bu kişisel veridir. Paylaşmadan önce:
+
+            1. Fotoğrafta görünen herkesin paylaşıma izni olduğunu onaylıyorsun.
+            2. Gönderilerin sen "Takipçilerime" veya "Herkese açık" seçene kadar yalnızca sana görünür.
+            3. Fotoğrafın konum ve cihaz bilgileri (EXIF) yüklemede silinir; orijinal dosya gizli saklanır, uygulamada yeniden işlenmiş bir kopyası gösterilir.
+            4. Her fotoğraf yayından önce otomatik bir güvenlik kontrolünden geçer; şüpheli olanlar bir kişi tarafından incelenir.
+            5. Fotoğraftaki kıyafetleri etiketlemek için otomatik öneriler alırsın; senin onaylamadığın hiçbir etiket başkalarına gösterilmez.
+            6. Bir gönderiyi istediğin an silebilirsin; fotoğraf ve türetilmiş kopyaları en geç 24 saat içinde kalıcı olarak silinir.
+            7. Kreatör gönderilerinden yapılan alışverişlerde Kombin ve kreatör komisyon kazanabilir; bu durum gönderide belirtilir.
+            """),
     ];
 
     public static ConsentVersion Current => Versions[^1];

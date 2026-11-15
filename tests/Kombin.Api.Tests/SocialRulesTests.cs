@@ -264,6 +264,7 @@ public class PostingConsentTests
     private static readonly Dictionary<string, string> PublishedHashes = new()
     {
         ["2026-11-v1"] = "930a4a54a9dd49025faef6678c66ee7c06134fb2898d5cd1ce465900178aa55f",
+        ["2026-11-v2"] = "a9a77c61fb480d897d96ab713989fcded8d340466ae4161b312dd098b67198d5",
     };
 
     [Fact]

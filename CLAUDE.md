@@ -274,7 +274,7 @@ External Python workers (a separate repo) push the catalog through the internal 
   a watched price "izlenir" ("takip" is only for people), colours in everyday words; banned: persona, uyum (alone), komşu, vurgu, nötr, tonal,
   eşleş-, akış in a sentence. `CopyGlossaryTests` scans the string literals of those sources (add a new copy file to its lists); the LLM
   narrator's system prompt is built from `CopyGlossary.Banned` and a line that breaks it falls back to the template. Legal pages and the
-  versioned posting consent are outside the scan (the consent's next version should drop "akışta").
+  posting consent's version 1 are outside the scan; consent texts from version 2 (`2026-11-v2`, current) on are checked as published text.
 
 ## Analytics rules
 
