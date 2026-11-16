@@ -59,6 +59,34 @@ Identity rules).
    `Persistence/Configurations/<Schema>/`, a `DbSet` on `KombinDbContext`, then create a migration (commands below).
 5. Add tests: validator and logic in `tests/Kombin.Api.Tests`, the HTTP flow in `tests/Kombin.Api.IntegrationTests`.
 
+## Feature boundaries
+
+The backend is one project, so nothing in the compiler stops `Features/A` from using `Features/B`'s internals. `FeatureBoundaryTests`
+(`tests/Kombin.Api.Tests`) does: it reads the sources, lists every type of another feature that a feature names (a `using` that is really used, a
+fully qualified name, `using static`, an alias; also in `.cshtml`) and fails for one that is not on `FeatureBoundaryAllowList`, the frozen
+list of what existed in task B7 (141 references in 37 feature pairs, 90 of them `Seam` = fine as it is and 51 `Legacy` = would be shared code
+today, with a line saying where it belongs). It forbids nothing that exists; it stops the list from growing, and `TheAllowListHoldsNoReferenceThatNoLongerExists`
+makes it shrink: remove a reference and the test tells you to delete the line.
+
+**Sharing code between features.**
+- Code that is not about one feature's domain (a parser, a formatter, a time zone, a config key, an infrastructure client, a validation helper) goes in
+  `src/Kombin.Api/Common/<Area>` (Results, Http, Auth, Validation, Pagination, Time, Text, Storage, Hosting, ...), never in the feature that happened to need it first. Entities are
+  already shared (`Persistence/Entities`).
+- A feature's behaviour that another feature must call is exposed as a narrow seam owned by the feature that has the behaviour: a small interface or
+  a static class named for what it does (`IAnalyticsIdentityLinker`, `IDeviceDeactivator`, `AccountAccess`, `OutfitStore`), registered in that feature's module and described
+  in its section of this file. Do not reach into another feature's `Endpoint.cs`, its error records or its rule tables for a helper.
+- Two features that need each other are a cycle (today: Catalog with Engagement, Notification, Profile and Wardrobe, and Recommendation with Wardrobe). Never add the reverse
+  direction of an existing pair; put the shared part in `Common` or hand the other side what it needs as a parameter.
+
+**When `NoFeatureReachesIntoAnotherOneBeyondTheAllowList` fails**, it names the new type and the file. In this order:
+1. Is the type shared code by the rule above? Move it to `Common` and update both sides. The allow-list does not change.
+2. Is it a real seam (the feature must call another feature's use case)? Give the other feature a narrow, documented seam, then add one `Kind.Seam` entry with the CLAUDE.md
+   section that documents it. A reviewer should agree to that line.
+3. Never add a `Kind.Legacy` entry and never add a line only to make the test pass. Legacy entries are the debt of the day the test was written.
+
+Only `Features` to `Features` is checked. `Common`, `Persistence` and `Program` may name features (the module wiring, the seeds), but a feature may not be needed by `Common`
+beyond that wiring: new code there should not reach into a feature either.
+
 ## Result, Error and validation conventions
 
 - Expected failures are values: return `Error` / `Result` / `Result<T>` (`Common/Results`). Exceptions are for bugs and
