@@ -550,16 +550,35 @@ Measured by `LensPerformanceTests` (50k products, one region, `KOMBIN_PERF=1`, v
 
 Design: `docs/design/league.md`. **Off by default**: with `League:Enabled` false (env `League__Enabled`) every route below answers 404
 `League.Disabled`; configuration switches it on when the app screens ship. Task L2 built the foundations (schema `league`, the settings, the
-consent, joining and leaving); entries, voting, the 21:00 day close and the weekly tables come next. Signed in.
+consent, joining and leaving); task L3 the entries and the voting. The 21:00 day close, the results and the weekly tables come next. Signed in.
 
 | Method | Route | Success | Errors |
 |---|---|---|---|
-| GET | `/league/me` | 200 `{ joined, consentRequired, consent { version, text }, tier, joinedAt }` (`tier` null before the first join) | |
-| POST | `/league/join` | 200, same shape. Body `{ consentVersion }` (the current one); idempotent | 400 `League.ConsentVersionInvalid`; 403 `League.AgeRestricted` (a birth year that shows the caller under 18) |
+| GET | `/league/me` | 200 `{ joined, consentRequired, consent { version, text }, tier, joinedAt, today, week }` (`tier` null before the first join). `today`: `{ day, closesAt, entry, servedPairs, countedVotes, target: 10, limit: 30 }`, `entry` null or `{ status, reason, message, pieces: [{ slot, imageUrl }] }` (status `Pending`, `Competing`, `NotCompeting`, `Withdrawn`, `Removed`; reason `RecentlyCompeted`, `UnsafePiece`, `IncompleteOutfit`, `PieceUnavailable`, `AgeRestricted`; `message` is "Bu kombin yakın zamanda yarıştı, bugün yarışmıyor." for `RecentlyCompeted`). `week` is null until the weekly leagues | |
+| POST | `/league/join` | 200, same shape. Body `{ consentVersion }` (the current one); idempotent | 400 `League.ConsentVersionInvalid`; 403 `League.AgeRestricted` (a known birth year that does not make the caller certainly 18: `year − birthYear <= 18`) |
 | POST | `/league/leave` | 204: no outfit enters from now on, today's is withdrawn; a later join keeps the tier | 403 `League.NotJoined` |
+| DELETE | `/league/me/entry` | 204: today's outfit leaves the pool, final for the day (again: 204) | 403 `League.NotJoined`; 404 `League.NoEntryToday`; 409 `League.DayClosed` |
+| GET | `/league/pairs/next` | 200 `{ pair: { id, left: { pieces: [{ slot, imageUrl }] }, right, sequence } \| null, reason: null \| "DailyLimit" \| "NoPairs", countedToday, servedToday, target, limit, closesAt }`; an unanswered pair is returned again | 403 `League.NotJoined`; 409 `League.DayClosed` |
+| POST | `/league/pairs/{pairId}/vote` | 200 `{ counted, chosenWinRate, chosenGames, countedToday, servedToday, target, limit }`. Body `{ choice: "left" \| "right" \| "skip", decisionMs }`; the same vote again returns the result | 400; 404 `League.PairNotFound`; 409 `League.AlreadyVoted`, `League.DayClosed` |
+| POST | `/league/pairs/{pairId}/report` | 202 `{ reported: true }`. Body `{ side: "left" \| "right", reason? }` (`Inappropriate`, `NotClothing`, `Other`); an open pair is used up as a skip | 400; 404 `League.PairNotFound`; 409 `League.AlreadyReported` |
 
 - The consent (version `2026-11-v1`) is also the 18+ declaration; its text is pinned by `LeagueConsentTests` and every join stores the text shown.
+- **Only a worn outfit enters** ("Bunu giyiyorum" / "Bugün giydim", `POST /me/outfits/{id}/worn`, before 21:00); saving never does. The entry
+  follows the latest wear until a voter is first shown it, then it is fixed for the day.
+- **Anonymity:** voters see a random pair ID and per side only `{ slot, imageUrl }`; the images are the league's own copies under random keys
+  (`league/{random}/{random}/thumb.*`), new every day, deleted within minutes of a withdrawal or a leave.
+- A vote counts when it is not a skip and both the server and the app measured at least 0.6 s; a player's first 20 counted votes weigh half.
+  `chosenWinRate` is the chosen outfit's real weighted win rate today, this vote included, null below 5 games ("İlk oylardan biri seninki").
+- `pairs/next`, `vote` and `report` share the `league` rate-limit policy (120 per 5 minutes per user); 30 pairs a day is the real cap.
 - Every number of the league is a `League:*` setting (the design note's section 14 lists them with their defaults).
+
+| Job | Schedule | Does |
+|---|---|---|
+| `league-entries` | every minute | resolves the players who wore an outfit in the last 10 minutes and those whose entry waits for the image safety check (asking it for at most 50 pieces a run); copies the thumbnails of a competing entry; deletes the copies of withdrawn and removed entries |
+| `league-fill` | every 15 minutes, 00:00-20:45 Istanbul | tops a small pool (fewer than 30 competing players' outfits per audience and occasion) up with catalog-only engine outfits, at most 20 per bucket a run |
+
+Both jobs are registered only when `League:Enabled` is true. Measured by `LeaguePerformanceTests` (6,000 entries, 12 voters serving their 30
+pairs, `KOMBIN_PERF=1`): `pairs/next` p95 23.7 ms (budget 100 ms).
 
 ### Admin panel
 
@@ -614,6 +633,7 @@ switches them all off (the development settings and the test host do).
 | `lens` | `POST /lens/search` | 20 per hour per IP (anonymous), 60 per hour per user |
 | `budget` | `POST /me/outfits/budget`, `POST /outfits/budget` | 20 per hour per IP (anonymous), 60 per hour per user |
 | `trips` | `POST /me/trips/plan`, `POST /me/trips`, `POST /me/trips/{id}/replan` (one bucket) | 30 per hour per user |
+| `league` | `GET /league/pairs/next`, `POST /league/pairs/{id}/vote`, `POST /league/pairs/{id}/report` (one bucket) | 120 per 5 minutes per user |
 | `uploads` | wardrobe and post upload URLs (one bucket) | 60 per hour per user |
 | `events` | `POST /events` | 600 per 5 minutes per user (per IP while anonymous) |
 | `go` | `GET /go/{offerId}` | 120 per minute per IP |

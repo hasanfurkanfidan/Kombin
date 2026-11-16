@@ -96,6 +96,7 @@ public sealed class RateLimitTests(ApiFactory factory)
         Assert.Equal((20, 3600), (limits.Budget.Anonymous.PermitLimit, limits.Budget.Anonymous.WindowSeconds));
         Assert.Equal((60, 3600), (limits.Budget.Authenticated.PermitLimit, limits.Budget.Authenticated.WindowSeconds));
         Assert.Equal((30, 3600), (limits.Trips.PermitLimit, limits.Trips.WindowSeconds));
+        Assert.Equal((120, 300), (limits.League.PermitLimit, limits.League.WindowSeconds));
         Assert.Equal((60, 3600), (limits.Uploads.PermitLimit, limits.Uploads.WindowSeconds));
         Assert.Equal((600, 300), (limits.Events.PermitLimit, limits.Events.WindowSeconds));
         Assert.Equal((120, 60), (limits.Go.PermitLimit, limits.Go.WindowSeconds));
@@ -249,6 +250,32 @@ public sealed class RateLimitTests(ApiFactory factory)
         other.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", otherTokens.AccessToken);
         using var otherResponse = await other.CreateUploadUrlRawAsync(cancellationToken: Ct);
         Assert.Equal(HttpStatusCode.Created, otherResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task TheLeaguesPairsVotesAndReportsShareOneBucketPerUser()
+    {
+        using var host = Limited(("RateLimits:League:PermitLimit", "2"));
+        using var client = ClientAt(host);
+        var tokens = await client.RegisterAndReadAsync(cancellationToken: Ct);
+        client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", tokens.AccessToken);
+
+        // Not a player: refused by the endpoint, counted by the limiter all the same.
+        using (var next = await client.GetAsync("/api/v1/league/pairs/next", Ct))
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, next.StatusCode);
+        }
+
+        using (var vote = await client.PostAsJsonAsync($"/api/v1/league/pairs/{Guid.NewGuid()}/vote", new { choice = "left", decisionMs = 900 }, Ct))
+        {
+            Assert.Equal(HttpStatusCode.NotFound, vote.StatusCode);
+        }
+
+        await AssertRateLimitedAsync(await client.PostAsJsonAsync($"/api/v1/league/pairs/{Guid.NewGuid()}/report", new { side = "left" }, Ct));
+
+        // The rest of the league is under the global fallback only.
+        using var me = await client.GetAsync("/api/v1/league/me", Ct);
+        Assert.Equal(HttpStatusCode.OK, me.StatusCode);
     }
 
     [Fact]

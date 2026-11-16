@@ -183,6 +183,21 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
         ["GET /api/v1/league/me"] = ScopedRead("/api/v1/league/me"),
         ["POST /api/v1/league/join"] = Exempt("Joins the caller; it takes no ID."),
         ["POST /api/v1/league/leave"] = Exempt("The caller leaves; it takes no ID."),
+        ["DELETE /api/v1/league/me/entry"] = Exempt("Withdraws the caller's own entry of today; it takes no ID."),
+
+        // The caller's next pair, on the world's league day (its own time: a league day closes at 21:00): A's outfit is in the pool, and the
+        // answer must carry none of A's identifiers (user, entry, wardrobe item).
+        ["GET /api/v1/league/pairs/next"] = Probe(
+            w => AtLeagueNoon(new HttpRequestMessage(HttpMethod.Get, "/api/v1/league/pairs/next"), w),
+            [HttpStatusCode.OK]),
+        ["POST /api/v1/league/pairs/{pairId:guid}/vote"] = Probe(
+            w => AtLeagueNoon(Json(HttpMethod.Post, $"/api/v1/league/pairs/{w.LeaguePairId}/vote", new { choice = "left", decisionMs = 1500 }), w),
+            [HttpStatusCode.NotFound],
+            async (w, f) => Assert.Null(await f.WithDbAsync(db => db.LeaguePairs.Where(pair => pair.Id == w.LeaguePairId).Select(pair => pair.AnsweredAt).SingleAsync(Ct)))),
+        ["POST /api/v1/league/pairs/{pairId:guid}/report"] = Probe(
+            w => AtLeagueNoon(Json(HttpMethod.Post, $"/api/v1/league/pairs/{w.LeaguePairId}/report", new { side = "left" }), w),
+            [HttpStatusCode.NotFound],
+            async (w, f) => Assert.False(await f.WithDbAsync(db => db.LeagueReports.AnyAsync(report => report.ReporterId == w.Intruder.Id, Ct)))),
 
         // Social
         ["GET /api/v1/social/consent"] = ScopedRead("/api/v1/social/consent"),
@@ -420,6 +435,14 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
 
     private static HttpRequestMessage Json(HttpMethod method, string url, object body) => new(method, url) { Content = JsonContent.Create(body) };
 
+    /// <summary>The request runs at noon of the world's league day (the test clock's header).</summary>
+    private static HttpRequestMessage AtLeagueNoon(HttpRequestMessage request, World world)
+    {
+        request.Headers.Add(TestHeaderClock.Header, LeagueClientExtensions.Time(world.LeagueDay, 12).ToString("O", System.Globalization.CultureInfo.InvariantCulture));
+
+        return request;
+    }
+
     /// <summary>A valid trip plan request (two days from the day after tomorrow) naming <paramref name="personaId"/>.</summary>
     private static object TripBody(Guid personaId)
     {
@@ -528,13 +551,42 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
             return trip.Id;
         });
 
+        // Kombin Ligi on a day of the world's own: A plays (an entry showing A's wardrobe piece, and an open pair of two engine outfits A was
+        // served); B is a player too, so B's next pair is A's outfit against an engine one.
+        var leagueDay = LeagueClientExtensions.NewDay();
+        await owner.Client.JoinLeagueOkAsync(cancellation);
+        await intruder.Client.JoinLeagueOkAsync(cancellation);
+        var leagueEntryId = await factory.InsertEntryAsync(leagueDay, owner.Id, cancellationToken: cancellation);
+        await factory.WithDbAsync(db => db.LeagueEntryPieces.Where(piece => piece.EntryId == leagueEntryId && piece.Position == 0)
+            .ExecuteUpdateAsync(set => set.SetProperty(piece => piece.WardrobeItemId, itemId), cancellation));
+        var engineLeft = await factory.InsertEntryAsync(leagueDay, null, cancellationToken: cancellation);
+        var engineRight = await factory.InsertEntryAsync(leagueDay, null, cancellationToken: cancellation);
+        var leaguePairId = await factory.WithDbAsync(async db =>
+        {
+            var pair = new Kombin.Api.Persistence.Entities.League.LeaguePair
+            {
+                Day = leagueDay,
+                VoterId = owner.Id,
+                LeftEntryId = engineLeft,
+                RightEntryId = engineRight,
+                LowEntryId = engineLeft.CompareTo(engineRight) < 0 ? engineLeft : engineRight,
+                HighEntryId = engineLeft.CompareTo(engineRight) < 0 ? engineRight : engineLeft,
+                MatchLevel = Kombin.Api.Persistence.Entities.League.LeaguePairMatch.Strict,
+                Sequence = 1,
+                ServedAt = LeagueClientExtensions.Time(leagueDay, 11),
+            };
+            db.LeaguePairs.Add(pair);
+            await db.SaveChangesAsync(cancellation);
+            return pair.Id;
+        });
+
         // A second session of the owner, whose refresh token the intruder tries to log out.
         using var login = await anonymous.LoginAsync(ownerEmail, ApiClientExtensions.DefaultPassword, cancellationToken: cancellation);
         var ownerRefresh = (await login.ReadTokensAsync(cancellation)).RefreshToken;
 
         return new World(
             owner.Id, ownerEmail, intruder, ownerPersona, itemId, product.ProductId, alertId, sizeId, sizePromptId, outfitId, notificationId, deviceToken,
-            privatePost, followersPost, draftPost, ownerRefresh, tripId);
+            privatePost, followersPost, draftPost, ownerRefresh, tripId, leagueDay, leagueEntryId, leaguePairId);
     }
 
     internal sealed record World(
@@ -554,13 +606,17 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
         Guid FollowersPostId,
         Guid DraftPostId,
         string OwnerRefreshToken,
-        Guid TripId)
+        Guid TripId,
+        DateOnly LeagueDay,
+        Guid LeagueEntryId,
+        Guid LeaguePairId)
     {
         /// <summary>What must never appear in an answer to user B. The product is public and the notification ID numeric, so neither is listed.</summary>
         public IReadOnlyList<string> OwnerSecrets =>
         [
             OwnerId.ToString(), OwnerEmail, OwnerPersonaId.ToString(), ItemId.ToString(), AlertId.ToString(), SizeId.ToString(), SizePromptId.ToString(), OutfitId.ToString(),
             OwnerDeviceToken, PrivatePostId.ToString(), FollowersPostId.ToString(), DraftPostId.ToString(), TripId.ToString(),
+            LeagueEntryId.ToString(), LeaguePairId.ToString(),
         ];
     }
 

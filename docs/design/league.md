@@ -5,7 +5,7 @@ competes, aliases in the table, 18+, the win rate after a vote; quoted as "the r
 `Tasarım/kombin-ligi/01-05` are context only. This document changes no rule. The owner's answers to the open questions of the first draft
 (task L1) are written into the sections they belong to; one question remains [open](#open-questions).
 
-Status: accepted (task L2). PR 1 (foundations) is implemented; everything else is design. "Not verified" marks a statement about behaviour I
+Status: accepted (task L2). PR 1 (foundations, task L2) and PR 2 (entering and voting, task L3) are implemented; everything else is design. "Not verified" marks a statement about behaviour I
 did not read in the code.
 
 ---
@@ -107,7 +107,7 @@ The league also needs the Istanbul zone and the Hangfire flag, which today live 
 `Common`** (rule 1): `Common/Time/Istanbul.cs` (`ZoneId`, `Zone`, `Today(now)`) and `Common/Hosting/HangfireSettings.cs` (`EnabledKey`), and
 updates every caller. That deletes the four whole pairs Admin/Analytics/Catalog/Identity → Notification (8 references) and `NotificationModule`
 and `QuietHours` from the Social and Wardrobe → Notification lines (4 references). **Net: 141 − 12 + 3 = 132 references in 37 − 4 + 2 = 35
-pairs.** The count does not grow. `TheAllowListHoldsNoReferenceThatNoLongerExists` will name the lines to delete.
+pairs.** The count does not grow. (As built: 132 references in 36 pairs; the list held 34 pairs after PR 1, not 33.) `TheAllowListHoldsNoReferenceThatNoLongerExists` will name the lines to delete.
 
 No new cycle: neither Wardrobe nor Recommendation will ever reference League (the league pulls, nothing pushes into it).
 
@@ -295,9 +295,11 @@ user), `league.reports` (`reporter_id` = user, or an entry of the user), `league
 and a check that the user's league image copies are gone from `FakeObjectStorage` and that another player's `daily_scores` row is unchanged.
 
 **Minors.** The rules: "Katılım 18 yaş ve üstü içindir: rıza metni bunu söyler, doğum yılı 18'den küçük gösteren hesap katılamaz."
-`UserProfile.BirthYear` (`Persistence/Entities/Profile/UserProfile.cs:15`) is optional. A player whose birth year makes them younger than
-`League:MinAge` (18) in the current Istanbul year (`year − birthYear < 18`: the year shows the player under 18; someone born in 2008 may join in 2026, since a year alone cannot say whether the birthday has passed) cannot join
-(403 `League.AgeRestricted`), and no entry is created if such a year is set later (`AgeRestricted`). An unknown birth year may join: the consent
+`UserProfile.BirthYear` (`Persistence/Entities/Profile/UserProfile.cs:15`) is optional. The rule is **strict** (task L3, the owner's
+correction of PR 1): a known birth year blocks unless the player is certainly of age, `year − birthYear <= League:MinAge` (18) in the current
+Istanbul year. A year alone cannot say whether the birthday has passed, so someone born in 2008 waits until 2027 even if they turned 18 in
+2026; that is the accepted cost. Such a player cannot join (403 `League.AgeRestricted`), and no entry is created if such a year is set later
+(`AgeRestricted`), by the same `LeagueRules.IsUnderAge`. An unknown birth year may join: the consent
 sentence "Katılarak 18 yaşından büyük olduğunu onaylarsın" is the declaration, and there is no separate age gate.
 
 **Records for counsel.** `docs/privacy-notes.md` gets a section "League": the consent (and that counsel has not reviewed it), the 18+
@@ -722,6 +724,32 @@ serve, `UnsafePiece`, `Pending` then moderated, `IncompleteOutfit`), `LeagueVoti
 counted, half weight for the first 20, idempotent and conflicting re-votes, day closed), `LeagueAnonymityTests` (pairs and votes),
 `RateLimitTests` defaults.
 
+*As built (task L3).* Everything above, plus `LeaguePerformanceTests` for `pairs/next` (p95 23.7 ms at 6,000 entries, 12 voters serving their 30
+pairs; budget 100 ms) and the strict age rule (section 4). Where it differs from or adds to this note:
+
+- `UseLeagueJobs` arrives with this PR (it has jobs), not PR 3; it registers `league-entries` and `league-fill` only when `League:Enabled` is
+  true and removes them otherwise.
+- `GET /league/me` resolves the caller's entry at once but never calls the image safety filter; a piece without a verdict shows `Pending` until
+  the next `league-entries` run asks (at most `ModerationRetriesPerRun` pieces a run). No entry is made for a player under an older consent
+  version, a disabled player or one whose deletion is pending.
+- An outfit dismissed after it was worn is no longer "today's" (it must still be `Worn`).
+- `PieceUnavailable` also covers a wardrobe item that no longer exists and a piece with nothing to show (stored thumbnail gone, no catalog
+  image); without an image the outfit could not be shown to voters.
+- A report uses up an open pair as a skip (never counted): otherwise asking for the next pair would return the same pair, and the reporter would
+  see the reported outfit again.
+- `chosenGames` is null for a skip, like `chosenWinRate` (a skip chose nothing).
+- Vote and report do not require being joined: the pair must be the caller's, and only a player is served pairs (`pairs/next` is 403
+  `League.NotJoined`).
+- The vote creates the day's `league.days` row if it is missing (`INSERT ... ON CONFLICT DO NOTHING`), so the `FOR SHARE` lock exists before
+  the close (PR 3) creates days.
+- The `(day) WHERE kind = Engine` index of section 3.1 was not in PR 1's migration and is not added: the fill reads per bucket through the
+  pairing index. PR 2's migration (`LeagueVoting`) adds only `outfit_feedback (created_at)`.
+- `GET /league/me`'s `week` has its shape (`LeagueWeekResponse`) in the OpenAPI document and is always null until PR 4. The owner's pieces may
+  have `imageUrl: null` (a piece without an image any more); a voter's never do.
+- In `AuthorizationMatrixTests`, `GET /league/pairs/next` is a probe at noon of a league day of its own (the test clock's header) instead of a
+  `ScopedRead`, which runs at the real time and would be refused after 21:00; it still checks that the answer carries none of A's identifiers,
+  with A's outfit in the pool. Integration tests pick their time with the `X-Test-Now` header (`TestHeaderClock`).
+
 **PR 3 — Day close and scores.** `BradleyTerry`, `DailyPoints`, `LeagueCloseJob.CloseDayAsync`, `GET /league/results`,
 `POST /internal/league/close`, `league-purge`, `UseLeagueJobs` after `UseIdentityJobs` in `Program.cs`.
 *Tests:* unit: `BradleyTerryTests` (prior pulls an unbeaten outfit below infinity; a known 3-player fit; convergence; same input same output;
@@ -800,7 +828,7 @@ the consent texts and the alias word lists (versioned in code, pinned by tests).
 | 2 | Consent text | the owner's text, version `2026-11-v1`; counsel review open | 4 |
 | 3 | "En iyi kombin 70" | the formula stays; 70 only from N = 36 | 9 |
 | 4 | Small groups | `min(5, floor(competed / 3))` each | 10 |
-| 5 | Minors | birth year under 18 cannot join; unknown may; the consent is the declaration | 4 |
+| 5 | Minors | a known birth year joins only when certainly 18 (`year − birthYear > 18`, strict since task L3); unknown may; the consent is the declaration | 4 |
 | 6 | Revoking the creator right | v1 never revokes; the columns stay unwritten | 11 |
 | 7 | Near rule | one piece swapped, added or removed, accessories ignored | 5 |
 | 8 | After 21:00 | a wear earns nothing that day; a piece counts for the next day | 9 |

@@ -129,6 +129,7 @@ app.UseAnalyticsJobs();
 app.UseWardrobeJobs();
 app.UseSocialJobs();
 app.UseIdentityJobs();
+app.UseLeagueJobs();
 await app.RunAsync();
 return 0;
 

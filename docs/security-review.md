@@ -65,7 +65,7 @@ the caller chooses; every one of them is checked against the caller where it is 
 | Wardrobe | `POST /wardrobe/items/upload-url`, `POST /wardrobe/items/from-product`, `GET /wardrobe/items`, `GET/PATCH/DELETE /wardrobe/items/{id}`, `POST /wardrobe/items/{id}/process`, `POST /wardrobe/items/{id}/wear`, `DELETE /wardrobe/items/{id}/wear/{date}`, `GET /wardrobe/items/{id}/pairings`, `GET /wardrobe/stats`, `GET /wardrobe/gaps` | item, product (public) |
 | Recommendation | `GET /outfits/daily`, `GET /outfits/how-to-wear`, `GET /outfits/saved`, `GET/DELETE /outfits/{id}`, `POST /outfits/{id}/save|worn|feedback`, `POST /outfits/budget` (`budget`), `POST /trips/plan`, `POST /trips` (`trips`), `GET /trips`, `GET/DELETE /trips/{id}`, `POST /trips/{id}/replan` (`trips`) | outfit, wardrobe item, persona, trip |
 | Social | `GET/POST /api/v1/social/consent`, `POST /api/v1/posts/upload-url`, `POST /api/v1/posts/from-outfit`, `POST /api/v1/posts/{id}/process`, `PUT /api/v1/posts/{id}/publish`, `DELETE /api/v1/posts/{id}`, `POST/DELETE /api/v1/posts/{id}/like`, `POST /api/v1/posts/{id}/report`, `POST /api/v1/posts/{id}/try`, `GET /me/posts`, `GET /me/blocks`, `GET /me/creator/stats`, `POST/DELETE /api/v1/users/{id}/follow`, `POST/DELETE /api/v1/users/{id}/block` | post, outfit, wardrobe items in tags (must be the author's), user |
-| League (`/api/v1/league/...`, task L2; off unless `League:Enabled`, then 404 `League.Disabled`) | `GET /me`, `POST /join`, `POST /leave` | none (the consent version only) |
+| League (`/api/v1/league/...`, tasks L2 and L3; off unless `League:Enabled`, then 404 `League.Disabled`) | `GET /me`, `POST /join`, `POST /leave`, `DELETE /me/entry`, `GET /pairs/next`, `POST /pairs/{pairId}/vote`, `POST /pairs/{pairId}/report` (the last three: `league`) | pair (must be the caller's: 404 `League.PairNotFound` otherwise); answers carry no other player's identifier (`LeagueAnonymityTests`) |
 
 ### Internal (`X-Internal-Key`)
 
@@ -90,8 +90,9 @@ Keys are server-built `{area}/{userId}/{ownerId}/{variant}.{ext}` (`StorageKeys.
 `*/cutout.*` and `*/thumb.*` only (`docker/minio/public-read.json`); everything else, originals and post renditions included, is private.
 Keys contain two random GUIDs (not guessable); public ones are disclosed wherever the image is shown (wardrobe tags on posts).
 The first GUID is the owner's user ID, so a public key links an image to an account: Kombin Ligi, whose outfits are anonymous, will therefore
-show copies under `league/{random}/{random}/thumb.*` instead of the wardrobe keys (`docs/design/league.md`, section 4; built with the entries,
-not in task L2). Account deletion finds those copies through the user's entries (`AccountPurger`).
+show copies under `league/{random}/{random}/thumb.*` instead of the wardrobe keys (`docs/design/league.md`, section 4; built in task L3 by
+`EntryMaterializer`, new keys every day, deleted within minutes of a withdrawal or a leave). Account deletion finds those copies through the
+user's entries (`AccountPurger`).
 
 ## 3. Findings
 

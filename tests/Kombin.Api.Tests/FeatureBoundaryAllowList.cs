@@ -5,7 +5,7 @@ namespace Kombin.Api.Tests;
 /// <summary>
 /// What one feature may use of another, frozen when <see cref="FeatureBoundaryTests"/> was written (task B7: nothing was moved to produce it, so
 /// 141 references in 37 feature pairs: 90 Seam, 51 Legacy; task L2 moved the Istanbul zone and the Hangfire flag to Common, leaving 129 in 33
-/// pairs: 90 Seam, 39 Legacy). <see cref="Kind.Seam"/>: fine as it is. <see cref="Kind.Legacy"/>: accepted for now; the reason says where the
+/// pairs: 90 Seam, 39 Legacy; task L3 added the league's two seams: 132 in 36 pairs (the list held 34 pairs before, not 33), 93 Seam, 39 Legacy). <see cref="Kind.Seam"/>: fine as it is. <see cref="Kind.Legacy"/>: accepted for now; the reason says where the
 /// code belongs. The list only shrinks: do not add a line to make the test pass (CLAUDE.md, "Feature boundaries"). Grouped by the using feature.
 /// </summary>
 internal static class FeatureBoundaryAllowList
@@ -44,6 +44,10 @@ internal static class FeatureBoundaryAllowList
         // -- Identity ---------------------------------------------------------------------------------------------------------------
         new("Identity", "Analytics", Kind.Seam, "Documented: IAnalyticsIdentityLinker is the only coupling between Identity and Analytics (Analytics rules).", "IAnalyticsIdentityLinker"),
         new("Identity", "Notification", Kind.Seam, "Documented: other features reach devices only through IDeviceDeactivator (Notification rules).", "IDeviceDeactivator"),
+
+        // -- League -----------------------------------------------------------------------------------------------------------------
+        new("League", "Recommendation", Kind.Seam, "Documented: engine outfits fill a small pool; they come from the outfit engine, never a copy (Recommendation rules, CatalogOutfitSampler; League rules).", "CatalogOutfitSampler", "SampledOutfit"),
+        new("League", "Wardrobe", Kind.Seam, "Documented: league entries show wardrobe pieces to strangers only through the image safety filter (Wardrobe rules, IsShareable; League rules).", "WardrobeModerator"),
 
         // -- Lens -------------------------------------------------------------------------------------------------------------------
         new("Lens", "Catalog", Kind.Seam, "Results carry the catalog's product list item and seller (Visual search rules).", "ProductListItem", "SellerRef"),

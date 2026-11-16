@@ -3035,6 +3035,9 @@ namespace Kombin.Api.Persistence.Migrations
                     b.HasKey("Id")
                         .HasName("pk_outfit_feedback");
 
+                    b.HasIndex("CreatedAt")
+                        .HasDatabaseName("ix_outfit_feedback_created_at");
+
                     b.HasIndex("OutfitId")
                         .HasDatabaseName("ix_outfit_feedback_outfit_id");
 

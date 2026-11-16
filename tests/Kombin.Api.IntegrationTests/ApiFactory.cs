@@ -1,6 +1,7 @@
 using Hangfire;
 using Kombin.Api.Common.Http;
 using Kombin.Api.Common.Storage;
+using Kombin.Api.Common.Time;
 using Kombin.Api.Features.Admin;
 using Kombin.Api.Features.Catalog.Jobs;
 using Kombin.Api.Features.Identity.ExternalTokens;
@@ -9,6 +10,7 @@ using Kombin.Api.Features.Recommendation.Weather;
 using Kombin.Api.Features.Wardrobe;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
@@ -97,6 +99,11 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 
             // The in-memory server has no client address; the admin login throttle keys on it, so a test picks its own with a header.
             services.AddTransient<IStartupFilter, TestRemoteIpStartupFilter>();
+
+            // The real clock, unless a request names its own time (X-Test-Now): the league tests play days of their own, at any hour.
+            services.AddHttpContextAccessor();
+            services.RemoveAll<IClock>();
+            services.AddSingleton<IClock, TestHeaderClock>();
         });
 
         builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(new Dictionary<string, string?>
@@ -147,4 +154,20 @@ internal sealed class TestRemoteIpStartupFilter : IStartupFilter
 
         next(app);
     };
+}
+
+/// <summary>
+/// The system clock, except for a request carrying <c>X-Test-Now</c> (an ISO 8601 instant): its handler, filters and validators all see that
+/// time. Only the league tests send it (a league day closes at 21:00 Istanbul, so the real clock would make them depend on the hour); jobs that
+/// tests call directly take their time as a parameter.
+/// </summary>
+internal sealed class TestHeaderClock(IHttpContextAccessor accessor) : IClock
+{
+    public const string Header = "X-Test-Now";
+
+    public DateTimeOffset UtcNow =>
+        accessor.HttpContext?.Request.Headers.TryGetValue(Header, out var value) == true
+            && DateTimeOffset.TryParse(value.ToString(), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal, out var now)
+            ? now.ToUniversalTime()
+            : DateTimeOffset.UtcNow;
 }

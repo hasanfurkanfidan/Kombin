@@ -42,8 +42,21 @@ public sealed class OpenApiTests(ApiFactory factory)
         Assert.Contains("LeagueMeResponse", paths.GetProperty("/api/v1/league/join").GetProperty("post").GetProperty("responses").GetProperty("200").GetRawText(), StringComparison.Ordinal);
         Assert.True(paths.GetProperty("/api/v1/league/leave").GetProperty("post").GetProperty("responses").TryGetProperty("204", out _));
 
-        var me = document.GetProperty("components").GetProperty("schemas").GetProperty("LeagueMeResponse").GetProperty("properties");
-        Assert.Equal(["consent", "consentRequired", "joined", "joinedAt", "tier"], me.EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal));
+        Assert.True(paths.GetProperty("/api/v1/league/me/entry").GetProperty("delete").GetProperty("responses").TryGetProperty("204", out _));
+        Assert.Contains("NextPairResponse", paths.GetProperty("/api/v1/league/pairs/next").GetProperty("get").GetProperty("responses").GetProperty("200").GetRawText(), StringComparison.Ordinal);
+        Assert.Contains("VoteResponse", paths.GetProperty("/api/v1/league/pairs/{pairId}/vote").GetProperty("post").GetProperty("responses").GetProperty("200").GetRawText(), StringComparison.Ordinal);
+        Assert.Contains("ReportEntryResponse", paths.GetProperty("/api/v1/league/pairs/{pairId}/report").GetProperty("post").GetProperty("responses").GetProperty("202").GetRawText(), StringComparison.Ordinal);
+
+        var schemas = document.GetProperty("components").GetProperty("schemas");
+        string[] Properties(string schema) => [.. schemas.GetProperty(schema).GetProperty("properties").EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal)];
+
+        Assert.Equal(["consent", "consentRequired", "joined", "joinedAt", "tier", "today", "week"], Properties("LeagueMeResponse"));
+        Assert.Equal(["closesAt", "countedVotes", "day", "entry", "limit", "servedPairs", "target"], Properties("LeagueTodayResponse"));
+        Assert.Equal(["message", "pieces", "reason", "status"], Properties("LeagueTodayEntryResponse"));
+        Assert.Equal(["closesAt", "countedToday", "limit", "pair", "reason", "servedToday", "target"], Properties("NextPairResponse"));
+        Assert.Equal(["id", "left", "right", "sequence"], Properties("LeaguePairResponse"));
+        Assert.Equal(["imageUrl", "slot"], Properties("LeaguePieceResponse"));
+        Assert.Equal(["chosenGames", "chosenWinRate", "counted", "countedToday", "limit", "servedToday", "target"], Properties("VoteResponse"));
     }
 
     // Security review M5: the API documentation must say that "Followers" is not private (anyone can follow without approval).

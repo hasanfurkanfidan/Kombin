@@ -55,6 +55,9 @@ internal sealed class RateLimitOptions
     /// <summary>Trip planning (plan, save, re-plan: one bucket): 30 per hour per user.</summary>
     public RateLimitWindow Trips { get; set; } = new(30, 3600);
 
+    /// <summary>Kombin Ligi's next pair, vote and report (one bucket): 120 per 5 minutes per user. Only stops a client in a loop; 30 pairs a day is the real cap.</summary>
+    public RateLimitWindow League { get; set; } = new(120, 300);
+
     /// <summary>Upload URLs of the wardrobe and of posts: 60 per hour per user.</summary>
     public RateLimitWindow Uploads { get; set; } = new(60, 3600);
 
@@ -80,6 +83,7 @@ internal sealed class RateLimitOptionsValidator : IValidateOptions<RateLimitOpti
         Check("Budget:Anonymous", options.Budget.Anonymous, failures);
         Check("Budget:Authenticated", options.Budget.Authenticated, failures);
         Check("Trips", options.Trips, failures);
+        Check("League", options.League, failures);
         Check("Uploads", options.Uploads, failures);
         Check("Events", options.Events, failures);
         Check("Go", options.Go, failures);

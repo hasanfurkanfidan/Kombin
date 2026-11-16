@@ -17,7 +17,7 @@ internal sealed class LeagueOptions
     /// <summary>The day closes (votes stop, results are computed) at this Istanbul time.</summary>
     public TimeOnly DayClosesAt { get; set; } = new(21, 0);
 
-    /// <summary>A birth year that makes the player younger than this cannot join.</summary>
+    /// <summary>A known birth year keeps the player out unless they are certainly older than this (<c>LeagueRules.IsUnderAge</c>).</summary>
     public int MinAge { get; set; } = 18;
 
     public int MaxPairsPerDay { get; set; } = 30;
