@@ -1,5 +1,6 @@
 using Kombin.Api.Common.Auth;
 using Kombin.Api.Common.Results;
+using Kombin.Api.Common.Storage;
 using Kombin.Api.Common.Time;
 using Kombin.Api.Features.League.GetMe;
 using Kombin.Api.Persistence;
@@ -32,6 +33,7 @@ internal static class JoinLeagueEndpoint
         JoinLeagueRequest request,
         ICurrentUser currentUser,
         KombinDbContext db,
+        IObjectStorage storage,
         IClock clock,
         IOptions<LeagueOptions> options,
         CancellationToken cancellationToken)
@@ -57,7 +59,7 @@ internal static class JoinLeagueEndpoint
         var player = await db.LeaguePlayers.SingleOrDefaultAsync(row => row.UserId == userId, cancellationToken);
         if (player is { IsJoined: true } && player.ConsentVersion == current.Version)
         {
-            return TypedResults.Ok(GetLeagueMeEndpoint.Build(player));
+            return TypedResults.Ok(await GetLeagueMeEndpoint.BuildAsync(db, storage, options.Value, userId, now, cancellationToken));
         }
 
         if (player is null)
@@ -84,6 +86,6 @@ internal static class JoinLeagueEndpoint
             db.ChangeTracker.Clear();
         }
 
-        return TypedResults.Ok(await GetLeagueMeEndpoint.BuildAsync(db, userId, cancellationToken));
+        return TypedResults.Ok(await GetLeagueMeEndpoint.BuildAsync(db, storage, options.Value, userId, now, cancellationToken));
     }
 }

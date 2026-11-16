@@ -196,16 +196,18 @@ restart forgets everything. The address is the real client's when the reverse pr
 (client address, path, status) to its container log, rotated by size; the API's own log has correlation IDs and paths, not addresses, e-mail
 addresses or tokens. Neither is searched per user.
 
-## 6b. Kombin Ligi (League, task L2; design `docs/design/league.md`)
+## 6b. Kombin Ligi (League, tasks L2 and L3; design `docs/design/league.md`)
 
-Off until the app screens ship (`League:Enabled` false). Task L2 built joining and leaving; the rows below marked *later* are designed, not built.
+Off until the app screens ship (`League:Enabled` false). Task L2 built joining and leaving, task L3 the entries, the image copies, voting and
+reports; the rows below marked *later* are designed, not built.
 
 | What | Why | Where | Who sees it | How long |
 |---|---|---|---|---|
 | Join and leave records, with the exact consent text shown and its version | proof of the consent and of the 18+ declaration | `league.consents`, `league.players` | the operator | until the account is deleted |
-| Birth year (read, not stored again) | a year that shows the player under 18 cannot join | `profile.user_profiles` | nobody new | as the profile |
-| *later*: the day's worn outfit (its pieces) and copies of the pieces' thumbnails | the outfit competes | `league.entries`, `entry_pieces`, object storage `league/{random}/{random}/thumb.*` | **other players**, anonymously: only the piece images, under keys that hold no user ID and differ every day; only pieces the safety filter allowed (`IsShareable`) | images 7 days after the day; entries 90 days |
-| *later*: votes (which of two outfits, how fast) | the day's ranking | `league.pairs` | the operator; nobody sees who voted | 30 days |
+| Birth year (read, not stored again) | a known year joins (and enters an outfit) only when it makes the player certainly 18 | `profile.user_profiles` | nobody new | as the profile |
+| The day's worn outfit (its pieces, which outfit, the occasion, the profile's audience) and copies of the pieces' thumbnails | the outfit competes | `league.entries`, `entry_pieces`, object storage `league/{random}/{random}/thumb.*` | **other players**, anonymously: only the piece images (slot and URL), under keys that hold no user ID and differ every day; only when every piece passed the safety filter (`IsShareable`); a saved outfit never enters, only a worn one | copies: deleted within minutes of withdrawing or leaving (`league-entries`), otherwise *later* 7 days after the day (`league-purge`, PR 3); entries *later* 90 days |
+| Votes (which of two outfits or a skip, the server's and the app's decision time, the weight) | the day's ranking | `league.pairs` | the operator; nobody sees who voted; the voter sees the chosen outfit's win rate of the day | *later* 30 days (`league-purge`); until then, until the account is deleted |
+| Reports on an outfit (optional reason) | taking unsafe outfits out of the pool | `league.reports` | the operator (review queue *later*) | until the outfit or either account is deleted |
 | *later*: daily points, week groups with a generated alias ("Yeşil Trençkot"), the style score | the tables; creator eligibility (no screen) | `league.daily_scores`, `group_members`, `style_scores` | the group sees the alias and points, never a name, e-mail or ID; the style score nobody but the operator | until the account is deleted |
 | *later*: engine preference rows | the engine learns which catalog outfits win | `league.engine_preferences` | the operator | no user ID at all |
 

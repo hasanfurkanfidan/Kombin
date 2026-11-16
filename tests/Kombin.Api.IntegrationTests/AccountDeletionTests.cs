@@ -25,6 +25,9 @@ public sealed class AccountDeletionTests(ApiFactory factory)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
+    /// <summary>The league tables a player who entered, voted and was reported has rows in.</summary>
+    private static readonly string[] PlayedLeagueTables = ["league.players", "league.consents", "league.entries", "league.entry_pieces", "league.pairs", "league.reports"];
+
     private static string Wrong => "Wrong-password-1";
 
     private static async Task<HttpResponseMessage> DeleteMeAsync(HttpClient client, string? password, string? confirm = "SİL")
@@ -585,6 +588,59 @@ public sealed class AccountDeletionTests(ApiFactory factory)
     {
         using var response = await client.GetAsync(goPath, Ct);
         Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ALeaguePlayersEntryCopiesVotesAndReportsGoWithTheAccount()
+    {
+        // Kombin Ligi through the real flows: the subject's worn outfit entered (the job copied its thumbnails), the subject voted, the
+        // bystander was shown the subject's outfit and reported it.
+        var day = LeagueClientExtensions.NewDay();
+        using var subject = await factory.CreatePlayerAsync(day, Ct);
+        using var bystander = await factory.CreatePlayerAsync(day, Ct);
+        var outfit = await factory.SeedOutfitAsync(subject.Id, Ct);
+        subject.Client.At(LeagueClientExtensions.Time(day, 9));
+        await subject.Client.WearOutfitAsync(outfit.OutfitId, Ct);
+        await factory.RunLeagueEntriesAsync(LeagueClientExtensions.Time(day, 9, 1), [subject.Id], Ct);
+        var subjectEntry = (await factory.EntryAsync(subject.Id, day, Ct))!;
+        var copies = subjectEntry.Pieces.Select(piece => piece.ImageKey!).ToList();
+        Assert.Equal(3, copies.Count);
+        Assert.All(copies, key => Assert.NotNull(factory.Storage.Find(key)));
+
+        var bystanderEntry = await factory.InsertEntryAsync(day, bystander.Id, exposures: 10, cancellationToken: Ct);
+        await factory.InsertEngineEntriesAsync(day, 2, Ct);
+
+        subject.Client.At(LeagueClientExtensions.Time(day, 12));
+        await subject.Client.VoteOkAsync(await subject.Client.ServeAndLookAsync(Ct), "left", cancellationToken: Ct);
+        bystander.Client.At(LeagueClientExtensions.Time(day, 12));
+        var shown = await bystander.Client.ServeAndLookAsync(Ct);
+        var shownRow = await factory.WithDbAsync(db => db.LeaguePairs.AsNoTracking().SingleAsync(pair => pair.Id == shown, Ct));
+        Assert.Contains(subjectEntry.Id, new[] { shownRow.LeftEntryId, shownRow.RightEntryId });
+        using (var reported = await bystander.Client.ReportOutfitAsync(shown, shownRow.LeftEntryId == subjectEntry.Id ? "left" : "right", cancellationToken: Ct))
+        {
+            Assert.Equal(HttpStatusCode.Accepted, reported.StatusCode);
+        }
+
+        var before = await CountsAsync(subject.Id);
+        Assert.All(PlayedLeagueTables, table => Assert.True(before[table] > 0, table));
+
+        subject.Client.DefaultRequestHeaders.Remove(TestHeaderClock.Header);
+        using (var requested = await DeleteMeAsync(subject.Client, ApiClientExtensions.DefaultPassword))
+        {
+            Assert.Equal(HttpStatusCode.Accepted, requested.StatusCode);
+        }
+
+        await BackdateAsync(subject.Id, 8);
+        Assert.Equal(1, (await RunJobAsync(subject.Id)).AccountsDeleted);
+
+        Assert.All((await CountsAsync(subject.Id)).Where(entry => entry.Key.StartsWith("league.", StringComparison.Ordinal)), entry => Assert.True(entry.Value == 0, $"{entry.Key} still has {entry.Value} row(s)."));
+        Assert.All(copies, key => Assert.Null(factory.Storage.Find(key)));
+        Assert.All(copies, key => Assert.Contains(key, factory.Storage.Deleted));
+
+        // The bystander keeps their own entry; the pair that showed the subject's outfit went with it, and so did the report on it.
+        Assert.True(await factory.WithDbAsync(db => db.LeagueEntries.AnyAsync(entry => entry.Id == bystanderEntry, Ct)));
+        Assert.False(await factory.WithDbAsync(db => db.LeaguePairs.AnyAsync(pair => pair.Id == shown, Ct)));
+        Assert.False(await factory.WithDbAsync(db => db.LeagueReports.AnyAsync(report => report.ReporterId == bystander.Id, Ct)));
     }
 
     private Task<List<Kombin.Api.Persistence.Entities.Engagement.Click>> ClicksAsync(Guid first, Guid second) =>

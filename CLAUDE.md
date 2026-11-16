@@ -65,7 +65,8 @@ The backend is one project, so nothing in the compiler stops `Features/A` from u
 (`tests/Kombin.Api.Tests`) does: it reads the sources, lists every type of another feature that a feature names (a `using` that is really used, a
 fully qualified name, `using static`, an alias; also in `.cshtml`) and fails for one that is not on `FeatureBoundaryAllowList`, the frozen
 list of what existed in task B7 (141 references in 37 feature pairs, 90 of them `Seam` = fine as it is and 51 `Legacy` = would be shared code
-today, with a line saying where it belongs; task L2 moved the Istanbul zone and the Hangfire flag to `Common` and left 129 in 33 pairs, 39 `Legacy`). It forbids nothing that exists; it stops the list from growing, and `TheAllowListHoldsNoReferenceThatNoLongerExists`
+today, with a line saying where it belongs; task L2 moved the Istanbul zone and the Hangfire flag to `Common` and left 129 in 34 pairs, 39 `Legacy`; task L3 added the league's two
+`Seam`s: 132 in 36 pairs). It forbids nothing that exists; it stops the list from growing, and `TheAllowListHoldsNoReferenceThatNoLongerExists`
 makes it shrink: remove a reference and the test tells you to delete the line.
 
 **Sharing code between features.**
@@ -310,7 +311,7 @@ External Python workers (a separate repo) push the catalog through the internal 
 - **Hangfire wiring:** `AddNotificationFeature` registers storage lazily; `UseNotificationJobs` (called in `Program.cs` after the EF
   migrations and the seeds) is what first creates the `hangfire` schema, registers the recurring jobs (`UseCatalogJobs` adds the
   Catalog's `offer-sweep`, `UseAnalyticsJobs` the Analytics' `weekly-metrics` and `analytics-retention`, `UseWardrobeJobs` the Wardrobe's `wardrobe-cleanup` and
-  `UseSocialJobs` the Social's `social-purge` and `UseIdentityJobs` the Identity's `account-deletion` right after it, behind the same flag; `UseCatalogJobs` also registers `product-embeddings`; `outfit-narrate` and `post-process` are fire-and-forget,
+  `UseSocialJobs` the Social's `social-purge`, `UseIdentityJobs` the Identity's `account-deletion` and `UseLeagueJobs` the League's `league-entries` and `league-fill` (also behind `League:Enabled`) right after it, behind the same flag; `UseCatalogJobs` also registers `product-embeddings`; `outfit-narrate` and `post-process` are fire-and-forget,
   not recurring) and, **in Development only**
   (or wherever `Diagnostics:Expose` is true, then behind the `/admin` sign-in), maps the dashboard at `/hangfire` (open in Development, unmapped otherwise). Nothing happens unless `Hangfire:Enabled` is
   true (compose sets it; tests set it to false; `Development` defaults to true). The storage uses `EnableLongPolling`
@@ -394,7 +395,8 @@ External Python workers (a separate repo) push the catalog through the internal 
 - **Wardrobe photos are moderated** (`WardrobeModerator`, security review M3): right after the item is `Ready`, the cutout goes to `/v1/moderate`
   and `moderation_verdict`/`moderated_at` are stored (catalog items: `Allow`). **Only `Allow` lets another user see the image** (`IsShareable`):
   for anything else, or no verdict yet, viewers get a post's wardrobe tag without `imageUrl`; the owner keeps the piece everywhere. A failed
-  call leaves the verdict empty. A new surface that shows a wardrobe image to someone other than its owner must check `IsShareable`. Tests:
+  call leaves the verdict empty. A new surface that shows a wardrobe image to someone other than its owner must check `IsShareable`. Kombin Ligi does, through
+  the same seam: its entries compete only when every piece is `Allow`, and `league-entries` calls `ModerateAsync` for pieces without a verdict. Tests:
   `FakeVisionClient.CutoutFor` (photo flavours `nsfw`, `borderline`, `moderation-down`).
 - **`wardrobe-cleanup`** (daily 05:00 `Europe/Istanbul`, `[DisableConcurrentExecution(60)]`, `[AutomaticRetry(Attempts = 0)]`, tests call
   `CleanupAsync(userId, ct)`): deletes the objects of items archived more than 30 days ago (rows and wear history stay, keys set to null)
@@ -470,6 +472,10 @@ External Python workers (a separate repo) push the catalog through the internal 
   model `claude-haiku-5-5`) the store enqueues `outfit-narrate` (`OutfitNarrationJob`, fire-and-forget, `[AutomaticRetry(Attempts = 0)]`),
   which calls `AnthropicNarrator` (plain `HttpClient`, one call per set, 60 output tokens per outfit, strict JSON schema, 3 s, template fallback on
   any failure, cache 7 days in `recommendation.narrations`) and updates the rows; the app sees it on `GET /{id}`.
+- **Catalog outfits for Kombin Ligi** (`CatalogOutfitSampler.SampleAsync`, returns `SampledOutfit`s): the league's one way into the engine, a
+  documented seam. Catalog-only (never a wardrobe: that would show someone's pieces to strangers), no persona, the date's season instead of a
+  forecast, the narrow per-slot prefetch (all colours, the occasion's band, the audience), `OutfitGenerator.Generate` with `CatalogKept` 8 and the
+  acceptance floor, a seeded jitter and `PickDiverse`; outfits with a piece without an image are left out. Same day and seed, same list.
 - **How-to-wear is one engine with two callers.** `HowToWear.LoadAsync` (persona, wardrobe, owned products, dismissed hashes; once per
   request) and `HowToWear.SuggestAsync` (one anchor) serve `GET /how-to-wear` and the social `POST /posts/{id}/try`; never copy it.
 - **Repeat requests reuse rows**: same user, kind, day, occasion, persona and piece hash (not dismissed) → the stored outfit. A dismissed hash is
@@ -642,11 +648,13 @@ External Python workers (a separate repo) push the catalog through the internal 
 
 ## League rules
 
-- **What exists (task L2, PR 1 of 4):** "Kombin Ligi" foundations in `Features/League` (design and the owner's decisions: `docs/design/league.md`;
+- **What exists (tasks L2 and L3, PRs 1 and 2 of 4):** "Kombin Ligi" in `Features/League` (design and the owner's decisions: `docs/design/league.md`;
   the rules: `Tasarım/kombin-ligi-aritmetik.md`, a product decision: never change a rule in code, raise it). Schema `league` with all 14 tables
   of the design (players, consents, days, entries, entry_pieces, pairs, reports, daily_scores, weeks, groups, group_members, style_scores,
-  engine_preferences, state), `LeagueOptions`, `LeagueConsent`, and `GET /api/v1/league/me`, `POST /league/join`, `POST /league/leave`. No job,
-  no entry, no pairing, no vote, no close yet: the next PRs add them in the order of the note's section 14.
+  engine_preferences, state), `LeagueOptions`, `LeagueConsent`; `GET /api/v1/league/me` (with the `today` block), `POST /league/join`,
+  `POST /league/leave`, `DELETE /league/me/entry`, `GET /league/pairs/next`, `POST /league/pairs/{pairId}/vote`, `POST /league/pairs/{pairId}/report`;
+  the jobs `league-entries` and `league-fill`. No day close, no Bradley–Terry, points, results, table, weeks, style score, review endpoints or
+  result push yet (PRs 3 and 4); nothing writes `league.days.closed_at` or `daily_scores` yet.
 - **Off by default.** `League:Enabled` (env `League__Enabled`) is false until the app screens ship: the routes stay mapped (OpenAPI, the
   authorization matrix) but `LeagueEnabledFilter` answers 404 `League.Disabled` first. `ApiFactory` switches it on; a test that needs it off
   builds its own host.
@@ -658,14 +666,45 @@ External Python workers (a separate repo) push the catalog through the internal 
 - **Age (strict):** a known birth year blocks unless the caller is certainly of age (`LeagueRules.IsUnderAge`: `year − birthYear <= League:MinAge`,
   in the Istanbul year; born 2008 waits until 2027): 403 `League.AgeRestricted` on join, and entry reason `AgeRestricted` for a player whose year
   is set later. An unknown year may join (the consent is the declaration). No other age gate.
+- **Only a worn outfit enters** (`TodaysOutfit`): the outfit with the latest `worn_at` of the Istanbul day before `League:DayClosesAt` and still
+  `Worn`; saving never enters. `EntryMaterializer` turns it into the player's one entry of the day (joined under the current consent, not disabled,
+  no deletion pending, before the close), in the order of the pure `EntryEligibility` (age, `IncompleteOutfit`: a piece not owned or fewer than
+  `MinPieces` non-accessory pieces, `PieceUnavailable`: archived, gone or without an image, `RecentlyCompeted`: the pure `RepeatRule` over
+  entries that competed at their close, `UnsafePiece`, `Pending` while a piece has no verdict). The entry follows the latest wear until it is
+  first served (`locked_at`), withdrawn and removed are final, one player's resolutions are serialised by an advisory lock and the row is read
+  `FOR UPDATE`. `league-entries` (every minute, `[DisableConcurrentExecution(60)]`, `[AutomaticRetry(Attempts = 0)]`, tests call
+  `ProcessAsync(now, userIds, ct)`) resolves the players with a `Worn` feedback row of the last 10 minutes (index `outfit_feedback (created_at)`)
+  and those still `Pending`, asking the safety filter for at most `ModerationRetriesPerRun` pieces, and deletes the copies of withdrawn and
+  removed entries; `GET /league/me` resolves the caller at once without asking the filter.
+- **Pairing and voting** (sections 6 and 7 of the note): `Pairing.Choose` is pure (A the least exposed human, B by `Strict` → `SameAudience` → `Any`,
+  never a pair twice, ties by a seeded FNV hash); `pairs/next` returns an open pair again, stops at `MaxPairsPerDay` (`DailyLimit`) and serves in
+  one transaction that also bumps both entries' `exposures` and sets `locked_at` (both must still be `Competing`, else it chooses again). A vote
+  locks the day row `FOR SHARE` (created if missing; from `closes_at` or `closed_at` on: 409 `League.DayClosed`) and the pair `FOR UPDATE`; same
+  choice again = the stored result, another = 409 `League.AlreadyVoted`; counted only when not a skip and both the server's time since serving
+  and `decisionMs` reach `MinDecisionTime`; the first `NewVoterVotes` counted votes weigh `NewVoterWeight` (`players.counted_votes` incremented
+  with `RETURNING`). The response's `chosenWinRate`/`chosenGames` are the pure `WinRate` over the chosen entry's counters after the update (no
+  "% agree", nothing stored). A report (`ReportEntryEndpoint`) goes through the caller's own pair (404 otherwise), one per player and outfit,
+  uses up an open pair as a skip, and counts toward `Reports:HideAt` only from an account at least `Reports:MinAccountAge` old with
+  `Reports:MinCountedVotes` counted votes. `pairs/next`, `vote` and `report` share the `league` rate-limit policy.
+- **Engine outfits** (`league-fill`, every 15 minutes 00:00-20:45 Istanbul, tests call `FillAsync(day, now, ct)`): per (Women or Men, occasion)
+  bucket with human entries today or yesterday and fewer than `EngineFill:MinPool` competing human entries, up to `EngineFill:MaxPerRun` engine
+  entries a run from Recommendation's `CatalogOutfitSampler` (seed = day number + bucket; existing piece sets skipped), catalog products only,
+  never ranked or listed. `engine_fill_at:{day}` is written to `league.state`. Both jobs are registered by `UseLeagueJobs` (after
+  `UseIdentityJobs`) only when `Hangfire:Enabled` and `League:Enabled` are true (removed otherwise), and do nothing while the league is off.
 - **Anonymity is the contract.** No league response may ever carry another player's user ID, name, e-mail, entry ID or wardrobe storage key;
-  group tables show a generated per-week alias. Wardrobe keys contain the owner's ID (`StorageKeys.Build`), so league images will be copies
-  under random keys. **Account deletion:** every league table cascades on the user; `AccountPurger` deletes the league image copies first
+  group tables show a generated per-week alias. Wardrobe keys contain the owner's ID (`StorageKeys.Build`), so a competing entry's thumbnails
+  are copied to `league/{random}/{random}/thumb.*` (public by the name, new every day; a catalog item without a thumbnail shows its product image)
+  and `LeagueResponses` is the only builder of piece URLs: voters get copies and catalog images only, the owner may see their own thumbnails.
+  `LeagueAnonymityTests` checks pairs and votes of player B for every identifier of A and that the same piece has new URLs every day. **Account deletion:** every league table cascades on the user; `AccountPurger` deletes the league image copies first
   (found through `league.entries`); `AccountDeletionTests`' matrix covers the league tables. A new league table that holds a user's data needs
   the same three things (cascade or purger step, privacy notes 1a, the matrix line).
-- **Boundaries:** the league reads other features' tables through `KombinDbContext` only. The design allows two seams later (`WardrobeModerator`
-  for `IsShareable`, a new `CatalogOutfitSampler` in Recommendation for engine outfits); nothing in Recommendation or Wardrobe may ever reference
-  League (it pulls, nothing pushes into it). Metabase never gets the `league` schema.
+- **Boundaries:** the league reads other features' tables through `KombinDbContext` only and calls exactly two seams (allow-list lines `Seam`):
+  Wardrobe's `WardrobeModerator` (the safety filter, Wardrobe rules) and Recommendation's `CatalogOutfitSampler` / `SampledOutfit` (Recommendation
+  rules). It never names `OutfitHash`, `OutfitSlots` or any other engine type: the piece-set hash is its own (`RepeatRule.Hash`). Nothing in
+  Recommendation or Wardrobe may ever reference League (it pulls, nothing pushes into it). Metabase never gets the `league` schema.
+- **Tests** play a league day of their own (`LeagueClientExtensions.NewDay`, far in the future, three days apart) and send their time with the
+  test clock's `X-Test-Now` header (`TestHeaderClock` in `ApiFactory`; `client.At(...)`), so pools never mix and nothing depends on the hour; jobs
+  are called with their time. `LeaguePerformanceTests` (`KOMBIN_PERF=1`, own container): `pairs/next` p95 ≤ 100 ms at 6,000 entries.
 
 ## Admin rules
 
@@ -702,7 +741,7 @@ External Python workers (a separate repo) push the catalog through the internal 
 - **Rate limiting** is ASP.NET Core's built-in `RateLimiter` (fixed windows, **in memory: per instance**, a second API instance would double every limit),
   set up in `Common/RateLimiting`. Policies (`RateLimitPolicies`, limits in `RateLimits:*`, defaults pinned by `RateLimitTests`): `auth` 10 per 5 min per IP
   (login, register, external, refresh, cancel-deletion and `DELETE /me`: one shared bucket); `lens` 20 per hour per IP when anonymous, 60 per hour per user
-  when signed in; `budget` the same shape for both budget routes (own buckets); `trips` 30 per hour per user (plan, save and re-plan: one bucket); `uploads` 60 per hour per user (wardrobe and post upload-url, one bucket); `events` 600 per 5 min (per user, else per IP); `go` 120 per
+  when signed in; `budget` the same shape for both budget routes (own buckets); `trips` 30 per hour per user (plan, save and re-plan: one bucket); `league` 120 per 5 min per user (next pair, vote and report: one bucket); `uploads` 60 per hour per user (wardrobe and post upload-url, one bucket); `events` 600 per 5 min (per user, else per IP); `go` 120 per
   min per IP; and a global fallback of 600 per min per IP under all of them (`/health*` exempt). Keys are the user ID when authenticated (the limiter
   runs after `UseAuthentication`), else the client address as resolved by the forwarded headers. A rejection is 429 `application/problem+json` with
   `errorCode: "RateLimited"`, `retryAfterSeconds`, the correlation ID and a `Retry-After` header. `RateLimits:Enabled=false` turns everything off:
@@ -752,7 +791,7 @@ dotnet format Kombin.slnx --verify-no-changes --no-restore     # drop --verify-n
 dotnet build Kombin.slnx --configuration Release --no-restore
 dotnet test --solution Kombin.slnx --configuration Release --no-build    # integration tests need Docker
 dotnet test --project tests/Kombin.Api.Tests                            # unit tests only, no Docker
-KOMBIN_PERF=1 dotnet test --project tests/Kombin.Api.IntegrationTests --configuration Release -- --filter-class "Kombin.Api.IntegrationTests.OutfitPerformanceTests" --filter-class "Kombin.Api.IntegrationTests.FeedPerformanceTests" --filter-class "Kombin.Api.IntegrationTests.LensPerformanceTests" --filter-class "Kombin.Api.IntegrationTests.BudgetAndTripPerformanceTests"    # latency budgets, on a quiet machine
+KOMBIN_PERF=1 dotnet test --project tests/Kombin.Api.IntegrationTests --configuration Release -- --filter-class "Kombin.Api.IntegrationTests.OutfitPerformanceTests" --filter-class "Kombin.Api.IntegrationTests.FeedPerformanceTests" --filter-class "Kombin.Api.IntegrationTests.LensPerformanceTests" --filter-class "Kombin.Api.IntegrationTests.BudgetAndTripPerformanceTests" --filter-class "Kombin.Api.IntegrationTests.LeaguePerformanceTests"    # latency budgets, on a quiet machine
 
 # Run the API against a local PostgreSQL (docker/.env must define JWT_SIGNING_KEY)
 docker compose --file docker/compose.yaml up --build --detach --wait db
@@ -813,6 +852,6 @@ and saved trips) and
 Social (versioned posting consent, photo and outfit posts with moderation, metadata stripping and confirmed shoppable tags, likes, follows,
 blocks, reports and review, the feed, try-with-wardrobe, creators with click attribution and earnings estimates) and Lens (visual search:
 catalog embeddings and their job, photo search with family, floor and audience guardrails, wardrobe matches) and Admin (the founder's
-panel: review queue, creators, catalog and backfill, user disable, audit log, dashboard) and League (Kombin Ligi foundations: schema, settings, consent,
-join and leave; off by default). Learning from
+panel: review queue, creators, catalog and backfill, user disable, audit log, dashboard) and League (Kombin Ligi: schema, settings, consent,
+join and leave, the worn outfit's entry with its image copies, engine outfits, pairing, voting, reports and withdrawing; off by default). Learning from
 clicks, saves and outfit feedback is still to come, and not Profile's job. Add other features only when a task asks for them.

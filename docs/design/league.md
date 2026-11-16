@@ -5,7 +5,7 @@ competes, aliases in the table, 18+, the win rate after a vote; quoted as "the r
 `Tasarım/kombin-ligi/01-05` are context only. This document changes no rule. The owner's answers to the open questions of the first draft
 (task L1) are written into the sections they belong to; one question remains [open](#open-questions).
 
-Status: accepted (task L2). PR 1 (foundations) is implemented; everything else is design. "Not verified" marks a statement about behaviour I
+Status: accepted (task L2). PR 1 (foundations, task L2) and PR 2 (entering and voting, task L3) are implemented; everything else is design. "Not verified" marks a statement about behaviour I
 did not read in the code.
 
 ---
@@ -107,7 +107,7 @@ The league also needs the Istanbul zone and the Hangfire flag, which today live 
 `Common`** (rule 1): `Common/Time/Istanbul.cs` (`ZoneId`, `Zone`, `Today(now)`) and `Common/Hosting/HangfireSettings.cs` (`EnabledKey`), and
 updates every caller. That deletes the four whole pairs Admin/Analytics/Catalog/Identity → Notification (8 references) and `NotificationModule`
 and `QuietHours` from the Social and Wardrobe → Notification lines (4 references). **Net: 141 − 12 + 3 = 132 references in 37 − 4 + 2 = 35
-pairs.** The count does not grow. `TheAllowListHoldsNoReferenceThatNoLongerExists` will name the lines to delete.
+pairs.** The count does not grow. (As built: 132 references in 36 pairs; the list held 34 pairs after PR 1, not 33.) `TheAllowListHoldsNoReferenceThatNoLongerExists` will name the lines to delete.
 
 No new cycle: neither Wardrobe nor Recommendation will ever reference League (the league pulls, nothing pushes into it).
 
@@ -723,6 +723,32 @@ null for a skip); integration: `LeagueEntryTests` (a worn outfit enters, a saved
 serve, `UnsafePiece`, `Pending` then moderated, `IncompleteOutfit`), `LeagueVotingTests` (30 cap, re-ask returns the same pair, too-fast not
 counted, half weight for the first 20, idempotent and conflicting re-votes, day closed), `LeagueAnonymityTests` (pairs and votes),
 `RateLimitTests` defaults.
+
+*As built (task L3).* Everything above, plus `LeaguePerformanceTests` for `pairs/next` (p95 23.7 ms at 6,000 entries, 12 voters serving their 30
+pairs; budget 100 ms) and the strict age rule (section 4). Where it differs from or adds to this note:
+
+- `UseLeagueJobs` arrives with this PR (it has jobs), not PR 3; it registers `league-entries` and `league-fill` only when `League:Enabled` is
+  true and removes them otherwise.
+- `GET /league/me` resolves the caller's entry at once but never calls the image safety filter; a piece without a verdict shows `Pending` until
+  the next `league-entries` run asks (at most `ModerationRetriesPerRun` pieces a run). No entry is made for a player under an older consent
+  version, a disabled player or one whose deletion is pending.
+- An outfit dismissed after it was worn is no longer "today's" (it must still be `Worn`).
+- `PieceUnavailable` also covers a wardrobe item that no longer exists and a piece with nothing to show (stored thumbnail gone, no catalog
+  image); without an image the outfit could not be shown to voters.
+- A report uses up an open pair as a skip (never counted): otherwise asking for the next pair would return the same pair, and the reporter would
+  see the reported outfit again.
+- `chosenGames` is null for a skip, like `chosenWinRate` (a skip chose nothing).
+- Vote and report do not require being joined: the pair must be the caller's, and only a player is served pairs (`pairs/next` is 403
+  `League.NotJoined`).
+- The vote creates the day's `league.days` row if it is missing (`INSERT ... ON CONFLICT DO NOTHING`), so the `FOR SHARE` lock exists before
+  the close (PR 3) creates days.
+- The `(day) WHERE kind = Engine` index of section 3.1 was not in PR 1's migration and is not added: the fill reads per bucket through the
+  pairing index. PR 2's migration (`LeagueVoting`) adds only `outfit_feedback (created_at)`.
+- `GET /league/me`'s `week` has its shape (`LeagueWeekResponse`) in the OpenAPI document and is always null until PR 4. The owner's pieces may
+  have `imageUrl: null` (a piece without an image any more); a voter's never do.
+- In `AuthorizationMatrixTests`, `GET /league/pairs/next` is a probe at noon of a league day of its own (the test clock's header) instead of a
+  `ScopedRead`, which runs at the real time and would be refused after 21:00; it still checks that the answer carries none of A's identifiers,
+  with A's outfit in the pool. Integration tests pick their time with the `X-Test-Now` header (`TestHeaderClock`).
 
 **PR 3 — Day close and scores.** `BradleyTerry`, `DailyPoints`, `LeagueCloseJob.CloseDayAsync`, `GET /league/results`,
 `POST /internal/league/close`, `league-purge`, `UseLeagueJobs` after `UseIdentityJobs` in `Program.cs`.

@@ -19,6 +19,9 @@ internal sealed class OutfitFeedbackConfiguration : IEntityTypeConfiguration<Out
         builder.HasIndex(feedback => feedback.OutfitId);
         builder.HasIndex(feedback => new { feedback.UserId, feedback.CreatedAt });
 
+        // Kombin Ligi's league-entries job looks for the wears of the last minutes, of every user.
+        builder.HasIndex(feedback => feedback.CreatedAt);
+
         builder.HasOne<Outfit>()
             .WithMany()
             .HasForeignKey(feedback => feedback.OutfitId)
