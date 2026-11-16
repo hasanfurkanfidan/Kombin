@@ -1,3 +1,4 @@
+using Kombin.Api.Common.Http;
 using Kombin.Api.Common.Results;
 
 namespace Kombin.Api.Features.Recommendation;
@@ -36,6 +37,16 @@ internal static class RecommendationErrors
 internal static class OutfitDates
 {
     public const int MaxDaysAhead = 7;
+
+    /// <summary>What the validators say about a date, and the handlers when the day has turned between the validator's clock read and theirs.</summary>
+    public static readonly string Message = $"'Date' must be today, tomorrow or a yyyy-MM-dd day within the next {MaxDaysAhead} days.";
+
+    /// <summary>
+    /// The 400 of a date the clock no longer accepts. The validator and the handler each read the clock, so a date valid at 23:59:59.95 in Istanbul
+    /// can be yesterday a moment later: the handler answers what the validator would have, never a crash.
+    /// </summary>
+    public static IResult Rejected(HttpContext context) =>
+        Problems.Validation(context, new Dictionary<string, string[]> { ["date"] = [Message] });
 
     public static DateOnly? Resolve(string? value, DateOnly today)
     {

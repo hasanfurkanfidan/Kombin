@@ -59,6 +59,34 @@ Identity rules).
    `Persistence/Configurations/<Schema>/`, a `DbSet` on `KombinDbContext`, then create a migration (commands below).
 5. Add tests: validator and logic in `tests/Kombin.Api.Tests`, the HTTP flow in `tests/Kombin.Api.IntegrationTests`.
 
+## Feature boundaries
+
+The backend is one project, so nothing in the compiler stops `Features/A` from using `Features/B`'s internals. `FeatureBoundaryTests`
+(`tests/Kombin.Api.Tests`) does: it reads the sources, lists every type of another feature that a feature names (a `using` that is really used, a
+fully qualified name, `using static`, an alias; also in `.cshtml`) and fails for one that is not on `FeatureBoundaryAllowList`, the frozen
+list of what existed in task B7 (141 references in 37 feature pairs, 90 of them `Seam` = fine as it is and 51 `Legacy` = would be shared code
+today, with a line saying where it belongs). It forbids nothing that exists; it stops the list from growing, and `TheAllowListHoldsNoReferenceThatNoLongerExists`
+makes it shrink: remove a reference and the test tells you to delete the line.
+
+**Sharing code between features.**
+- Code that is not about one feature's domain (a parser, a formatter, a time zone, a config key, an infrastructure client, a validation helper) goes in
+  `src/Kombin.Api/Common/<Area>` (Results, Http, Auth, Validation, Pagination, Time, Text, Storage, Hosting, ...), never in the feature that happened to need it first. Entities are
+  already shared (`Persistence/Entities`).
+- A feature's behaviour that another feature must call is exposed as a narrow seam owned by the feature that has the behaviour: a small interface or
+  a static class named for what it does (`IAnalyticsIdentityLinker`, `IDeviceDeactivator`, `AccountAccess`, `OutfitStore`), registered in that feature's module and described
+  in its section of this file. Do not reach into another feature's `Endpoint.cs`, its error records or its rule tables for a helper.
+- Two features that need each other are a cycle (today: Catalog with Engagement, Notification, Profile and Wardrobe, and Recommendation with Wardrobe). Never add the reverse
+  direction of an existing pair; put the shared part in `Common` or hand the other side what it needs as a parameter.
+
+**When `NoFeatureReachesIntoAnotherOneBeyondTheAllowList` fails**, it names the new type and the file. In this order:
+1. Is the type shared code by the rule above? Move it to `Common` and update both sides. The allow-list does not change.
+2. Is it a real seam (the feature must call another feature's use case)? Give the other feature a narrow, documented seam, then add one `Kind.Seam` entry with the CLAUDE.md
+   section that documents it. A reviewer should agree to that line.
+3. Never add a `Kind.Legacy` entry and never add a line only to make the test pass. Legacy entries are the debt of the day the test was written.
+
+Only `Features` to `Features` is checked. `Common`, `Persistence` and `Program` may name features (the module wiring, the seeds), but a feature may not be needed by `Common`
+beyond that wiring: new code there should not reach into a feature either.
+
 ## Result, Error and validation conventions
 
 - Expected failures are values: return `Error` / `Result` / `Result<T>` (`Common/Results`). Exceptions are for bugs and
@@ -69,6 +97,8 @@ Identity rules).
   with an `errorCode` extension and the `correlationId`.
 - Input validation uses FluentValidation through `ValidationFilter`: failures become a 400 problem with an `errors`
   dictionary (`{ "email": ["..."] }`, camelCase keys). Do not validate inside handlers what a validator can express.
+- Paging is clamped, not rejected (`PagedRequest`: page 1 to 10,000, page size 1 to 100), so no offset can overflow; the worker listing of a seller's offers uses the same page limit.
+- A JSON `null` inside a list is a 400, never a 500: every `RuleForEach` over objects starts with `.NotNull()` (`NullElementTests`).
 - Every response, including errors, carries `X-Correlation-ID`.
 
 ## Identity rules
@@ -120,7 +150,7 @@ Identity rules).
   expires, as with disabling. **`account-deletion`** (hourly at :43 `Europe/Istanbul`, `[DisableConcurrentExecution(60)]`, `[AutomaticRetry(Attempts = 0)]`,
   tests call `DeleteDueAsync(userIds, ct)`, registered by `UseIdentityJobs` after `UseSocialJobs`) runs `AccountPurger` for every account whose window is
   over, one by one: **objects first** (the keys are read from the user's wardrobe items and posts; a storage failure leaves the account and its rows
-  untouched, so the next run retries and one failing account never stops the others), then one transaction that decrements the like counters of other
+  untouched, so the next run retries and one failing account never stops the others; a database failure inside the transaction is caught per account by the job too, logged, counted in `Failures` and retried the next hour), then one transaction that decrements the like counters of other
   posts, anonymises clicks (`user_id`, `persona_id`, `creator_id`), analytics events (`user_id`) and referral rows (`creator_id`, `viewer_user_id`; amounts stay)
   and deletes the user row, whose foreign keys cascade the rest. `docs/privacy-notes.md` section 1a lists every table and what happens to it: **a new
   table that holds a user's data must be added there and given a cascade (or an explicit step in `AccountPurger`) and a line in
@@ -141,7 +171,7 @@ External Python workers (a separate repo) push the catalog through the internal 
   `{ created, updated, snapshotsWritten, results: [{ index, externalId, productId, offerId, created }], errors }`: `results` holds the
   stored items, `errors` the rejected ones, and together they account for every index. `product` may carry `brandWebsiteUrl` /
   `brandLogoUrl`: they are set when the brand is created and filled in later only while the brand has none, never overwritten (this
-  also happens on an existing offer). `imageUrls` holds at most 6 entries. Image, brand website and seller website URLs must be
+  also happens on an existing offer). `currency` is `TRY` or left out (= TRY, any casing): every calculation (effective price, budgets, alerts, the wardrobe value) takes the amount as lira and nothing converts, so another currency is a 400 at the door (`UpsertCurrencyTests`). `imageUrls` holds at most 6 entries. Image, brand website and seller website URLs must be
   absolute http(s) with a host, no credentials and no whitespace (`UpsertOfferItemValidator.IsPublicHttpUrl`).
 - **Images belong to the product** (`catalog.product_images` and `products.primary_image_url`), never to the offer. **The gallery has one owner**,
   `products.image_source_offer_id`: only the offer that supplied the current gallery may replace it, so sellers can not make it flip back and forth. An
@@ -173,6 +203,8 @@ External Python workers (a separate repo) push the catalog through the internal 
   | Job id | Schedule | Does |
   |---|---|---|
   | `offer-sweep` | daily 04:30 `Europe/Istanbul` | active offers with `LastSeenAt` more than 48 h old (exactly 48 h is still fresh) → `IsActive = false`, `StockStatus = OutOfStock`, plus a closing `PriceSnapshot` (same price, out of stock); then `Product.IsActive` repaired in both directions to "has an active offer". Batches of 500, logs the counts |
+
+  A batch is chosen by ID, then read again under row locks (`SELECT … FOR UPDATE` in the batch's transaction) and the stale rule is applied to what was read there, so an offer a worker sighted in between is left alone and an upsert that arrives meanwhile waits instead of being overwritten (`OfferSweepRaceTests`); the snapshot rows are written for exactly the offers deactivated.
 
   Each deactivated offer goes through `AlertEvaluator.EvaluateAsync` with `EvaluationReason.Sweep`, which skips every rule: **a sweep
   never fires an alert, `AnyChange` included** (`OfferUpserter` passes `Observation`). The evaluator keeps no state; its "previous" state
@@ -233,7 +265,7 @@ External Python workers (a separate repo) push the catalog through the internal 
 - **Size memory ("Beden hafızası", design: `docs/design/wardrobe-summary-and-size-memory.md`).** `GET /me/size-prompts` and `POST /me/size-prompts/{id}`
   (`Features/Profile`, `SizePrompts`, pure `SizePromptRules`, table `profile.size_prompts`, one row per (user, product), ever). `/go` is never touched:
   the questions are created by the **GET** from the user's own clicks (the first click per product in the last 30 days, at least 3 days old, a product with a
-  size, not an accessory), like `GET /me/profile` creates the profile; the click stays the append-only revenue record and the prompt holds the mutable
+  size, not an accessory: the filter is in the SQL, before the 200-click read limit, so accessory clicks cannot crowd the others out; `SizeGroups.HasSizeGroup` is its twin of `ForCategorySlug`), like `GET /me/profile` creates the profile; the click stays the append-only revenue record and the prompt holds the mutable
   answer (that is why there is a table). Open = unanswered and 3 to 30 days after the click; newest first, at most 3 shown. `BoughtFits` (size required) stores
   the size as `Confirmed`, confidence 1, replacing what the user typed (`POST /me/sizes/confirm`'s rule); `BoughtTooSmall`/`BoughtTooLarge` never choose a size,
   they only lower the stored size's confidence to `ConfirmSizeEndpoint.DoubtedConfidence` when it is the size bought (or none is named); `NotBought` and
@@ -251,7 +283,7 @@ External Python workers (a separate repo) push the catalog through the internal 
 - **Jobs live in `Features/Notification/Jobs/`, are plain classes with constructor injection, are idempotent, and run from Hangfire**
   (PostgreSQL storage, schema `hangfire`, same database). **Tests call them directly**; the Hangfire server is never started in tests
   (`Hangfire:Enabled=false`). The core of every job takes an optional user filter so integration tests that share one database only
-  touch their own rows; `weekly-matches` also takes the products to consider, because its candidates are global: its tests pass the ones they created. Every job has `[DisableConcurrentExecution(60)]` and `[AutomaticRetry(Attempts = 0)]` (the next run is the retry).
+  touch their own rows; `weekly-matches` also takes the products to consider, because its candidates are global: its tests pass the ones they created. Every job has `[DisableConcurrentExecution(60)]` and `[AutomaticRetry(Attempts = 0)]` (the next run is the retry), except the two embedding entry points, which are guarded by an advisory lock instead (Visual search rules).
 
   | Job id | Schedule | Does |
   |---|---|---|
@@ -369,7 +401,7 @@ External Python workers (a separate repo) push the catalog through the internal 
   and the abandoned uploads above, and asks the safety filter again for ready items without a verdict (`RetryMissingAsync`, 200 per run).
 - **From the catalog:** `POST /items/from-product` makes a `Ready`, already confirmed item (`FromCatalog`) and copies the product's primary
   image into storage as both cutout and thumbnail, unchanged (no background removal, no resizing: there is no image library here). A failed
-  copy still creates the item, which then shows the catalog image. The same product twice returns the existing item.
+  copy (a failed download, or a store that refuses the write: what was already written is deleted) still creates the item, which then shows the catalog image. The same product twice returns the existing item, also for a double tap: the image is fetched first, then a transaction-scoped advisory lock per (user, product) and the check again (`FromProductRobustnessTests`).
 - **Wears** are a set of days per item (unique `(item_id, worn_on)`, `wornOn` defaults to today in `Europe/Istanbul`); `WearCount` and
   `LastWornAt` are recomputed from the rows after every change (`WearRules.Summarize`), never incremented. `OutfitId` (no foreign key) is
   set when an outfit is marked worn. Recording a day goes through `WearSummaries.RecordAsync`, shared with the outfit engine's `worn`.
@@ -432,6 +464,7 @@ External Python workers (a separate repo) push the catalog through the internal 
 - **Weather:** `IWeatherProvider` (Open-Meteo, `Weather:Enabled`, env `Weather__Enabled`; cached per city/day/hour in memory, never throws, null
   on any failure); no city or no forecast → the date's season. How-to-wear ignores the day (`WeatherRules.Neutral`). Tests use
   `FakeWeatherProvider` (answers by city name: `Rainville`, `Coldville`, `Hotville`, `Istanbul`).
+- **Dates** (`date=today|tomorrow|yyyy-MM-dd`, `OutfitDates.Resolve`, today in Istanbul): the validator and the handler each read the clock, so the handler repeats the check and answers `OutfitDates.Rejected` (the validator's 400) when the day turned in between; never `!.Value` after validation (`MidnightEdgeTests`).
 - **Narration never blocks.** Requests answer with `TemplateNarrator` (Turkish, ≥ 12 templates, grammar in `TurkishGrammar`) or an LLM line
   already cached for the same `OutfitSummary` hash. With `Narration:Provider = Anthropic` (env `Narration__Provider`, key `Anthropic:ApiKey`,
   model `claude-haiku-5-5`) the store enqueues `outfit-narrate` (`OutfitNarrationJob`, fire-and-forget, `[AutomaticRetry(Attempts = 0)]`),
@@ -473,7 +506,7 @@ External Python workers (a separate repo) push the catalog through the internal 
   with shoes up to `OverBudgetReach` 1.5 × the budget), then the empty one. Candidates: per slot ≤ 300 (newest 100 in each of 3 price bands up to 1.5 × the budget), through `ix_products_budget`
   and `ix_offers_sellable_price`; then the shortlist keeps the best 3 per price quartile by piece score. The persona's own budget band is ignored.
   Offers: the cheapest in the caller's size (`BudgetOffers.Choose`: own size-map entry for the brand, else `SizeInference`); offers listing other
-  sizes only are out; unknown size → `sizeUnknown`. `savings` only with a real crossed-out price. Buy links `/go/{offerId}?src=budget` (also on
+  sizes only are out; unknown size → `sizeUnknown`. `savings` only with a real crossed-out price (list price minus price, both without shipping); the offer's `price` includes shipping, `shippingCost` says how much (0 when free) and `originalPrice` is the list price plus that same shipping, never below `price` (`BudgetOffer.ListPrice`). Buy links `/go/{offerId}?src=budget` (also on
   `GET /me/outfits/{id}` of a `Budget` outfit, `OutfitResponses.GoPath`). Signed-in outfits are stored with `OutfitStore` as `OutfitKind.Budget`;
   anonymous ones are not stored (template line or a cached LLM line) and use no wardrobe, sizes, persona or weather (`audience` is required).
 - **"The one missing piece" is narrated only for exactly one gap** (`OutfitScoring.Explain`): with two or more (shopping ideas, budget outfits)
@@ -578,7 +611,17 @@ External Python workers (a separate repo) push the catalog through the internal 
 - **On-demand backfill:** `ProductEmbeddingJob.BackfillAsync(limit)` (fire-and-forget, `[AutomaticRetry(Attempts = 0)]`) is what the admin panel's
   "Run backfill now" enqueues; it calls the same `EmbedAsync` as the endpoint and the nightly run, with the nightly time budget, so a click never holds
   a web request.
-- **`product-embeddings`** (`Features/Catalog/Jobs/ProductEmbeddingJob.cs`, daily 03:00 `Europe/Istanbul`, `[DisableConcurrentExecution(60)]`,
+- **One embedding run at a time** (`EmbeddingRunLock`, `Features/Catalog/Embeddings`). `EmbedAsync` is the only way in (the nightly `RunAsync`, the admin's
+  `BackfillAsync` and `POST /internal/catalog/embeddings/run` all end there) and it takes a PostgreSQL session-level advisory lock
+  (`pg_try_advisory_lock(0x4B4F4D42, 1)`) on a dedicated, unpooled connection held for the whole run, released in `finally` and by the server if the
+  process dies. It never waits: a caller that does not get it receives `EmbeddingRunSummary.AlreadyRunning` and has done nothing. The nightly job and
+  the backfill log "already running" and end successfully; the internal endpoint answers 409 `Catalog.EmbeddingRunInProgress`; the admin button looks
+  (`IsHeldAsync`) and flashes a Turkish "run in progress" message instead of queuing. **`RunAsync` and `BackfillAsync` deliberately have no
+  `[DisableConcurrentExecution]`**: Hangfire's lock has no heartbeat and counts as abandoned after 10 minutes, and a second caller would wait 60 s and
+  then fail. Never call the run's inner work without the lock. Tests that run the job against the shared database belong to the
+  `EmbeddingRuns` collection (they would skip each other's runs in parallel); `FakeCatalogImageHandler.Hold(url)` parks a run deterministically.
+  Hangfire's storage uses the sliding invisibility timeout (`NotificationModule.StorageOptions`), so no job that is still running is fetched again.
+- **`product-embeddings`** (`Features/Catalog/Jobs/ProductEmbeddingJob.cs`, daily 03:00 `Europe/Istanbul`,
   `[AutomaticRetry(Attempts = 0)]`, time budget `CatalogEmbeddings:MaxRunDuration` 3 h; tests call `EmbedAsync(productIds, limit, budget, ct)`
   with their own product IDs). Which product is due is the pure `ProductEmbeddingRules.IsDue`: no row; a `Ready` row whose image URL or model
   changed; an `Unusable` row (404/410, not an image, > 8 MB, refused by vision) only for a new URL or after 30 days; a `Failed` row (transient)

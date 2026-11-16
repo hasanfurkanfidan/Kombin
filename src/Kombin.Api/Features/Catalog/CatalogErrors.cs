@@ -26,6 +26,10 @@ internal static class CatalogErrors
     public static readonly Error BatchTooLarge =
         Error.Validation("Catalog.BatchTooLarge", $"A batch may contain at most {UpsertLimits.MaxItems} items.");
 
+    // One embedding run at a time (EmbeddingRunLock): the internal endpoint refuses instead of waiting for a run that may take hours.
+    public static readonly Error EmbeddingRunInProgress =
+        Error.Conflict("Catalog.EmbeddingRunInProgress", "An embedding run is already in progress. Try again when it has finished.");
+
     // Reported per item in an upsert response when an item could not be stored even on its own.
     public static readonly Error ItemFailed =
         Error.Failure("Catalog.ItemFailed", "The item could not be stored.");

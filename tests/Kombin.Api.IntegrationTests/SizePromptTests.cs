@@ -171,6 +171,44 @@ public sealed class SizePromptTests(ApiFactory factory)
     }
 
     [Fact]
+    public async Task ManyAccessoryClicksNeverCrowdOutAnOlderClickOnSomethingWithASize()
+    {
+        using var user = await factory.CreateUserAsync(Ct);
+        var brand = Unique("Crowd");
+        var body = await user.Client.UpsertOkAsync($"{Slug(brand)}-store", [Item($"crowd-{Guid.NewGuid():N}", 900m, brand, "Çanta", category: "aksesuar/canta")], Ct);
+        var bag = body.GetProperty("results")[0];
+        var shirt = await factory.SeedProductAsync(user.Client, 300m, cancellationToken: Ct);
+
+        // The shirt was clicked 20 days ago; since then, 250 clicks on a bag (newer, so a "newest 200" window is all bag clicks).
+        await GoAsync(user.Client, shirt.OfferId);
+        await AgeClicksAsync(user.Id, shirt.ProductId, 20);
+        var sellerId = await factory.WithDbAsync(db => db.Offers.Where(offer => offer.Id == bag.GetProperty("offerId").GetGuid()).Select(offer => offer.SellerId).SingleAsync(Ct));
+        await factory.WithDbAsync(async db =>
+        {
+            db.Clicks.AddRange(Enumerable.Range(0, 250).Select(index => new Kombin.Api.Persistence.Entities.Engagement.Click
+            {
+                UserId = user.Id,
+                OfferId = bag.GetProperty("offerId").GetGuid(),
+                ProductId = bag.GetProperty("productId").GetGuid(),
+                SellerId = sellerId,
+                Source = "product_detail",
+                CorrelationId = Guid.NewGuid().ToString("N"),
+                RedirectUrl = "https://shop.example.com/bag",
+                ClickedAt = DateTimeOffset.UtcNow.AddDays(-4).AddMinutes(-index),
+            }));
+            await db.SaveChangesAsync(Ct);
+
+            return 0;
+        });
+
+        var open = await OpenAsync(user.Client);
+
+        // The question about the shirt is there, and the bag never got one.
+        Assert.Equal([shirt.ProductId], open.Select(prompt => prompt.GetProperty("product").GetProperty("id").GetGuid()));
+        Assert.Equal(1, await factory.WithDbAsync(db => db.SizePrompts.CountAsync(row => row.UserId == user.Id, Ct)));
+    }
+
+    [Fact]
     public async Task AFittingSizeIsStoredAsConfirmedAndReplacesWhatTheUserTyped()
     {
         using var user = await factory.CreateUserAsync(Ct);

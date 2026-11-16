@@ -35,7 +35,11 @@ internal sealed record BudgetCaller(
 internal sealed record BudgetResult(
     OutfitContext Context, IReadOnlyList<OutfitCandidate> Outfits, bool OverBudget, bool WithoutShoes, bool ShoesDidNotFit, BudgetCatalog Catalog);
 
-internal sealed record BudgetOfferResponse(Guid OfferId, SellerRef? Seller, decimal Price, decimal? OriginalPrice, string GoPath);
+/// <summary>
+/// The offer a bought piece comes from. <c>Price</c> includes shipping (<c>ShippingCost</c>, 0 when free: the app says "kargo dahil"); <c>OriginalPrice</c>
+/// is the seller's crossed-out price on the same basis (list price plus the same shipping), present only with a real saving.
+/// </summary>
+internal sealed record BudgetOfferResponse(Guid OfferId, SellerRef? Seller, decimal Price, decimal? OriginalPrice, string GoPath, decimal ShippingCost);
 
 /// <summary>
 /// One piece. A wardrobe piece costs 0 and has <c>WardrobeItemId</c>; a catalog piece has <c>ProductId</c>, its <c>Offer</c> (the cheapest in the caller's
@@ -250,7 +254,7 @@ internal static class BudgetOutfits
                 piece.Color,
                 product?.PrimaryImageUrl,
                 offer.Price,
-                new BudgetOfferResponse(offer.OfferId, sellers.GetValueOrDefault(offer.OfferId), offer.Price, offer.Savings is null ? null : offer.OriginalPrice, OutfitResponses.GoPath(offer.OfferId, OutfitKind.Budget)),
+                new BudgetOfferResponse(offer.OfferId, sellers.GetValueOrDefault(offer.OfferId), offer.Price, offer.ListPrice, OutfitResponses.GoPath(offer.OfferId, OutfitKind.Budget), offer.ShippingCost),
                 offer.Size,
                 offer.SizeUnknown);
         }

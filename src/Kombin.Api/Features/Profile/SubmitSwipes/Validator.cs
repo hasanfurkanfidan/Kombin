@@ -14,7 +14,7 @@ internal sealed class SubmitSwipesValidator : AbstractValidator<SubmitSwipesRequ
             .WithMessage($"'Swipes' must contain between 1 and {SubmitSwipesEndpoint.MaxBatchSize} items.")
             .When(request => request.Swipes is not null);
 
-        RuleForEach(request => request.Swipes).ChildRules(swipe =>
+        RuleForEach(request => request.Swipes).NotNull().ChildRules(swipe =>
         {
             swipe.RuleFor(item => item.StyleCardId).NotEmpty();
             swipe.RuleFor(item => item.Decision)

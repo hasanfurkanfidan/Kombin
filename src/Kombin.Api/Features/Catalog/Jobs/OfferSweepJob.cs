@@ -50,38 +50,59 @@ internal sealed partial class OfferSweepJob(KombinDbContext db, IClock clock, Al
     private async Task<int> DeactivateStaleOffersAsync(Guid? sellerId, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var deactivated = 0;
+        var isStale = OfferSweepRules.Stale(now).Compile();
 
         while (true)
         {
-            var stale = db.Offers.Include(offer => offer.Seller).Where(OfferSweepRules.Stale(now));
+            var stale = db.Offers.Where(OfferSweepRules.Stale(now));
             if (sellerId is { } onlySeller)
             {
                 stale = stale.Where(offer => offer.SellerId == onlySeller);
             }
 
-            // Deactivated offers drop out of the filter, so every pass makes progress.
-            var batch = await stale
+            // The candidates only: their IDs, not entities. A worker may sight any of them from here on, so they are read again under a lock
+            // below. Offers sighted since drop out of this filter, so every pass makes progress.
+            var candidates = await stale
                 .OrderBy(offer => offer.LastSeenAt)
                 .ThenBy(offer => offer.Id)
+                .Select(offer => offer.Id)
                 .Take(BatchSize)
                 .ToListAsync(cancellationToken);
 
-            if (batch.Count == 0)
+            if (candidates.Count == 0)
             {
                 return deactivated;
             }
 
-            var before = batch.Select(offer => (Offer: offer, Price: EffectivePrice(offer), offer.StockStatus)).ToList();
+            List<(Offer Offer, decimal Price, StockStatus Stock)> before;
 
-            foreach (var offer in batch)
+            await using (var transaction = await db.Database.BeginTransactionAsync(cancellationToken))
             {
-                db.PriceSnapshots.Add(OfferSweepRules.Deactivate(offer, now));
+                // Row locks, then the rule again on what is really there: an offer an upsert refreshed since the read above is no longer stale and
+                // is left alone, and an upsert that arrives now waits for this transaction instead of being overwritten by it. What is
+                // deactivated, and what its closing snapshot says, is exactly what was read under the lock.
+                var locked = await db.Offers
+                    .FromSql($"SELECT * FROM catalog.offers WHERE id = ANY({candidates.ToArray()}) ORDER BY id FOR UPDATE")
+                    .ToListAsync(cancellationToken);
+                var batch = locked.Where(isStale).ToList();
+
+                // The alert evaluation needs each offer's seller: tracked entities are fixed up with it.
+                var sellerIds = batch.Select(offer => offer.SellerId).Distinct().ToList();
+                _ = await db.Sellers.Where(seller => sellerIds.Contains(seller.Id)).ToListAsync(cancellationToken);
+
+                before = [.. batch.Select(offer => (Offer: offer, Price: EffectivePrice(offer), offer.StockStatus))];
+
+                foreach (var offer in batch)
+                {
+                    db.PriceSnapshots.Add(OfferSweepRules.Deactivate(offer, now));
+                }
+
+                // One save is one transaction: an offer is never deactivated without its closing snapshot.
+                await db.SaveChangesAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
             }
 
-            // One save is one transaction: an offer is never deactivated without its closing snapshot.
-            await db.SaveChangesAsync(cancellationToken);
-
-            // After the save, so an alert problem can neither roll back nor poison the sweep. A sweep is not something a user watches
+            // After the commit, so an alert problem can neither roll back nor poison the sweep. A sweep is not something a user watches
             // happen, so no alert fires, "any change" included. The offer is now saved out of stock at the same price, which is the
             // "previous" state the next upsert is compared with: back-in-stock and price-drop re-arm on the next sighting.
             foreach (var (offer, price, stock) in before)
@@ -90,7 +111,7 @@ internal sealed partial class OfferSweepJob(KombinDbContext db, IClock clock, Al
             }
 
             db.ChangeTracker.Clear();
-            deactivated += batch.Count;
+            deactivated += before.Count;
         }
     }
 

@@ -47,7 +47,7 @@ internal static class ListSellerOffersEndpoint
             return CatalogErrors.SellerNotFound.ToHttpResult();
         }
 
-        var page = Math.Max(query.Page, 1);
+        var page = Math.Clamp(query.Page, 1, PagedRequest.MaxPage);
         var pageSize = Math.Clamp(query.PageSize, 1, MaxPageSize);
 
         var offers = db.Offers.AsNoTracking().Where(offer => offer.SellerId == sellerId);

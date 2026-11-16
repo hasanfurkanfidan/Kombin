@@ -23,7 +23,7 @@ back-off 1 h → 24 h; `Unusable` only for a new URL or after 30 days, so a 404 
 interleaved**. Per product: reuse the vector of another product with the same image URL (no download), else download politely
 (`CatalogImageFetcher`: `KombinBot/0.1 (+https://kombin.app/bot; contact: …)`, 1 request/host/s via the pure `PoliteSchedule`, `Retry-After`
 honoured, ≤ 8 MB, image types only, public addresses only: `OutboundGuard` refuses loopback, private, link-local and metadata addresses after DNS and on every redirect, at most 3) and embed; commit; clear the tracker. Resumable (state is in the rows), idempotent (a rerun finds nothing
-due), one vision call at a time (the second vision slot stays free for wardrobe photos), stops after 3 vision failures in a row, 3 h budget.
+due), one vision call at a time (the second vision slot stays free for wardrobe photos), stops after 3 vision failures in a row, 3 h budget. One run at a time per database: a PostgreSQL advisory lock is held for the whole run (`EmbeddingRunLock`), so the nightly run, the admin backfill and the internal endpoint never overlap and double the request rate to the shops; a second caller does nothing (the endpoint answers 409).
 
 ## Index
 

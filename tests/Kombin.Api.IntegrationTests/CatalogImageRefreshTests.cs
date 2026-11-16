@@ -9,6 +9,7 @@ namespace Kombin.Api.IntegrationTests;
 /// Task B5: an upsert of an existing offer refreshes the product's gallery and primary image, under one rule: only the offer that supplied
 /// the gallery may replace it (<see cref="Product.ImageSourceOfferId"/>), an empty list never clears it and an identical list writes nothing.
 /// </summary>
+[Collection(EmbeddingRuns.Name)]
 public sealed class CatalogImageRefreshTests(ApiFactory factory)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

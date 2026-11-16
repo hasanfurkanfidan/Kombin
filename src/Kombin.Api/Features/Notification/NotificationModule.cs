@@ -47,14 +47,25 @@ internal static class NotificationModule
                 options => options.UseNpgsqlConnection(
                     provider.GetRequiredService<IConfiguration>().GetConnectionString(PersistenceExtensions.ConnectionStringName)
                     ?? throw new InvalidOperationException($"Connection string 'ConnectionStrings:{PersistenceExtensions.ConnectionStringName}' is not configured.")),
-                // Long polling (LISTEN/NOTIFY) starts an enqueued job at once instead of on the next 15-second queue poll:
-                // wardrobe-analyze is on the "photo to ready in ~3 seconds" path.
-                new PostgreSqlStorageOptions { SchemaName = HangfireSchema, EnableLongPolling = true }));
+                StorageOptions()));
 
         AddHangfireServerWhenEnabled(services);
 
         return services;
     }
+
+    /// <summary>
+    /// The storage settings. Long polling (LISTEN/NOTIFY) starts an enqueued job at once instead of on the next 15-second queue poll:
+    /// wardrobe-analyze is on the "photo to ready in ~3 seconds" path. The sliding invisibility timeout keeps a job that is still running
+    /// invisible to the other workers: without it a job is fetched again once the fixed 30 minutes are over, however long it legitimately
+    /// runs (the nightly embedding run takes up to three hours). A crashed worker is still noticed, 30 minutes after its heartbeat stops.
+    /// </summary>
+    internal static PostgreSqlStorageOptions StorageOptions() => new()
+    {
+        SchemaName = HangfireSchema,
+        EnableLongPolling = true,
+        UseSlidingInvisibilityTimeout = true,
+    };
 
     public static IEndpointRouteBuilder MapNotificationEndpoints(this IEndpointRouteBuilder app)
     {

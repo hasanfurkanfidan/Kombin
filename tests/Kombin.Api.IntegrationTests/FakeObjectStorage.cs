@@ -22,16 +22,31 @@ internal sealed class FakeObjectStorage : IObjectStorage
 
     public void StopFailingDeletes(string prefix) => _failingPrefixes.TryRemove(prefix, out _);
 
+    private readonly ConcurrentDictionary<string, Func<string, bool>> _failingPuts = new(StringComparer.Ordinal);
+
+    /// <summary>Makes <see cref="PutAsync"/> throw (a full or unreachable store) for every key <paramref name="matches"/>; <paramref name="name"/> turns it off again.</summary>
+    public void FailPuts(string name, Func<string, bool> matches) => _failingPuts[name] = matches;
+
+    public void StopFailingPuts(string name) => _failingPuts.TryRemove(name, out _);
+
     /// <summary>Every key passed to <see cref="DeleteAsync"/>, oldest first.</summary>
     public IReadOnlyList<string> Deleted => [.. _deleted];
 
     /// <summary>What the app does with the presigned URL: put the photo under the key.</summary>
     public void Upload(string key, byte[] content, string contentType) => _objects[key] = new StoredObject(content, contentType);
 
+    /// <summary>The keys of the objects that belong to a user (every key carries the user's ID).</summary>
+    public IReadOnlyList<string> KeysOfUser(Guid userId) => [.. _objects.Keys.Where(key => key.Contains($"/{userId}/", StringComparison.Ordinal))];
+
     public StoredObject? Find(string key) => _objects.GetValueOrDefault(key);
 
     public Task PutAsync(string key, byte[] content, string contentType, CancellationToken cancellationToken)
     {
+        if (_failingPuts.Values.Any(matches => matches(key)))
+        {
+            throw new IOException("The object store is unreachable (simulated).");
+        }
+
         _objects[key] = new StoredObject(content, contentType);
         return Task.CompletedTask;
     }

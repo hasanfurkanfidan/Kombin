@@ -4,13 +4,14 @@ using Kombin.Api.Persistence;
 
 namespace Kombin.Api.Features.Identity.Jobs;
 
-internal readonly record struct AccountDeletionSummary(int AccountsDeleted, int StorageFailures, int ObjectsDeleted);
+/// <summary><c>Failures</c> are the accounts postponed to the next run, because the storage or the database failed.</summary>
+internal readonly record struct AccountDeletionSummary(int AccountsDeleted, int Failures, int ObjectsDeleted);
 
 /// <summary>
 /// Hourly: removes the accounts whose deletion window (<see cref="AccountDeletionRules.Window"/>, 7 days) is over, one by one through
 /// <see cref="AccountPurger"/>. Idempotent and resumable: a deleted account no longer matches; an account whose objects could not be deleted
 /// stays untouched and is tried again by the next run (hourly, so the 7-day promise holds even if a few runs fail). One failing account
-/// never stops the others.
+/// never stops the others, whatever failed: the storage (reported by the purger) or the database (an exception, caught here per account).
 /// </summary>
 internal sealed partial class AccountDeletionJob(KombinDbContext db, AccountPurger purger, IClock clock, ILogger<AccountDeletionJob> logger)
 {
@@ -27,7 +28,7 @@ internal sealed partial class AccountDeletionJob(KombinDbContext db, AccountPurg
     {
         var summary = await DeleteDueAsync(null, cancellationToken);
 
-        LogRun(logger, summary.AccountsDeleted, summary.ObjectsDeleted, summary.StorageFailures);
+        LogRun(logger, summary.AccountsDeleted, summary.ObjectsDeleted, summary.Failures);
     }
 
     /// <summary><paramref name="onlyUsers"/> restricts the run to those accounts (tests share a database).</summary>
@@ -55,7 +56,19 @@ internal sealed partial class AccountDeletionJob(KombinDbContext db, AccountPurg
 
             foreach (var userId in batch)
             {
-                var result = await purger.PurgeAsync(userId, cancellationToken);
+                PurgeResult result;
+                try
+                {
+                    result = await purger.PurgeAsync(userId, cancellationToken);
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    // A failed transaction was rolled back; whatever the context still tracks is not to be trusted by the next account.
+                    LogPurgeFailed(logger, exception, userId);
+                    db.ChangeTracker.Clear();
+                    failed.Add(userId);
+                    continue;
+                }
 
                 switch (result.Status)
                 {
@@ -71,6 +84,9 @@ internal sealed partial class AccountDeletionJob(KombinDbContext db, AccountPurg
         }
     }
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Account deletion: {Accounts} account(s) deleted with {Objects} stored object(s); {Failures} postponed because the storage failed.")]
+    [LoggerMessage(Level = LogLevel.Information, Message = "Account deletion: {Accounts} account(s) deleted with {Objects} stored object(s); {Failures} postponed because the storage or the database failed.")]
     private static partial void LogRun(ILogger logger, int accounts, int objects, int failures);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Deleting the account of user {UserId} failed; it stays and the next run tries again.")]
+    private static partial void LogPurgeFailed(ILogger logger, Exception exception, Guid userId);
 }

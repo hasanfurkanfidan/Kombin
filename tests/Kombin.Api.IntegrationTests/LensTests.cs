@@ -16,6 +16,7 @@ namespace Kombin.Api.IntegrationTests;
 /// photos. The search is global and the database shared, so every test uses its own <c>look-&lt;key&gt;</c>: unrelated vectors are ~0 alike,
 /// far below the floor, and other tests' products never show up.
 /// </summary>
+[Collection(EmbeddingRuns.Name)]
 public sealed class LensTests(ApiFactory factory)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
