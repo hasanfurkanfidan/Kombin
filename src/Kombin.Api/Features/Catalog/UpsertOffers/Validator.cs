@@ -40,8 +40,8 @@ internal sealed class UpsertOfferItemValidator : AbstractValidator<UpsertOfferIt
         RuleFor(item => item.FreeShippingThreshold).GreaterThanOrEqualTo(0m).PrecisionScale(12, 2, ignoreTrailingZeros: true);
 
         RuleFor(item => item.Currency!)
-            .Must(currency => currency.Length == 3 && currency.All(char.IsAsciiLetter))
-            .WithMessage("'Currency' must be a three-letter code such as TRY.")
+            .Must(currency => string.Equals(currency, Offer.DefaultCurrency, StringComparison.OrdinalIgnoreCase))
+            .WithMessage($"'Currency' must be {Offer.DefaultCurrency}: every price is taken as Turkish lira and nothing is converted.")
             .When(item => item.Currency is not null);
 
         RuleFor(item => item.StockStatus)

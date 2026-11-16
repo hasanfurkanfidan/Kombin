@@ -186,11 +186,32 @@ public class UpsertOffersValidatorTests
     [InlineData("TL")]
     [InlineData("TR1")]
     [InlineData("TRYY")]
-    public void CurrencyMustBeThreeLetters(string currency)
+    public void AnythingThatIsNotAThreeLetterCodeIsRefusedToo(string currency)
     {
         var result = _validator.Validate(Request(ValidItem() with { Currency = currency }));
 
         Assert.Contains(result.Errors, failure => failure.PropertyName == "Items[0].Currency");
+    }
+
+    [Theory]
+    [InlineData("USD")]
+    [InlineData("EUR")]
+    [InlineData("gbp")]
+    public void OnlyTryIsAcceptedBecauseEveryCalculationTreatsTheAmountAsLira(string currency)
+    {
+        var result = _validator.Validate(Request(ValidItem() with { Currency = currency }));
+
+        var failure = Assert.Single(result.Errors, failure => failure.PropertyName == "Items[0].Currency");
+        Assert.Contains("TRY", failure.ErrorMessage, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("TRY")]
+    [InlineData("try")]
+    public void TryInAnyCaseOrNoCurrencyAtAllIsFine(string? currency)
+    {
+        Assert.DoesNotContain(_validator.Validate(Request(ValidItem() with { Currency = currency })).Errors, failure => failure.PropertyName == "Items[0].Currency");
     }
 
     [Fact]

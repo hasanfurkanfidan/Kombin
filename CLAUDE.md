@@ -143,7 +143,7 @@ External Python workers (a separate repo) push the catalog through the internal 
   `{ created, updated, snapshotsWritten, results: [{ index, externalId, productId, offerId, created }], errors }`: `results` holds the
   stored items, `errors` the rejected ones, and together they account for every index. `product` may carry `brandWebsiteUrl` /
   `brandLogoUrl`: they are set when the brand is created and filled in later only while the brand has none, never overwritten (this
-  also happens on an existing offer). `imageUrls` holds at most 6 entries. Image, brand website and seller website URLs must be
+  also happens on an existing offer). `currency` is `TRY` or left out (= TRY, any casing): every calculation (effective price, budgets, alerts, the wardrobe value) takes the amount as lira and nothing converts, so another currency is a 400 at the door (`UpsertCurrencyTests`). `imageUrls` holds at most 6 entries. Image, brand website and seller website URLs must be
   absolute http(s) with a host, no credentials and no whitespace (`UpsertOfferItemValidator.IsPublicHttpUrl`).
 - **Images belong to the product** (`catalog.product_images` and `products.primary_image_url`), never to the offer. **The gallery has one owner**,
   `products.image_source_offer_id`: only the offer that supplied the current gallery may replace it, so sellers can not make it flip back and forth. An
