@@ -176,6 +176,8 @@ External Python workers (a separate repo) push the catalog through the internal 
   |---|---|---|
   | `offer-sweep` | daily 04:30 `Europe/Istanbul` | active offers with `LastSeenAt` more than 48 h old (exactly 48 h is still fresh) → `IsActive = false`, `StockStatus = OutOfStock`, plus a closing `PriceSnapshot` (same price, out of stock); then `Product.IsActive` repaired in both directions to "has an active offer". Batches of 500, logs the counts |
 
+  A batch is chosen by ID, then read again under row locks (`SELECT … FOR UPDATE` in the batch's transaction) and the stale rule is applied to what was read there, so an offer a worker sighted in between is left alone and an upsert that arrives meanwhile waits instead of being overwritten (`OfferSweepRaceTests`); the snapshot rows are written for exactly the offers deactivated.
+
   Each deactivated offer goes through `AlertEvaluator.EvaluateAsync` with `EvaluationReason.Sweep`, which skips every rule: **a sweep
   never fires an alert, `AnyChange` included** (`OfferUpserter` passes `Observation`). The evaluator keeps no state; its "previous" state
   is the offer's stored stock and price, and the sweep leaves the offer out of stock at the same price, so the next upsert that finds
