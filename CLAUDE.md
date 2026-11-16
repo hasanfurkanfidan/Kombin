@@ -371,7 +371,7 @@ External Python workers (a separate repo) push the catalog through the internal 
   and the abandoned uploads above, and asks the safety filter again for ready items without a verdict (`RetryMissingAsync`, 200 per run).
 - **From the catalog:** `POST /items/from-product` makes a `Ready`, already confirmed item (`FromCatalog`) and copies the product's primary
   image into storage as both cutout and thumbnail, unchanged (no background removal, no resizing: there is no image library here). A failed
-  copy still creates the item, which then shows the catalog image. The same product twice returns the existing item.
+  copy (a failed download, or a store that refuses the write: what was already written is deleted) still creates the item, which then shows the catalog image. The same product twice returns the existing item, also for a double tap: the image is fetched first, then a transaction-scoped advisory lock per (user, product) and the check again (`FromProductRobustnessTests`).
 - **Wears** are a set of days per item (unique `(item_id, worn_on)`, `wornOn` defaults to today in `Europe/Istanbul`); `WearCount` and
   `LastWornAt` are recomputed from the rows after every change (`WearRules.Summarize`), never incremented. `OutfitId` (no foreign key) is
   set when an outfit is marked worn. Recording a day goes through `WearSummaries.RecordAsync`, shared with the outfit engine's `worn`.

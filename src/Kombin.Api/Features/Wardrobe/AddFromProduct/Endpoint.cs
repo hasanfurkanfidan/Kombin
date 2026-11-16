@@ -28,8 +28,9 @@ internal static class AddFromProductEndpoint
     /// <summary>
     /// "Dolabıma ekle" after a purchase: a <c>Ready</c>, already confirmed item with the product's attributes. The product's primary
     /// image is copied into storage as both cutout and thumbnail, as it is (catalog shots are already clean, so no background removal
-    /// and no resizing). If the copy fails the item is still created and shows the catalog image. Adding a product that is already in
-    /// the wardrobe returns that item (200) instead of a second one.
+    /// and no resizing). If the download or the copy fails the item is still created, without images, and shows the catalog image (nothing is left
+    /// in storage). Adding a product that is already in the wardrobe returns that item (200) instead of a second one, also for a double tap:
+    /// concurrent adds of one product by one user are serialised by an advisory lock and the check is repeated under it.
     /// </summary>
     private static async Task<IResult> Handle(
         AddFromProductRequest request,
@@ -49,13 +50,10 @@ internal static class AddFromProductEndpoint
             return CatalogErrors.ProductNotFound.ToHttpResult();
         }
 
-        var existing = await db.WardrobeItems.AsNoTracking()
-            .Where(item => item.UserId == userId && item.ProductId == product.Id && !item.IsArchived)
-            .OrderBy(item => item.CreatedAt)
-            .FirstOrDefaultAsync(cancellationToken);
-        if (existing is not null)
+        // The common repeat: no reason to fetch an image for it.
+        if (await ExistingAsync(db, userId, product.Id, cancellationToken) is { } already)
         {
-            return TypedResults.Ok(await WardrobeItemResponses.BuildAsync(db, storage, existing, cancellationToken));
+            return TypedResults.Ok(await WardrobeItemResponses.BuildAsync(db, storage, already, cancellationToken));
         }
 
         var item = new WardrobeItem
@@ -79,29 +77,94 @@ internal static class AddFromProductEndpoint
             ModeratedAt = clock.UtcNow,
         };
 
-        if (product.PrimaryImageUrl is { } imageUrl)
+        var logger = loggers.CreateLogger(typeof(AddFromProductEndpoint));
+
+        // The download is slow and holds nothing: it happens before the lock, so a double tap does not hold a connection for its length.
+        var image = product.PrimaryImageUrl is { } imageUrl
+            ? await CatalogImages.DownloadAsync(httpClients.CreateClient(WardrobeModule.CatalogImageClient), imageUrl, logger, cancellationToken)
+            : null;
+
+        // One add per (user, product) at a time: a transaction-scoped advisory lock, then the check again. A second tap waits here, finds the
+        // first one's piece and gets it back. (A unique index would have needed the old duplicates cleaned up first; the lock needs no data change.)
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        await db.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock(hashtextextended({$"wardrobe-from-product:{userId:N}:{product.Id:N}"}, 0))", cancellationToken);
+
+        if (await ExistingAsync(db, userId, product.Id, cancellationToken) is { } raced)
         {
-            var logger = loggers.CreateLogger(typeof(AddFromProductEndpoint));
-            var image = await CatalogImages.DownloadAsync(httpClients.CreateClient(WardrobeModule.CatalogImageClient), imageUrl, logger, cancellationToken);
-
-            if (image is not null)
-            {
-                var extension = StorageKeys.ExtensionFor(image.ContentType)!;
-                var cutoutKey = StorageKeys.Build(WardrobeLimits.StorageArea, userId, item.Id, ImageVariant.Cutout, extension);
-                var thumbKey = StorageKeys.Build(WardrobeLimits.StorageArea, userId, item.Id, ImageVariant.Thumb, extension);
-
-                await storage.PutAsync(cutoutKey, image.Content, image.ContentType, cancellationToken);
-                await storage.PutAsync(thumbKey, image.Content, image.ContentType, cancellationToken);
-
-                item.ImageCutoutKey = cutoutKey;
-                item.ImageThumbKey = thumbKey;
-            }
+            return TypedResults.Ok(await WardrobeItemResponses.BuildAsync(db, storage, raced, cancellationToken));
         }
 
-        db.WardrobeItems.Add(item);
-        await db.SaveChangesAsync(cancellationToken);
+        var written = image is null ? [] : await CopyImageAsync(storage, item, image, logger, cancellationToken);
+
+        try
+        {
+            db.WardrobeItems.Add(item);
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch
+        {
+            await DeleteQuietlyAsync(storage, written, logger);
+            throw;
+        }
 
         return TypedResults.Created($"/api/v1/me/wardrobe/items/{item.Id}", await WardrobeItemResponses.BuildAsync(db, storage, item, cancellationToken));
+    }
+
+    private static Task<WardrobeItem?> ExistingAsync(KombinDbContext db, Guid userId, Guid productId, CancellationToken cancellationToken) =>
+        db.WardrobeItems.AsNoTracking()
+            .Where(item => item.UserId == userId && item.ProductId == productId && !item.IsArchived)
+            .OrderBy(item => item.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+
+    /// <summary>
+    /// Copies the image into storage as cutout and thumbnail and sets the keys. A store that refuses is like a download that failed: the item is
+    /// created without images (it shows the catalog's) and whatever was already written is deleted, so nothing is left behind. Returns the keys written.
+    /// </summary>
+    private static async Task<List<string>> CopyImageAsync(IObjectStorage storage, WardrobeItem item, StoredObject image, ILogger logger, CancellationToken cancellationToken)
+    {
+        var extension = StorageKeys.ExtensionFor(image.ContentType)!;
+        var cutoutKey = StorageKeys.Build(WardrobeLimits.StorageArea, item.UserId, item.Id, ImageVariant.Cutout, extension);
+        var thumbKey = StorageKeys.Build(WardrobeLimits.StorageArea, item.UserId, item.Id, ImageVariant.Thumb, extension);
+        var written = new List<string>();
+
+        try
+        {
+            await storage.PutAsync(cutoutKey, image.Content, image.ContentType, cancellationToken);
+            written.Add(cutoutKey);
+            await storage.PutAsync(thumbKey, image.Content, image.ContentType, cancellationToken);
+            written.Add(thumbKey);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            CatalogImages.LogNotStored(logger, exception, item.Id);
+            await DeleteQuietlyAsync(storage, [cutoutKey, thumbKey], logger);
+
+            return [];
+        }
+
+        item.ImageCutoutKey = cutoutKey;
+        item.ImageThumbKey = thumbKey;
+
+        return written;
+    }
+
+    /// <summary>Best effort: an object that cannot be deleted now is an orphan, not a reason to fail the request.</summary>
+    private static async Task DeleteQuietlyAsync(IObjectStorage storage, List<string> keys, ILogger logger)
+    {
+        if (keys.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await storage.DeleteAsync(keys, CancellationToken.None);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            CatalogImages.LogNotDeleted(logger, exception, keys.Count);
+        }
     }
 }
 
@@ -162,4 +225,10 @@ internal static partial class CatalogImages
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Catalog image {Url} was not copied to the wardrobe: {Reason}")]
     private static partial void LogSkipped(ILogger logger, string url, string reason);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The object store refused the catalog image of wardrobe item {ItemId}; the item is created without its own copy.")]
+    internal static partial void LogNotStored(ILogger logger, Exception exception, Guid itemId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "{Objects} stored object(s) of a wardrobe item could not be deleted and are left behind.")]
+    internal static partial void LogNotDeleted(ILogger logger, Exception exception, int objects);
 }
