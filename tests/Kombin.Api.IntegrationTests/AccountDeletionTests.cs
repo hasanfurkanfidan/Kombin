@@ -5,9 +5,12 @@ using System.Text.Json;
 using Kombin.Api.Features.Identity;
 using Kombin.Api.Features.Identity.Jobs;
 using Kombin.Api.Persistence;
+using Kombin.Api.Persistence.Entities.Catalog;
 using Kombin.Api.Persistence.Entities.Identity;
+using Kombin.Api.Persistence.Entities.League;
 using Kombin.Api.Persistence.Entities.Notification;
 using Kombin.Api.Persistence.Entities.Profile;
+using Kombin.Api.Persistence.Entities.Recommendation;
 using Kombin.Api.Persistence.Entities.Social;
 using Microsoft.EntityFrameworkCore;
 
@@ -457,6 +460,10 @@ public sealed class AccountDeletionTests(ApiFactory factory)
         var anonymousId = AnalyticsClientExtensions.NewAnonymousId();
         await subject.Client.PostEventsOkAsync([AnalyticsClientExtensions.Event("app_open", anonymousId: anonymousId)], Ct);
 
+        // Kombin Ligi: the subject joined (through the API) and played a day in 2020 against the bystander (rows set up directly: no job yet).
+        await subject.Client.JoinLeagueOkAsync(Ct);
+        var league = await SeedLeagueDayAsync(ownerId, bystander.Id);
+
         // --- Before: the subject has rows everywhere. ---
         var before = await CountsAsync(ownerId);
         Assert.All(before, entry => Assert.True(entry.Value > 0, $"{entry.Key} should have rows before the deletion."));
@@ -473,10 +480,16 @@ public sealed class AccountDeletionTests(ApiFactory factory)
 
         // --- After: nothing of the subject is left, in any table. ---
         Assert.Equal(1, summary.AccountsDeleted);
-        Assert.Equal(itemKeys.Length + postKeys.Length, summary.ObjectsDeleted);
+        Assert.Equal(itemKeys.Length + postKeys.Length + 1, summary.ObjectsDeleted);
         Assert.All(await CountsAsync(ownerId), entry => Assert.True(entry.Value == 0, $"{entry.Key} still has {entry.Value} row(s) of the deleted user."));
-        Assert.All(itemKeys.Concat(postKeys), key => Assert.Null(factory.Storage.Find(key)));
-        Assert.All(itemKeys.Concat(postKeys), key => Assert.Contains(key, factory.Storage.Deleted));
+        Assert.All(itemKeys.Concat(postKeys).Append(league.ImageKey), key => Assert.Null(factory.Storage.Find(key)));
+        Assert.All(itemKeys.Concat(postKeys).Append(league.ImageKey), key => Assert.Contains(key, factory.Storage.Deleted));
+
+        // The league of the others: the bystander's closed day and entry stay as they were; the engine's preference row has no user to lose.
+        var bystanderScore = await factory.WithDbAsync(db => db.LeagueDailyScores.AsNoTracking().SingleAsync(row => row.UserId == bystander.Id && row.Day == league.Day, Ct));
+        Assert.Equal((league.BystanderTotal, league.BystanderEntryId), (bystanderScore.Total, bystanderScore.EntryId));
+        Assert.True(await factory.WithDbAsync(db => db.LeagueEntries.AnyAsync(row => row.Id == league.BystanderEntryId, Ct)));
+        Assert.True(await factory.WithDbAsync(db => db.LeagueEnginePreferences.AnyAsync(row => row.Id == league.EnginePreferenceId, Ct)));
 
         // Anonymised, not deleted: the click and event records stay without the user, referral amounts stay without the creator.
         var clicks = await factory.WithDbAsync(db => db.Clicks.AsNoTracking().Where(click => clicksBefore.Select(before => before.Id).Contains(click.Id)).OrderBy(click => click.Id).ToListAsync(Ct));
@@ -612,5 +625,96 @@ public sealed class AccountDeletionTests(ApiFactory factory)
         ["social.blocks"] = await db.UserBlocks.CountAsync(row => row.BlockerId == userId || row.BlockedId == userId, Ct),
         ["social.posting_consents"] = await db.PostingConsents.CountAsync(row => row.UserId == userId, Ct),
         ["social.creator_profiles"] = await db.CreatorProfiles.CountAsync(row => row.UserId == userId, Ct),
+        ["league.players"] = await db.LeaguePlayers.CountAsync(row => row.UserId == userId, Ct),
+        ["league.consents"] = await db.LeagueConsents.CountAsync(row => row.UserId == userId, Ct),
+        ["league.entries"] = await db.LeagueEntries.CountAsync(row => row.UserId == userId, Ct),
+        ["league.entry_pieces"] = await db.LeagueEntryPieces.CountAsync(row => db.LeagueEntries.Any(entry => entry.Id == row.EntryId && entry.UserId == userId), Ct),
+        ["league.pairs"] = await db.LeaguePairs.CountAsync(row => row.VoterId == userId || db.LeagueEntries.Any(entry => (entry.Id == row.LeftEntryId || entry.Id == row.RightEntryId) && entry.UserId == userId), Ct),
+        ["league.reports"] = await db.LeagueReports.CountAsync(row => row.ReporterId == userId || db.LeagueEntries.Any(entry => entry.Id == row.EntryId && entry.UserId == userId), Ct),
+        ["league.daily_scores"] = await db.LeagueDailyScores.CountAsync(row => row.UserId == userId, Ct),
+        ["league.group_members"] = await db.LeagueGroupMembers.CountAsync(row => row.UserId == userId, Ct),
+        ["league.style_scores"] = await db.LeagueStyleScores.CountAsync(row => row.UserId == userId, Ct),
     });
+
+    private sealed record LeagueSeed(DateOnly Day, string ImageKey, Guid BystanderEntryId, int BystanderTotal, long EnginePreferenceId);
+
+    /// <summary>
+    /// A closed league day in 2020 (no other test's data is there) where the subject and the bystander each had an entry, voted on a pair
+    /// showing the other's outfit, reported it, scored, and sat in one group; plus the subject's style score and one engine preference row.
+    /// The subject's entry has a league image copy in storage.
+    /// </summary>
+    private async Task<LeagueSeed> SeedLeagueDayAsync(Guid subjectId, Guid bystanderId)
+    {
+        var day = new DateOnly(2020, 1, 6).AddDays(Random.Shared.Next(0, 52) * 7);
+        var imageKey = $"league/{Guid.NewGuid():D}/{Guid.NewGuid():D}/thumb.webp";
+        await factory.Storage.PutAsync(imageKey, [1, 2, 3], "image/webp", Ct);
+
+        LeagueEntry Entry(Guid userId) => new()
+        {
+            Day = day,
+            UserId = userId,
+            Kind = LeagueEntryKind.Human,
+            Audience = Audience.Women,
+            PieceIds = [Guid.NewGuid(), Guid.NewGuid()],
+            PieceSetHash = new string('a', LeagueEntry.PieceSetHashLength),
+            Status = LeagueEntryStatus.Competing,
+            Comparisons = 1,
+            WeightedWins = 1,
+            WeightedGames = 1,
+        };
+
+        var mine = Entry(subjectId);
+        mine.Pieces.Add(new LeagueEntryPiece { Position = 0, Slot = OutfitSlot.Top, ImageKey = imageKey });
+        var theirs = Entry(bystanderId);
+        theirs.Pieces.Add(new LeagueEntryPiece { Position = 0, Slot = OutfitSlot.Top, ImageUrl = "https://images.example.test/top.jpg" });
+        var (low, high) = mine.Id.CompareTo(theirs.Id) < 0 ? (mine.Id, theirs.Id) : (theirs.Id, mine.Id);
+        var served = DateTimeOffset.UtcNow.AddMinutes(-5);
+        var group = new LeagueGroup { WeekStart = day, Tiers = [LeagueTier.Bronze], Capacity = 30 };
+        var preference = new LeagueEnginePreference { Day = day, Audience = Audience.Women, WinnerProducts = [Guid.NewGuid()], Weight = 1 };
+
+        LeaguePair Pair(Guid voterId, bool pickLeft) => new()
+        {
+            Day = day,
+            VoterId = voterId,
+            LeftEntryId = mine.Id,
+            RightEntryId = theirs.Id,
+            LowEntryId = low,
+            HighEntryId = high,
+            MatchLevel = LeaguePairMatch.Strict,
+            Sequence = 1,
+            ServedAt = served,
+            AnsweredAt = served.AddSeconds(3),
+            Choice = pickLeft ? LeaguePairChoice.Left : LeaguePairChoice.Right,
+            Counted = true,
+            Weight = 1,
+        };
+
+        await factory.WithDbAsync(async db =>
+        {
+            db.LeagueEntries.AddRange(mine, theirs);
+            db.LeaguePairs.AddRange(Pair(subjectId, pickLeft: false), Pair(bystanderId, pickLeft: true));
+            db.LeagueReports.AddRange(
+                new LeagueReport { EntryId = theirs.Id, ReporterId = subjectId, CreatedAt = served },
+                new LeagueReport { EntryId = mine.Id, ReporterId = bystanderId, CreatedAt = served });
+            db.LeagueDailyScores.AddRange(
+                new LeagueDailyScore { UserId = subjectId, Day = day, EntryId = mine.Id, Competed = true, VotingPoints = 15, Total = 15 },
+                new LeagueDailyScore { UserId = bystanderId, Day = day, EntryId = theirs.Id, Competed = true, WornPoints = 10, Total = 10 });
+            if (!await db.LeagueWeeks.AnyAsync(week => week.WeekStart == day, Ct))
+            {
+                db.LeagueWeeks.Add(new LeagueWeek { WeekStart = day, EndsAt = served });
+            }
+
+            db.LeagueGroups.Add(group);
+            db.LeagueGroupMembers.AddRange(
+                new LeagueGroupMember { WeekStart = day, UserId = subjectId, GroupId = group.Id, Alias = "Yeşil Trençkot", Tier = LeagueTier.Bronze, JoinedAt = served },
+                new LeagueGroupMember { WeekStart = day, UserId = bystanderId, GroupId = group.Id, Alias = "Lacivert Blazer", Tier = LeagueTier.Bronze, JoinedAt = served });
+            db.LeagueStyleScores.Add(new LeagueStyleScore { UserId = subjectId, ComputedAt = served, CountedDays = 1 });
+            db.LeagueEnginePreferences.Add(preference);
+            await db.SaveChangesAsync(Ct);
+
+            return 0;
+        });
+
+        return new LeagueSeed(day, imageKey, theirs.Id, 10, preference.Id);
+    }
 }

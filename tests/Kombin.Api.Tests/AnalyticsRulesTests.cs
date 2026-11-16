@@ -1,3 +1,4 @@
+using Kombin.Api.Common.Time;
 using Kombin.Api.Features.Analytics;
 using Kombin.Api.Features.Notification;
 
@@ -47,7 +48,7 @@ public class AnalyticsRulesTests
         // Monday 2026-11-02 08:00 in Istanbul (UTC+3).
         var now = new DateTimeOffset(2026, 11, 2, 5, 0, 0, TimeSpan.Zero);
 
-        var weeks = CohortWeeks.Previous(now, 2, QuietHours.Zone);
+        var weeks = CohortWeeks.Previous(now, 2, Istanbul.Zone);
 
         Assert.Equal(new DateOnly(2026, 10, 26), weeks[0].WeekStart);
         Assert.Equal(new DateTimeOffset(2026, 10, 25, 21, 0, 0, TimeSpan.Zero), weeks[0].Start);
@@ -63,14 +64,14 @@ public class AnalyticsRulesTests
         var sunday = new DateTimeOffset(2026, 11, 1, 20, 30, 0, TimeSpan.Zero);
         var monday = new DateTimeOffset(2026, 11, 1, 21, 30, 0, TimeSpan.Zero);
 
-        Assert.Equal(new DateOnly(2026, 10, 19), CohortWeeks.Previous(sunday, 1, QuietHours.Zone)[0].WeekStart);
-        Assert.Equal(new DateOnly(2026, 10, 26), CohortWeeks.Previous(monday, 1, QuietHours.Zone)[0].WeekStart);
+        Assert.Equal(new DateOnly(2026, 10, 19), CohortWeeks.Previous(sunday, 1, Istanbul.Zone)[0].WeekStart);
+        Assert.Equal(new DateOnly(2026, 10, 26), CohortWeeks.Previous(monday, 1, Istanbul.Zone)[0].WeekStart);
     }
 
     [Fact]
     public void TheWeeksAreContiguousAndMostRecentFirst()
     {
-        var weeks = CohortWeeks.Previous(new DateTimeOffset(2026, 11, 4, 12, 0, 0, TimeSpan.Zero), 4, QuietHours.Zone);
+        var weeks = CohortWeeks.Previous(new DateTimeOffset(2026, 11, 4, 12, 0, 0, TimeSpan.Zero), 4, Istanbul.Zone);
 
         Assert.Equal(4, weeks.Count);
         Assert.Equal(
@@ -127,7 +128,7 @@ public class EventCapTests
     [InlineData("2026-11-15T20:59:00Z", "2026-11-14T21:00:00Z")]
     [InlineData("2026-11-15T21:00:00Z", "2026-11-15T21:00:00Z")]
     public void TheDayStartsAtMidnightInIstanbul(string now, string expected) =>
-        Assert.Equal(DateTimeOffset.Parse(expected, System.Globalization.CultureInfo.InvariantCulture), EventCap.DayStart(DateTimeOffset.Parse(now, System.Globalization.CultureInfo.InvariantCulture), QuietHours.Zone));
+        Assert.Equal(DateTimeOffset.Parse(expected, System.Globalization.CultureInfo.InvariantCulture), EventCap.DayStart(DateTimeOffset.Parse(now, System.Globalization.CultureInfo.InvariantCulture), Istanbul.Zone));
 
     [Theory]
     [InlineData(0, 5000, 5000)]

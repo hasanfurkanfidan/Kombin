@@ -31,6 +31,21 @@ public sealed class OpenApiTests(ApiFactory factory)
         Assert.True(seller.TryGetProperty("slug", out _));
     }
 
+    // The league is off by default, but its routes are mapped and documented so the app can be built against them.
+    [Fact]
+    public async Task TheLeagueRoutesAreDocumentedWithTheirShapes()
+    {
+        var document = await DocumentAsync();
+        var paths = document.GetProperty("paths");
+
+        Assert.Contains("LeagueMeResponse", paths.GetProperty("/api/v1/league/me").GetProperty("get").GetProperty("responses").GetProperty("200").GetRawText(), StringComparison.Ordinal);
+        Assert.Contains("LeagueMeResponse", paths.GetProperty("/api/v1/league/join").GetProperty("post").GetProperty("responses").GetProperty("200").GetRawText(), StringComparison.Ordinal);
+        Assert.True(paths.GetProperty("/api/v1/league/leave").GetProperty("post").GetProperty("responses").TryGetProperty("204", out _));
+
+        var me = document.GetProperty("components").GetProperty("schemas").GetProperty("LeagueMeResponse").GetProperty("properties");
+        Assert.Equal(["consent", "consentRequired", "joined", "joinedAt", "tier"], me.EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal));
+    }
+
     // Security review M5: the API documentation must say that "Followers" is not private (anyone can follow without approval).
     [Fact]
     public async Task PublishingSaysFollowersIsNotPrivate()

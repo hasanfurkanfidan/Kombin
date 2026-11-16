@@ -122,6 +122,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
             ["Legal:Address"] = "Test Mah. 1. Sk. No:1 İstanbul",
             ["Admin:Users:0:Email"] = AdminEmail,
             ["Admin:Users:0:PasswordHash"] = AdminPasswordHash,
+            // League:Enabled is false by default (until the app screens ship); the tests switch it on. LeagueTests checks the switched-off host.
+            ["League:Enabled"] = "true",
         }));
     }
 }

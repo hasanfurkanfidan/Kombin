@@ -1,4 +1,5 @@
 using System.Diagnostics.Metrics;
+using Kombin.Api.Common.Time;
 using Kombin.Api.Features.Analytics;
 using Kombin.Api.Features.Analytics.Jobs;
 using Kombin.Api.Features.Notification;
@@ -62,7 +63,7 @@ public sealed class AnalyticsLimitsTests(ApiFactory factory)
         // A device whose whole cap was spent yesterday (Istanbul time) starts again today.
         using var anonymous = factory.CreateAnonymousClient();
         var device = AnalyticsClientExtensions.NewAnonymousId();
-        await InsertEventsAsync(device, Cap, EventCap.DayStart(DateTimeOffset.UtcNow, QuietHours.Zone).AddMinutes(-1));
+        await InsertEventsAsync(device, Cap, EventCap.DayStart(DateTimeOffset.UtcNow, Istanbul.Zone).AddMinutes(-1));
         var fresh = await anonymous.PostEventsOkAsync([AnalyticsClientExtensions.Event(anonymousId: device)], Ct);
         Assert.Equal(1, fresh.GetProperty("accepted").GetInt32());
     }

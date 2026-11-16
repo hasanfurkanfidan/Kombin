@@ -38,13 +38,13 @@ public sealed class MidnightEdgeTests(ApiFactory factory)
             }
         }
 
-        public DateOnly DayBefore => DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(Before, QuietHours.Zone).DateTime);
+        public DateOnly DayBefore => DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(Before, Istanbul.Zone).DateTime);
 
         public string DayText => DayBefore.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
 
         public void Arm()
         {
-            var istanbul = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, QuietHours.Zone);
+            var istanbul = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, Istanbul.Zone);
             var midnight = new DateTimeOffset(istanbul.Date.AddDays(1), istanbul.Offset);
             Before = midnight.AddMilliseconds(-50).ToUniversalTime();
             Volatile.Write(ref _reads, 0);

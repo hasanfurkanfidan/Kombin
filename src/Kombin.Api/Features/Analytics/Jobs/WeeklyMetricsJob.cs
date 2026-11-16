@@ -1,6 +1,5 @@
 using Hangfire;
 using Kombin.Api.Common.Time;
-using Kombin.Api.Features.Notification;
 using Kombin.Api.Persistence;
 using Kombin.Api.Persistence.Entities.Analytics;
 
@@ -17,7 +16,7 @@ internal sealed partial class WeeklyMetricsJob(KombinDbContext db, IClock clock,
 {
     public const string JobId = "weekly-metrics";
 
-    /// <summary>Monday 08:00 in <see cref="QuietHours.ZoneId"/> (the zone is set where the job is registered, in <c>UseAnalyticsJobs</c>).</summary>
+    /// <summary>Monday 08:00 in <see cref="Istanbul.ZoneId"/> (the zone is set where the job is registered, in <c>UseAnalyticsJobs</c>).</summary>
     public const string Cron = "0 8 * * 1";
 
     /// <summary>How many cohort weeks each run covers: last week plus the earlier ones whose D7 retention is still filling in.</summary>
@@ -34,7 +33,7 @@ internal sealed partial class WeeklyMetricsJob(KombinDbContext db, IClock clock,
     /// <summary>Computes the cohort weeks before <paramref name="asOf"/> and returns how many (week, metric) rows it wrote. A metric with an empty cohort writes nothing.</summary>
     public async Task<int> ComputeAsync(DateTimeOffset asOf, CancellationToken cancellationToken)
     {
-        var weeks = CohortWeeks.Previous(asOf, CohortWeeksPerRun, QuietHours.Zone);
+        var weeks = CohortWeeks.Previous(asOf, CohortWeeksPerRun, Istanbul.Zone);
         var weekStarts = weeks.Select(week => week.WeekStart).ToList();
 
         var existing = await db.WeeklyMetrics

@@ -3,6 +3,7 @@ using Kombin.Api.Persistence.Entities.Analytics;
 using Kombin.Api.Persistence.Entities.Catalog;
 using Kombin.Api.Persistence.Entities.Engagement;
 using Kombin.Api.Persistence.Entities.Identity;
+using Kombin.Api.Persistence.Entities.League;
 using Kombin.Api.Persistence.Entities.Notification;
 using Kombin.Api.Persistence.Entities.Profile;
 using Kombin.Api.Persistence.Entities.Recommendation;
@@ -100,6 +101,34 @@ internal sealed class KombinDbContext(DbContextOptions<KombinDbContext> options)
     public DbSet<ReferralEvent> ReferralEvents => Set<ReferralEvent>();
 
     public DbSet<AdminAuditEntry> AdminAuditLog => Set<AdminAuditEntry>();
+
+    public DbSet<LeaguePlayer> LeaguePlayers => Set<LeaguePlayer>();
+
+    public DbSet<LeagueConsentRecord> LeagueConsents => Set<LeagueConsentRecord>();
+
+    public DbSet<LeagueDay> LeagueDays => Set<LeagueDay>();
+
+    public DbSet<LeagueEntry> LeagueEntries => Set<LeagueEntry>();
+
+    public DbSet<LeagueEntryPiece> LeagueEntryPieces => Set<LeagueEntryPiece>();
+
+    public DbSet<LeaguePair> LeaguePairs => Set<LeaguePair>();
+
+    public DbSet<LeagueReport> LeagueReports => Set<LeagueReport>();
+
+    public DbSet<LeagueDailyScore> LeagueDailyScores => Set<LeagueDailyScore>();
+
+    public DbSet<LeagueWeek> LeagueWeeks => Set<LeagueWeek>();
+
+    public DbSet<LeagueGroup> LeagueGroups => Set<LeagueGroup>();
+
+    public DbSet<LeagueGroupMember> LeagueGroupMembers => Set<LeagueGroupMember>();
+
+    public DbSet<LeagueStyleScore> LeagueStyleScores => Set<LeagueStyleScore>();
+
+    public DbSet<LeagueEnginePreference> LeagueEnginePreferences => Set<LeagueEnginePreference>();
+
+    public DbSet<LeagueState> LeagueState => Set<LeagueState>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

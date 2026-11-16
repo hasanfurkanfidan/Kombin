@@ -1409,6 +1409,782 @@ namespace Kombin.Api.Persistence.Migrations
                     b.ToTable("users", "identity");
                 });
 
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.League.LeagueConsentRecord", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("action");
+
+                    b.Property<DateTimeOffset>("At")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("at");
+
+                    b.Property<string>("Text")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("text");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("Version")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_consents");
+
+                    b.HasIndex("UserId", "At")
+                        .HasDatabaseName("ix_consents_user_id_at");
+
+                    b.ToTable("consents", "league");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.League.LeagueDailyScore", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<DateOnly>("Day")
+                        .HasColumnType("date")
+                        .HasColumnName("day");
+
+                    b.Property<int>("Comparisons")
+                        .HasColumnType("integer")
+                        .HasColumnName("comparisons");
+
+                    b.Property<bool>("Competed")
+                        .HasColumnType("boolean")
+                        .HasColumnName("competed");
+
+                    b.Property<Guid?>("EntryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("entry_id");
+
+                    b.Property<DateTimeOffset?>("NotifiedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("notified_at");
+
+                    b.Property<double?>("Percentile")
+                        .HasColumnType("double precision")
+                        .HasColumnName("percentile");
+
+                    b.Property<int>("PiecePoints")
+                        .HasColumnType("integer")
+                        .HasColumnName("piece_points");
+
+                    b.Property<int?>("Rank")
+                        .HasColumnType("integer")
+                        .HasColumnName("rank");
+
+                    b.Property<bool>("Ranked")
+                        .HasColumnType("boolean")
+                        .HasColumnName("ranked");
+
+                    b.Property<int>("RankedCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("ranked_count");
+
+                    b.Property<int>("Total")
+                        .HasColumnType("integer")
+                        .HasColumnName("total");
+
+                    b.Property<int>("VotePoints")
+                        .HasColumnType("integer")
+                        .HasColumnName("vote_points");
+
+                    b.Property<int>("VotingPoints")
+                        .HasColumnType("integer")
+                        .HasColumnName("voting_points");
+
+                    b.Property<int>("WornPoints")
+                        .HasColumnType("integer")
+                        .HasColumnName("worn_points");
+
+                    b.HasKey("UserId", "Day")
+                        .HasName("pk_daily_scores");
+
+                    b.HasIndex("Day")
+                        .HasDatabaseName("ix_daily_scores_day");
+
+                    b.HasIndex("EntryId")
+                        .HasDatabaseName("ix_daily_scores_entry_id");
+
+                    b.ToTable("daily_scores", "league", t =>
+                        {
+                            t.HasCheckConstraint("ck_daily_scores_parts", "vote_points BETWEEN 0 AND 70 AND voting_points IN (0, 15) AND worn_points IN (0, 10) AND piece_points IN (0, 5)");
+
+                            t.HasCheckConstraint("ck_daily_scores_total", "total = vote_points + voting_points + worn_points + piece_points");
+                        });
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.League.LeagueDay", b =>
+                {
+                    b.Property<DateOnly>("Day")
+                        .HasColumnType("date")
+                        .HasColumnName("day");
+
+                    b.Property<bool>("BtConverged")
+                        .HasColumnType("boolean")
+                        .HasColumnName("bt_converged");
+
+                    b.Property<int>("BtIterations")
+                        .HasColumnType("integer")
+                        .HasColumnName("bt_iterations");
+
+                    b.Property<int>("CloseMilliseconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("close_ms");
+
+                    b.Property<DateTimeOffset?>("ClosedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("closed_at");
+
+                    b.Property<DateTimeOffset>("ClosesAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("closes_at");
+
+                    b.Property<int>("EngineCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("engine_count");
+
+                    b.Property<int>("PairCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("pair_count");
+
+                    b.Property<int>("RankedCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("ranked_count");
+
+                    b.HasKey("Day")
+                        .HasName("pk_days");
+
+                    b.ToTable("days", "league");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.League.LeagueEnginePreference", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Audience")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("audience");
+
+                    b.Property<DateOnly>("Day")
+                        .HasColumnType("date")
+                        .HasColumnName("day");
+
+                    b.PrimitiveCollection<Guid[]>("LoserProducts")
+                        .IsRequired()
+                        .HasColumnType("uuid[]")
+                        .HasColumnName("loser_products");
+
+                    b.Property<string>("Occasion")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("occasion");
+
+                    b.Property<float>("Weight")
+                        .HasColumnType("real")
+                        .HasColumnName("weight");
+
+                    b.PrimitiveCollection<Guid[]>("WinnerProducts")
+                        .IsRequired()
+                        .HasColumnType("uuid[]")
+                        .HasColumnName("winner_products");
+
+                    b.HasKey("Id")
+                        .HasName("pk_engine_preferences");
+
+                    b.HasIndex("Day")
+                        .HasDatabaseName("ix_engine_preferences_day");
+
+                    b.ToTable("engine_preferences", "league");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.League.LeagueEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Audience")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("audience");
+
+                    b.Property<int>("Comparisons")
+                        .HasColumnType("integer")
+                        .HasColumnName("comparisons");
+
+                    b.Property<int>("CountingReports")
+                        .HasColumnType("integer")
+                        .HasColumnName("counting_reports");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateOnly>("Day")
+                        .HasColumnType("date")
+                        .HasColumnName("day");
+
+                    b.Property<int>("Exposures")
+                        .HasColumnType("integer")
+                        .HasColumnName("exposures");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("kind");
+
+                    b.Property<DateTimeOffset?>("LockedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("locked_at");
+
+                    b.Property<string>("Occasion")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("occasion");
+
+                    b.Property<Guid?>("OutfitId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("outfit_id");
+
+                    b.Property<double?>("Percentile")
+                        .HasColumnType("double precision")
+                        .HasColumnName("percentile");
+
+                    b.PrimitiveCollection<Guid[]>("PieceIds")
+                        .IsRequired()
+                        .HasColumnType("uuid[]")
+                        .HasColumnName("piece_ids");
+
+                    b.Property<string>("PieceSetHash")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("piece_set_hash");
+
+                    b.Property<int?>("Rank")
+                        .HasColumnType("integer")
+                        .HasColumnName("rank");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("reason");
+
+                    b.Property<DateTimeOffset?>("ReviewedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("reviewed_at");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.Property<double?>("Strength")
+                        .HasColumnType("double precision")
+                        .HasColumnName("strength");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<double>("WeightedGames")
+                        .HasColumnType("double precision")
+                        .HasColumnName("weighted_games");
+
+                    b.Property<double>("WeightedWins")
+                        .HasColumnType("double precision")
+                        .HasColumnName("weighted_wins");
+
+                    b.HasKey("Id")
+                        .HasName("pk_entries");
+
+                    b.HasIndex("OutfitId")
+                        .HasDatabaseName("ix_entries_outfit_id");
+
+                    b.HasIndex("Day", "UserId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_entries_day_user_id")
+                        .HasFilter("user_id IS NOT NULL");
+
+                    b.HasIndex("UserId", "Day")
+                        .HasDatabaseName("ix_entries_user_id_day");
+
+                    b.HasIndex("Day", "Status", "Audience", "Occasion", "Exposures")
+                        .HasDatabaseName("ix_entries_day_status_audience_occasion_exposures");
+
+                    b.ToTable("entries", "league", t =>
+                        {
+                            t.HasCheckConstraint("ck_entries_counters", "exposures >= 0 AND comparisons >= 0 AND counting_reports >= 0 AND weighted_wins >= 0 AND weighted_wins <= weighted_games");
+
+                            t.HasCheckConstraint("ck_entries_owner", "(kind = 'Human') = (user_id IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_entries_percentile", "percentile IS NULL OR percentile BETWEEN 0 AND 1");
+
+                            t.HasCheckConstraint("ck_entries_reason", "(status = 'NotCompeting') = (reason IS NOT NULL)");
+                        });
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.League.LeagueEntryPiece", b =>
+                {
+                    b.Property<Guid>("EntryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("entry_id");
+
+                    b.Property<short>("Position")
+                        .HasColumnType("smallint")
+                        .HasColumnName("position");
+
+                    b.Property<string>("ImageKey")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("image_key");
+
+                    b.Property<string>("ImageUrl")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("image_url");
+
+                    b.Property<Guid?>("ProductId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("product_id");
+
+                    b.Property<string>("Slot")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("slot");
+
+                    b.Property<Guid?>("WardrobeItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("wardrobe_item_id");
+
+                    b.HasKey("EntryId", "Position")
+                        .HasName("pk_entry_pieces");
+
+                    b.HasIndex("ImageKey")
+                        .HasDatabaseName("ix_entry_pieces_image_key")
+                        .HasFilter("image_key IS NOT NULL");
+
+                    b.HasIndex("ProductId")
+                        .HasDatabaseName("ix_entry_pieces_product_id");
+
+                    b.HasIndex("WardrobeItemId")
+                        .HasDatabaseName("ix_entry_pieces_wardrobe_item_id");
+
+                    b.ToTable("entry_pieces", "league", t =>
+                        {
+                            t.HasCheckConstraint("ck_entry_pieces_image", "image_key IS NULL OR image_url IS NULL");
+                        });
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.League.LeagueGroup", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("Capacity")
+                        .HasColumnType("integer")
+                        .HasColumnName("capacity");
+
+                    b.PrimitiveCollection<string[]>("Tiers")
+                        .IsRequired()
+                        .HasColumnType("text[]")
+                        .HasColumnName("tiers");
+
+                    b.Property<DateOnly>("WeekStart")
+                        .HasColumnType("date")
+                        .HasColumnName("week_start");
+
+                    b.HasKey("Id")
+                        .HasName("pk_groups");
+
+                    b.HasIndex("WeekStart")
+                        .HasDatabaseName("ix_groups_week_start");
+
+                    b.ToTable("groups", "league");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.League.LeagueGroupMember", b =>
+                {
+                    b.Property<DateOnly>("WeekStart")
+                        .HasColumnType("date")
+                        .HasColumnName("week_start");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("Alias")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("alias");
+
+                    b.Property<short?>("CompetedDays")
+                        .HasColumnType("smallint")
+                        .HasColumnName("competed_days");
+
+                    b.Property<int?>("FinalRank")
+                        .HasColumnType("integer")
+                        .HasColumnName("final_rank");
+
+                    b.Property<Guid>("GroupId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("group_id");
+
+                    b.Property<DateTimeOffset>("JoinedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("joined_at");
+
+                    b.Property<string>("Outcome")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("outcome");
+
+                    b.Property<string>("Tier")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("tier");
+
+                    b.Property<int?>("WeekPoints")
+                        .HasColumnType("integer")
+                        .HasColumnName("week_points");
+
+                    b.HasKey("WeekStart", "UserId")
+                        .HasName("pk_group_members");
+
+                    b.HasIndex("GroupId", "Alias")
+                        .IsUnique()
+                        .HasDatabaseName("ix_group_members_group_id_alias");
+
+                    b.HasIndex("UserId", "WeekStart")
+                        .HasDatabaseName("ix_group_members_user_id_week_start");
+
+                    b.ToTable("group_members", "league");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.League.LeaguePair", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset?>("AnsweredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("answered_at");
+
+                    b.Property<string>("Choice")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("choice");
+
+                    b.Property<int?>("ClientDecisionMilliseconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("client_decision_ms");
+
+                    b.Property<bool>("Counted")
+                        .HasColumnType("boolean")
+                        .HasColumnName("counted");
+
+                    b.Property<DateOnly>("Day")
+                        .HasColumnType("date")
+                        .HasColumnName("day");
+
+                    b.Property<Guid>("HighEntryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("high_entry_id");
+
+                    b.Property<Guid>("LeftEntryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("left_entry_id");
+
+                    b.Property<Guid>("LowEntryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("low_entry_id");
+
+                    b.Property<string>("MatchLevel")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("match_level");
+
+                    b.Property<Guid>("RightEntryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("right_entry_id");
+
+                    b.Property<short>("Sequence")
+                        .HasColumnType("smallint")
+                        .HasColumnName("sequence");
+
+                    b.Property<DateTimeOffset>("ServedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("served_at");
+
+                    b.Property<Guid>("VoterId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("voter_id");
+
+                    b.Property<float>("Weight")
+                        .HasColumnType("real")
+                        .HasColumnName("weight");
+
+                    b.HasKey("Id")
+                        .HasName("pk_pairs");
+
+                    b.HasIndex("Day")
+                        .HasDatabaseName("ix_pairs_day");
+
+                    NpgsqlIndexBuilderExtensions.IncludeProperties(b.HasIndex("Day"), new[] { "LeftEntryId", "RightEntryId", "Choice", "Weight" });
+
+                    b.HasIndex("LeftEntryId")
+                        .HasDatabaseName("ix_pairs_left_entry_id");
+
+                    b.HasIndex("RightEntryId")
+                        .HasDatabaseName("ix_pairs_right_entry_id");
+
+                    b.HasIndex("VoterId", "Day")
+                        .IsUnique()
+                        .HasDatabaseName("ix_pairs_open")
+                        .HasFilter("answered_at IS NULL");
+
+                    b.HasIndex("VoterId", "Day", "Sequence")
+                        .IsUnique()
+                        .HasDatabaseName("ix_pairs_voter_id_day_sequence");
+
+                    b.HasIndex("VoterId", "Day", "LowEntryId", "HighEntryId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_pairs_voter_id_day_low_entry_id_high_entry_id");
+
+                    b.ToTable("pairs", "league", t =>
+                        {
+                            t.HasCheckConstraint("ck_pairs_answer", "(answered_at IS NULL) = (choice IS NULL)");
+
+                            t.HasCheckConstraint("ck_pairs_sequence", "sequence >= 1");
+
+                            t.HasCheckConstraint("ck_pairs_two_entries", "left_entry_id <> right_entry_id AND low_entry_id < high_entry_id");
+
+                            t.HasCheckConstraint("ck_pairs_weight", "weight >= 0 AND weight <= 1 AND (counted OR weight = 0)");
+                        });
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.League.LeaguePlayer", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("ConsentVersion")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("consent_version");
+
+                    b.Property<int>("CountedVotes")
+                        .HasColumnType("integer")
+                        .HasColumnName("counted_votes");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<short>("IdleWeeks")
+                        .HasColumnType("smallint")
+                        .HasColumnName("idle_weeks");
+
+                    b.Property<DateTimeOffset>("JoinedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("joined_at");
+
+                    b.Property<DateTimeOffset?>("LeftAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("left_at");
+
+                    b.Property<string>("Tier")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("tier");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("UserId")
+                        .HasName("pk_players");
+
+                    b.ToTable("players", "league", t =>
+                        {
+                            t.HasCheckConstraint("ck_players_counters", "counted_votes >= 0 AND idle_weeks >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.League.LeagueReport", b =>
+                {
+                    b.Property<Guid>("EntryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("entry_id");
+
+                    b.Property<Guid>("ReporterId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("reporter_id");
+
+                    b.Property<bool>("Counts")
+                        .HasColumnType("boolean")
+                        .HasColumnName("counts");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("reason");
+
+                    b.HasKey("EntryId", "ReporterId")
+                        .HasName("pk_league_reports");
+
+                    b.HasIndex("ReporterId")
+                        .HasDatabaseName("ix_league_reports_reporter_id");
+
+                    b.ToTable("reports", "league");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.League.LeagueState", b =>
+                {
+                    b.Property<string>("Key")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("key");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("value");
+
+                    b.HasKey("Key")
+                        .HasName("pk_state");
+
+                    b.ToTable("state", "league");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.League.LeagueStyleScore", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<DateTimeOffset>("ComputedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("computed_at");
+
+                    b.Property<int>("CountedDays")
+                        .HasColumnType("integer")
+                        .HasColumnName("counted_days");
+
+                    b.Property<DateTimeOffset?>("LeagueEligibleAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("league_eligible_at");
+
+                    b.Property<double?>("MeanPercentile")
+                        .HasColumnType("double precision")
+                        .HasColumnName("mean_p");
+
+                    b.Property<short>("QualifyingWeeks")
+                        .HasColumnType("smallint")
+                        .HasColumnName("qualifying_weeks");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("revoked_at");
+
+                    b.Property<string>("RevokedReason")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("revoked_reason");
+
+                    b.Property<double?>("Score")
+                        .HasColumnType("double precision")
+                        .HasColumnName("score");
+
+                    b.Property<double?>("SdPercentile")
+                        .HasColumnType("double precision")
+                        .HasColumnName("sd_p");
+
+                    b.HasKey("UserId")
+                        .HasName("pk_style_scores");
+
+                    b.ToTable("style_scores", "league", t =>
+                        {
+                            t.HasCheckConstraint("ck_style_scores_score", "score IS NULL OR score BETWEEN 0 AND 100");
+                        });
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.League.LeagueWeek", b =>
+                {
+                    b.Property<DateOnly>("WeekStart")
+                        .HasColumnType("date")
+                        .HasColumnName("week_start");
+
+                    b.Property<DateTimeOffset?>("ClosedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("closed_at");
+
+                    b.Property<DateTimeOffset>("EndsAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("ends_at");
+
+                    b.Property<DateTimeOffset?>("GroupsFormedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("groups_formed_at");
+
+                    b.HasKey("WeekStart")
+                        .HasName("pk_weeks");
+
+                    b.ToTable("weeks", "league", t =>
+                        {
+                            t.HasCheckConstraint("ck_weeks_monday", "extract(isodow FROM week_start) = 1");
+                        });
+                });
+
             modelBuilder.Entity("Kombin.Api.Persistence.Entities.Notification.Device", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3505,6 +4281,157 @@ namespace Kombin.Api.Persistence.Migrations
                         .HasConstraintName("fk_refresh_tokens_users_user_id");
                 });
 
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.League.LeagueConsentRecord", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_consents_users_user_id");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.League.LeagueDailyScore", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.League.LeagueEntry", null)
+                        .WithMany()
+                        .HasForeignKey("EntryId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_daily_scores_league_entries_entry_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_daily_scores_users_user_id");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.League.LeagueEntry", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.Recommendation.Outfit", null)
+                        .WithMany()
+                        .HasForeignKey("OutfitId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_entries_outfits_outfit_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasConstraintName("fk_entries_users_user_id");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.League.LeagueEntryPiece", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.League.LeagueEntry", null)
+                        .WithMany("Pieces")
+                        .HasForeignKey("EntryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_entry_pieces_entries_entry_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Catalog.Product", null)
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_entry_pieces_products_product_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Wardrobe.WardrobeItem", null)
+                        .WithMany()
+                        .HasForeignKey("WardrobeItemId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_entry_pieces_wardrobe_items_wardrobe_item_id");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.League.LeagueGroup", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.League.LeagueWeek", null)
+                        .WithMany()
+                        .HasForeignKey("WeekStart")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_groups_weeks_week_start");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.League.LeagueGroupMember", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.League.LeagueGroup", null)
+                        .WithMany()
+                        .HasForeignKey("GroupId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_group_members_groups_group_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_group_members_users_user_id");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.League.LeaguePair", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.League.LeagueEntry", null)
+                        .WithMany()
+                        .HasForeignKey("LeftEntryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_pairs_entries_left_entry_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.League.LeagueEntry", null)
+                        .WithMany()
+                        .HasForeignKey("RightEntryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_pairs_entries_right_entry_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("VoterId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_pairs_users_voter_id");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.League.LeaguePlayer", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_players_users_user_id");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.League.LeagueReport", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.League.LeagueEntry", null)
+                        .WithMany()
+                        .HasForeignKey("EntryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_reports_entries_entry_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("ReporterId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_reports_users_reporter_id");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.League.LeagueStyleScore", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_style_scores_users_user_id");
+                });
+
             modelBuilder.Entity("Kombin.Api.Persistence.Entities.Notification.Device", b =>
                 {
                     b.HasOne("Kombin.Api.Persistence.Entities.Identity.User", null)
@@ -3922,6 +4849,11 @@ namespace Kombin.Api.Persistence.Migrations
                     b.Navigation("Images");
 
                     b.Navigation("Offers");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.League.LeagueEntry", b =>
+                {
+                    b.Navigation("Pieces");
                 });
 
             modelBuilder.Entity("Kombin.Api.Persistence.Entities.Recommendation.Outfit", b =>

@@ -1,5 +1,7 @@
 using Hangfire;
 using Kombin.Api.Common.Auth;
+using Kombin.Api.Common.Hosting;
+using Kombin.Api.Common.Time;
 using Kombin.Api.Features.Identity.CancelDeletion;
 using Kombin.Api.Features.Identity.DeleteAccount;
 using Kombin.Api.Features.Identity.DisableAccount;
@@ -12,7 +14,6 @@ using Kombin.Api.Features.Identity.Login;
 using Kombin.Api.Features.Identity.Logout;
 using Kombin.Api.Features.Identity.RefreshToken;
 using Kombin.Api.Features.Identity.Register;
-using Kombin.Api.Features.Notification;
 using Kombin.Api.Persistence.Entities.Identity;
 using Microsoft.AspNetCore.Identity;
 
@@ -71,7 +72,7 @@ internal static class IdentityModule
     /// </summary>
     public static void UseIdentityJobs(this WebApplication app)
     {
-        if (!app.Configuration.GetValue<bool>(NotificationModule.HangfireEnabledKey))
+        if (!app.Configuration.GetValue<bool>(HangfireSettings.EnabledKey))
         {
             return;
         }
@@ -80,6 +81,6 @@ internal static class IdentityModule
             AccountDeletionJob.JobId,
             job => job.RunAsync(CancellationToken.None),
             AccountDeletionJob.Cron,
-            new RecurringJobOptions { TimeZone = QuietHours.Zone });
+            new RecurringJobOptions { TimeZone = Istanbul.Zone });
     }
 }

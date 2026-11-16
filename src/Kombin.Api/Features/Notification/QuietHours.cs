@@ -6,11 +6,6 @@ namespace Kombin.Api.Features.Notification;
 /// </summary>
 internal static class QuietHours
 {
-    public const string ZoneId = "Europe/Istanbul";
-
-    /// <summary>The zone the user's quiet hours and the weekly schedule are read in. The container image must carry tzdata.</summary>
-    public static TimeZoneInfo Zone { get; } = TimeZoneInfo.FindSystemTimeZoneById(ZoneId);
-
     /// <summary>When a notification due at <paramref name="now"/> may go out: <paramref name="now"/> itself, or the end of the quiet hours it falls into.</summary>
     public static DateTimeOffset NextAllowed(DateTimeOffset now, TimeOnly? start, TimeOnly? end, TimeZoneInfo zone)
     {

@@ -2,6 +2,7 @@ using Hangfire;
 using Hangfire.PostgreSql;
 using Kombin.Api.Common.Auth;
 using Kombin.Api.Common.Hosting;
+using Kombin.Api.Common.Time;
 using Kombin.Api.Features.Notification.DeleteDevice;
 using Kombin.Api.Features.Notification.GetPreferences;
 using Kombin.Api.Features.Notification.GetUnreadCount;
@@ -18,9 +19,6 @@ namespace Kombin.Api.Features.Notification;
 
 internal static class NotificationModule
 {
-    /// <summary>Whether this process runs the Hangfire server, registers the recurring jobs and (in Development) serves the dashboard.</summary>
-    public const string HangfireEnabledKey = "Hangfire:Enabled";
-
     public const string HangfireSchema = "hangfire";
 
     public const string DashboardPath = "/hangfire";
@@ -99,7 +97,7 @@ internal static class NotificationModule
     /// </summary>
     public static void UseNotificationJobs(this WebApplication app)
     {
-        if (!app.Configuration.GetValue<bool>(HangfireEnabledKey))
+        if (!app.Configuration.GetValue<bool>(HangfireSettings.EnabledKey))
         {
             return;
         }
@@ -124,7 +122,7 @@ internal static class NotificationModule
             WeeklyMatchesJob.JobId,
             job => job.RunAsync(CancellationToken.None),
             WeeklyMatchesJob.Cron,
-            new RecurringJobOptions { TimeZone = QuietHours.Zone });
+            new RecurringJobOptions { TimeZone = Istanbul.Zone });
     }
 
     /// <summary>
@@ -159,7 +157,7 @@ internal static class NotificationModule
 
         public async Task StartAsync(CancellationToken cancellationToken)
         {
-            if (!configuration.GetValue<bool>(HangfireEnabledKey))
+            if (!configuration.GetValue<bool>(HangfireSettings.EnabledKey))
             {
                 return;
             }

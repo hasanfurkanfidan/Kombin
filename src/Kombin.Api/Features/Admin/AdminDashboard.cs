@@ -1,8 +1,8 @@
 using System.Data;
 using Hangfire;
 using Hangfire.Storage;
+using Kombin.Api.Common.Hosting;
 using Kombin.Api.Common.Time;
-using Kombin.Api.Features.Notification;
 using Kombin.Api.Features.Wardrobe;
 using Kombin.Api.Persistence;
 using Npgsql;
@@ -58,7 +58,7 @@ internal sealed class AdminDashboard(KombinDbContext db, IClock clock, IVisionCl
     /// <summary>"Today" starts at midnight in Istanbul (the founder's day, like the jobs' schedules); "7 days" is a rolling week.</summary>
     internal static (DateTimeOffset TodayStart, DateTimeOffset WeekStart) Windows(DateTimeOffset now)
     {
-        var local = TimeZoneInfo.ConvertTime(now, QuietHours.Zone);
+        var local = TimeZoneInfo.ConvertTime(now, Istanbul.Zone);
         var midnight = new DateTimeOffset(local.Year, local.Month, local.Day, 0, 0, 0, local.Offset);
 
         return (midnight.ToUniversalTime(), now.AddDays(-7));
@@ -66,7 +66,7 @@ internal sealed class AdminDashboard(KombinDbContext db, IClock clock, IVisionCl
 
     private async Task<HealthStrip> LoadHealthAsync(CancellationToken cancellationToken)
     {
-        var hangfireEnabled = configuration.GetValue<bool>(NotificationModule.HangfireEnabledKey);
+        var hangfireEnabled = configuration.GetValue<bool>(HangfireSettings.EnabledKey);
         var (jobs, hangfireError) = hangfireEnabled ? ReadRecurringJobs() : ([], null);
         var health = await vision.CheckHealthAsync(cancellationToken);
 

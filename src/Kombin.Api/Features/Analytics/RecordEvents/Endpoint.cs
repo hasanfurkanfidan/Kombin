@@ -3,7 +3,6 @@ using Kombin.Api.Common.Auth;
 using Kombin.Api.Common.Time;
 using Kombin.Api.Common.Validation;
 using Kombin.Api.Features.Catalog;
-using Kombin.Api.Features.Notification;
 using Kombin.Api.Persistence;
 using Kombin.Api.Persistence.Entities.Analytics;
 using Microsoft.Extensions.Options;
@@ -101,7 +100,7 @@ internal static partial class RecordEventsEndpoint
 
         // The daily cap per actor (security review M6): the signed-in user, else the device's anonymous ID. What is over it is dropped.
         var stored = new List<AnalyticsEvent>(candidates.Count);
-        var dayStart = EventCap.DayStart(receivedAt, QuietHours.Zone);
+        var dayStart = EventCap.DayStart(receivedAt, Istanbul.Zone);
         var cap = options.Value.DailyEventCapPerActor;
 
         foreach (var actor in candidates.GroupBy(candidate => candidate.Event.UserId is { } user ? $"u:{user:N}" : $"a:{candidate.Event.AnonymousId}"))

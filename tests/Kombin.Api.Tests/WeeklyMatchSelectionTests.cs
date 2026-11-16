@@ -1,3 +1,4 @@
+using Kombin.Api.Common.Time;
 using Kombin.Api.Features.Notification;
 using Kombin.Api.Features.Profile;
 using Kombin.Api.Persistence.Entities.Catalog;
@@ -89,7 +90,7 @@ public class WeeklyMatchSelectionTests
     {
         var utc = new DateTimeOffset(year, month, day, hour, minute, 0, TimeSpan.Zero);
 
-        Assert.Equal(expected, WeeklyMatchSelection.IsoWeekKey(utc, QuietHours.Zone));
+        Assert.Equal(expected, WeeklyMatchSelection.IsoWeekKey(utc, Istanbul.Zone));
     }
 
     [Fact]
