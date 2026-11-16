@@ -66,11 +66,16 @@ internal static class GetDailyEndpoint
         IWeatherProvider weather,
         IObjectStorage storage,
         OutfitStore store,
+        HttpContext httpContext,
         CancellationToken cancellationToken)
     {
         var userId = currentUser.UserId;
         var now = clock.UtcNow;
-        var date = OutfitDates.Resolve(query.Date, OutfitSources.Today(now))!.Value;
+        if (OutfitDates.Resolve(query.Date, OutfitSources.Today(now)) is not { } date)
+        {
+            return OutfitDates.Rejected(httpContext);
+        }
+
         Occasion? occasion = EnumNames.TryParse<Occasion>(query.Occasion, out var parsed) ? parsed : null;
         var seed = query.Seed ?? 0;
 

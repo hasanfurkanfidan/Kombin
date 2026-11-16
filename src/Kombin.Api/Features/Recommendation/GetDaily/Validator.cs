@@ -11,7 +11,7 @@ internal sealed class DailyOutfitQueryValidator : AbstractValidator<DailyOutfitQ
     {
         RuleFor(query => query.Date)
             .Must(date => OutfitDates.Resolve(date, OutfitSources.Today(clock.UtcNow)) is not null)
-            .WithMessage($"'Date' must be today, tomorrow or a yyyy-MM-dd day within the next {OutfitDates.MaxDaysAhead} days.");
+            .WithMessage(OutfitDates.Message);
 
         RuleFor(query => query.Occasion)
             .Must(EnumNames.IsValid<Occasion>)

@@ -32,14 +32,19 @@ internal static class SuggestBudgetAnonymousEndpoint
     /// weather. A bearer token changes nothing here: signed-in callers use <c>/me/outfits/budget</c>.
     /// </summary>
     private static async Task<IResult> Handle(
-        AnonymousBudgetOutfitsRequest request, KombinDbContext db, IClock clock, IObjectStorage storage, CancellationToken cancellationToken)
+        AnonymousBudgetOutfitsRequest request, KombinDbContext db, IClock clock, IObjectStorage storage, HttpContext httpContext, CancellationToken cancellationToken)
     {
         var now = clock.UtcNow;
+        if (OutfitDates.Resolve(request.Date, OutfitSources.Today(now)) is not { } date)
+        {
+            return OutfitDates.Rejected(httpContext);
+        }
+
         var audience = EnumNames.TryParse<Audience>(request.Audience, out var parsed) ? parsed : Audience.Unisex;
         var ask = new BudgetAsk(
             request.Budget!.Value,
             EnumNames.TryParse<Occasion>(request.Occasion, out var occasion) ? occasion : null,
-            OutfitDates.Resolve(request.Date, OutfitSources.Today(now))!.Value,
+            date,
             UseWardrobe: false,
             request.Seed ?? 0,
             request.Count ?? BudgetOutfits.DefaultCount,

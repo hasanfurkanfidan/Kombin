@@ -27,7 +27,7 @@ internal sealed class AnonymousBudgetOutfitsRequestValidator : AbstractValidator
 
         RuleFor(request => request.Date)
             .Must(date => OutfitDates.Resolve(date, OutfitSources.Today(clock.UtcNow)) is not null)
-            .WithMessage($"'Date' must be today, tomorrow or a yyyy-MM-dd day within the next {OutfitDates.MaxDaysAhead} days.");
+            .WithMessage(OutfitDates.Message);
 
         RuleFor(request => request.Seed).GreaterThanOrEqualTo(0);
         RuleFor(request => request.Count).InclusiveBetween(1, BudgetSearch.MaxCount);

@@ -434,6 +434,7 @@ External Python workers (a separate repo) push the catalog through the internal 
 - **Weather:** `IWeatherProvider` (Open-Meteo, `Weather:Enabled`, env `Weather__Enabled`; cached per city/day/hour in memory, never throws, null
   on any failure); no city or no forecast → the date's season. How-to-wear ignores the day (`WeatherRules.Neutral`). Tests use
   `FakeWeatherProvider` (answers by city name: `Rainville`, `Coldville`, `Hotville`, `Istanbul`).
+- **Dates** (`date=today|tomorrow|yyyy-MM-dd`, `OutfitDates.Resolve`, today in Istanbul): the validator and the handler each read the clock, so the handler repeats the check and answers `OutfitDates.Rejected` (the validator's 400) when the day turned in between; never `!.Value` after validation (`MidnightEdgeTests`).
 - **Narration never blocks.** Requests answer with `TemplateNarrator` (Turkish, ≥ 12 templates, grammar in `TurkishGrammar`) or an LLM line
   already cached for the same `OutfitSummary` hash. With `Narration:Provider = Anthropic` (env `Narration__Provider`, key `Anthropic:ApiKey`,
   model `claude-haiku-5-5`) the store enqueues `outfit-narrate` (`OutfitNarrationJob`, fire-and-forget, `[AutomaticRetry(Attempts = 0)]`),

@@ -47,14 +47,20 @@ internal static class SuggestBudgetEndpoint
         IWeatherProvider weather,
         IObjectStorage storage,
         OutfitStore store,
+        HttpContext httpContext,
         CancellationToken cancellationToken)
     {
         var userId = currentUser.UserId;
         var now = clock.UtcNow;
+        if (OutfitDates.Resolve(request.Date, OutfitSources.Today(now)) is not { } date)
+        {
+            return OutfitDates.Rejected(httpContext);
+        }
+
         var ask = new BudgetAsk(
             request.Budget!.Value,
             EnumNames.TryParse<Occasion>(request.Occasion, out var occasion) ? occasion : null,
-            OutfitDates.Resolve(request.Date, OutfitSources.Today(now))!.Value,
+            date,
             request.UseWardrobe ?? true,
             request.Seed ?? 0,
             request.Count ?? BudgetOutfits.DefaultCount,
