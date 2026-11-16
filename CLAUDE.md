@@ -69,6 +69,7 @@ Identity rules).
   with an `errorCode` extension and the `correlationId`.
 - Input validation uses FluentValidation through `ValidationFilter`: failures become a 400 problem with an `errors`
   dictionary (`{ "email": ["..."] }`, camelCase keys). Do not validate inside handlers what a validator can express.
+- Paging is clamped, not rejected (`PagedRequest`: page 1 to 10,000, page size 1 to 100), so no offset can overflow; the worker listing of a seller's offers uses the same page limit.
 - A JSON `null` inside a list is a 400, never a 500: every `RuleForEach` over objects starts with `.NotNull()` (`NullElementTests`).
 - Every response, including errors, carries `X-Correlation-ID`.
 

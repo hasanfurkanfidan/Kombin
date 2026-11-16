@@ -10,6 +10,8 @@ public class PagedRequestTests
     [InlineData(0, 10, 1, 10, 0)]
     [InlineData(-4, 0, 1, 1, 0)]
     [InlineData(2, 1000, 2, 100, 100)]
+    [InlineData(int.MaxValue, 100, 10_000, 100, 999_900)]
+    [InlineData(10_001, 100, 10_000, 100, 999_900)]
     public void ValuesAreClamped(int page, int pageSize, int expectedPage, int expectedPageSize, int expectedSkip)
     {
         var request = new PagedRequest(page, pageSize);

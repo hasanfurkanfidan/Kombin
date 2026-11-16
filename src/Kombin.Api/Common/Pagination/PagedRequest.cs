@@ -7,7 +7,10 @@ internal sealed record PagedRequest(int Page = 1, int PageSize = PagedRequest.De
 
     public const int MaxPageSize = 100;
 
-    public int EffectivePage => Math.Max(Page, 1);
+    /// <summary>Far beyond any real list; it keeps <see cref="Skip"/> (at most 10,000 x 1,000 here and in the worker listing) far from <see cref="int.MaxValue"/>.</summary>
+    public const int MaxPage = 10_000;
+
+    public int EffectivePage => Math.Clamp(Page, 1, MaxPage);
 
     public int EffectivePageSize => Math.Clamp(PageSize, 1, MaxPageSize);
 
