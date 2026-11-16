@@ -22,6 +22,23 @@ public class SizeRulesTests
     }
 
     [Fact]
+    public void TheSqlFilterForProductsWithASizeAgreesWithTheGroupRulesOnEveryCategory()
+    {
+        var hasSize = SizeGroups.HasSizeGroup().Compile();
+
+        foreach (var category in CatalogSeed.Categories())
+        {
+            var product = new Kombin.Api.Persistence.Entities.Catalog.Product { Category = new Kombin.Api.Persistence.Entities.Catalog.Category { Slug = category.Slug } };
+
+            Assert.Equal(SizeGroups.ForCategorySlug(category.Slug) != SizeGroup.Accessories, hasSize(product));
+        }
+
+        // Something that merely starts like a root is not below it.
+        Assert.False(hasSize(new Kombin.Api.Persistence.Entities.Catalog.Product { Category = new Kombin.Api.Persistence.Entities.Catalog.Category { Slug = "ust-giyimx/tisort" } }));
+        Assert.False(SizePromptRules.HasSize(SizeGroups.ForCategorySlug("ust-giyimx/tisort")));
+    }
+
+    [Fact]
     public void ASubcategoryAlwaysSharesTheGroupOfItsRoot()
     {
         foreach (var category in CatalogSeed.Categories())

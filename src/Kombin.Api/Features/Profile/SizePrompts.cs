@@ -53,7 +53,10 @@ internal static class SizePromptRules
 
 internal static class SizePrompts
 {
-    /// <summary>Clicks looked at per request; the newest first, so a long history of bag clicks cannot starve the shirts.</summary>
+    /// <summary>
+    /// Clicks looked at per request, the newest first. Only clicks on products with a size count towards it (the filter is in the query, before the
+    /// limit), so clicks on bags and belts, which never become a question, cannot fill the window and push the others out.
+    /// </summary>
     private const int MaxClicksRead = 200;
 
     /// <summary>
@@ -66,10 +69,13 @@ internal static class SizePrompts
         var openedBefore = now - SizePromptRules.OpensAfter;
         var notExpiredSince = now - SizePromptRules.Lifetime;
 
+        var hasSize = SizeGroups.HasSizeGroup();
+
         for (var attempt = 1; ; attempt++)
         {
             var clicks = await db.Clicks.AsNoTracking()
                 .Where(click => click.UserId == userId && click.ClickedAt <= openedBefore && click.ClickedAt > notExpiredSince)
+                .Where(click => db.Products.Where(hasSize).Any(product => product.Id == click.ProductId))
                 .Where(click => !db.SizePrompts.Any(prompt => prompt.UserId == userId && prompt.ProductId == click.ProductId))
                 .OrderByDescending(click => click.ClickedAt)
                 .Take(MaxClicksRead)
@@ -84,6 +90,7 @@ internal static class SizePrompts
                 })
                 .ToListAsync(cancellationToken);
 
+            // The group is judged by the rules again here (the query's filter is its SQL twin; a test pins that they agree).
             var firstPerProduct = clicks
                 .GroupBy(click => click.ProductId)
                 .Select(group => group.OrderBy(click => click.ClickedAt).ThenBy(click => click.Id).First())

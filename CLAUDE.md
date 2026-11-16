@@ -237,7 +237,7 @@ External Python workers (a separate repo) push the catalog through the internal 
 - **Size memory ("Beden hafızası", design: `docs/design/wardrobe-summary-and-size-memory.md`).** `GET /me/size-prompts` and `POST /me/size-prompts/{id}`
   (`Features/Profile`, `SizePrompts`, pure `SizePromptRules`, table `profile.size_prompts`, one row per (user, product), ever). `/go` is never touched:
   the questions are created by the **GET** from the user's own clicks (the first click per product in the last 30 days, at least 3 days old, a product with a
-  size, not an accessory), like `GET /me/profile` creates the profile; the click stays the append-only revenue record and the prompt holds the mutable
+  size, not an accessory: the filter is in the SQL, before the 200-click read limit, so accessory clicks cannot crowd the others out; `SizeGroups.HasSizeGroup` is its twin of `ForCategorySlug`), like `GET /me/profile` creates the profile; the click stays the append-only revenue record and the prompt holds the mutable
   answer (that is why there is a table). Open = unanswered and 3 to 30 days after the click; newest first, at most 3 shown. `BoughtFits` (size required) stores
   the size as `Confirmed`, confidence 1, replacing what the user typed (`POST /me/sizes/confirm`'s rule); `BoughtTooSmall`/`BoughtTooLarge` never choose a size,
   they only lower the stored size's confidence to `ConfirmSizeEndpoint.DoubtedConfidence` when it is the size bought (or none is named); `NotBought` and
