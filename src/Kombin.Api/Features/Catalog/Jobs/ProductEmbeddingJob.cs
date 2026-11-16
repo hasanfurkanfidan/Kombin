@@ -13,8 +13,9 @@ namespace Kombin.Api.Features.Catalog.Jobs;
 /// <summary>
 /// <c>Due</c> is how many products needed work; <c>Remaining</c> how many of them this run left for the next (limit or time budget).
 /// <c>Aborted</c>: the vision service could not be asked or failed <see cref="ProductEmbeddingRules.MaxConsecutiveVisionFailures"/> times in a row.
+/// <c>AlreadyRunning</c>: another run holds the embedding lock, so this one did nothing at all.
 /// </summary>
-internal readonly record struct EmbeddingRunSummary(int Due, int Embedded, int Reused, int Unusable, int Failed, int Remaining, bool Aborted);
+internal readonly record struct EmbeddingRunSummary(int Due, int Embedded, int Reused, int Unusable, int Failed, int Remaining, bool Aborted, bool AlreadyRunning = false);
 
 /// <summary>
 /// Computes the visual-search vector of catalog products (<see cref="ProductEmbedding"/>): for every active product that is due
@@ -31,6 +32,7 @@ internal sealed partial class ProductEmbeddingJob(
     IVisionClient vision,
     IHttpClientFactory httpClients,
     IOptions<CatalogEmbeddingOptions> options,
+    EmbeddingRunLock runLock,
     IClock clock,
     ILogger<ProductEmbeddingJob> logger)
 {
@@ -56,13 +58,15 @@ internal sealed partial class ProductEmbeddingJob(
 
     private sealed record Candidate(Guid ProductId, string Url, Guid? ImageId, EmbeddingState? Row);
 
+    // No [DisableConcurrentExecution] on the two entry points below: Hangfire's lock has no heartbeat and counts as abandoned after ten minutes, so
+    // it cannot guard a run of hours, and a second caller would wait 60 s and then fail the job. EmbedAsync's advisory lock does the job: a second
+    // caller ends at once, successfully.
     [AutomaticRetry(Attempts = 0)]
-    [DisableConcurrentExecution(60)]
     public async Task RunAsync(CancellationToken cancellationToken)
     {
         var summary = await EmbedAsync(null, int.MaxValue, options.Value.MaxRunDuration, cancellationToken);
 
-        LogRun(logger, summary.Due, summary.Embedded, summary.Reused, summary.Unusable, summary.Failed, summary.Remaining, summary.Aborted);
+        LogOutcome(summary);
     }
 
     /// <summary>
@@ -71,19 +75,39 @@ internal sealed partial class ProductEmbeddingJob(
     /// in the Hangfire server, so a click never holds a web request for minutes at one request per host per second.
     /// </summary>
     [AutomaticRetry(Attempts = 0)]
-    [DisableConcurrentExecution(60)]
     public async Task BackfillAsync(int limit, CancellationToken cancellationToken)
     {
         var summary = await EmbedAsync(null, Math.Clamp(limit, 1, MaxBackfillLimit), options.Value.MaxRunDuration, cancellationToken);
 
-        LogRun(logger, summary.Due, summary.Embedded, summary.Reused, summary.Unusable, summary.Failed, summary.Remaining, summary.Aborted);
+        LogOutcome(summary);
+    }
+
+    private void LogOutcome(EmbeddingRunSummary summary)
+    {
+        if (!summary.AlreadyRunning)
+        {
+            LogRun(logger, summary.Due, summary.Embedded, summary.Reused, summary.Unusable, summary.Failed, summary.Remaining, summary.Aborted);
+        }
     }
 
     /// <summary>
     /// Works on at most <paramref name="limit"/> due products for at most <paramref name="budget"/>. <paramref name="productIds"/> restricts it to
-    /// those products (tests: the database is shared; the internal endpoint).
+    /// those products (tests: the database is shared; the internal endpoint). Only one run works at a time (<see cref="EmbeddingRunLock"/>, held until
+    /// the run ends, however it ends): a caller that finds another run going does nothing and gets <see cref="EmbeddingRunSummary.AlreadyRunning"/>.
     /// </summary>
     public async Task<EmbeddingRunSummary> EmbedAsync(IReadOnlyCollection<Guid>? productIds, int limit, TimeSpan? budget, CancellationToken cancellationToken)
+    {
+        await using var held = await runLock.TryAcquireAsync(cancellationToken);
+        if (held is null)
+        {
+            LogAlreadyRunning(logger);
+            return new EmbeddingRunSummary(0, 0, 0, 0, 0, 0, Aborted: false, AlreadyRunning: true);
+        }
+
+        return await EmbedLockedAsync(productIds, limit, budget, cancellationToken);
+    }
+
+    private async Task<EmbeddingRunSummary> EmbedLockedAsync(IReadOnlyCollection<Guid>? productIds, int limit, TimeSpan? budget, CancellationToken cancellationToken)
     {
         var model = await vision.GetEmbeddingModelAsync(cancellationToken);
         if (model is null)
@@ -302,6 +326,9 @@ internal sealed partial class ProductEmbeddingJob(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Product embeddings: {Due} due, {Embedded} embedded, {Reused} reused, {Unusable} unusable, {Failed} failed, {Remaining} left for the next run, aborted {Aborted}.")]
     private static partial void LogRun(ILogger logger, int due, int embedded, int reused, int unusable, int failed, int remaining, bool aborted);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Product embeddings: already running (another run holds the lock), this one does nothing.")]
+    private static partial void LogAlreadyRunning(ILogger logger);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Product embeddings skipped: the vision service did not say which model it runs.")]
     private static partial void LogNoModel(ILogger logger);

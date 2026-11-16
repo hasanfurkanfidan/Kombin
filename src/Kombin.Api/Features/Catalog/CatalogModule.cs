@@ -27,6 +27,7 @@ internal static class CatalogModule
         // A plain class with constructor injection, like the Notification jobs: Hangfire activates it from a scope, the tests resolve it directly.
         services.AddScoped<OfferSweepJob>();
         services.AddScoped<ProductEmbeddingJob>();
+        services.AddSingleton<EmbeddingRunLock>();
 
         services.AddOptions<CatalogEmbeddingOptions>().BindConfiguration(CatalogEmbeddingOptions.SectionName);
         services.AddHttpClient(ProductEmbeddingJob.ImageClient, (provider, client) =>

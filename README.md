@@ -145,7 +145,7 @@ Public reads need no auth (the app browses before login).
 | GET | `/catalog/products/{id}` | 200 product, images, active offers by effective price, `priceSummary` | 404 `Catalog.ProductNotFound` |
 | GET | `/catalog/products/{id}/price-history?days=90` | 200 `[{ offerId, seller, points: [{ date, minPrice, stockStatus }] }]`, one point per UTC day | 404 `Catalog.ProductNotFound` |
 | POST | `/internal/catalog/offers/upsert` | 200 `{ created, updated, snapshotsWritten, errors: [{ index, externalId, errorCode, message }] }` | 400 validation or `Catalog.BatchTooLarge`, 401 `Catalog.InvalidInternalKey`, 404 `Catalog.SellerNotFound` |
-| POST | `/internal/catalog/embeddings/run` | 200 `{ due, embedded, reused, unusable, failed, remaining, aborted }`; optional body `{ limit?, productIds? }` (limit 100 by default, at most 1000). Runs the `product-embeddings` job in the request (visual search) | 401 |
+| POST | `/internal/catalog/embeddings/run` | 200 `{ due, embedded, reused, unusable, failed, remaining, aborted }`; optional body `{ limit?, productIds? }` (limit 100 by default, at most 1000). Runs the `product-embeddings` job in the request (visual search). Only one embedding run at a time: while the nightly run, a backfill or another call is going it answers 409 `Catalog.EmbeddingRunInProgress` and does nothing | 401, 409 |
 
 List items carry `cheapestSeller { name, slug }`: the seller of the offer that defines `lowestPrice`. The `seller` of product offers and price history is `{ id, name, slug, kind, country }`; `country` is ISO 3166-1 alpha-2
 (`TR` for every seller so far, also on the internal seller PUT response) and nothing filters on it yet. The OpenAPI document

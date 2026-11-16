@@ -1,5 +1,6 @@
 using Hangfire;
 using Kombin.Api.Common.Time;
+using Kombin.Api.Features.Catalog.Embeddings;
 using Kombin.Api.Features.Catalog.Jobs;
 using Kombin.Api.Persistence;
 using Kombin.Api.Persistence.Entities.Catalog;
@@ -23,9 +24,11 @@ internal sealed record PricePointRow(DateTimeOffset ObservedAt, string Seller, d
 internal sealed record ProductDetail(
     Guid Id, string Name, string Brand, string Category, string Slug, bool IsActive, string EmbeddingStatus, IReadOnlyList<ProductOfferRow> Offers, IReadOnlyList<PricePointRow> History);
 
-internal sealed class CatalogModel(KombinDbContext db, IClock clock, IBackgroundJobClient jobs) : AdminPageModel
+internal sealed class CatalogModel(KombinDbContext db, IClock clock, IBackgroundJobClient jobs, EmbeddingRunLock embeddingRun) : AdminPageModel
 {
     public const int HistoryLimit = 60;
+
+    public const string RunInProgressMessage = "Görsel gömme çalışması şu an sürüyor. Bitince yeniden dene.";
 
     private const int MaxMatches = 10;
 
@@ -61,6 +64,13 @@ internal sealed class CatalogModel(KombinDbContext db, IClock clock, IBackground
 
         try
         {
+            // Only a look: the job itself takes the lock when it starts, and ends at once if another run got there first.
+            if (await embeddingRun.IsHeldAsync(cancellationToken))
+            {
+                SetFlashError(RunInProgressMessage);
+                return RedirectToPage();
+            }
+
             var jobId = jobs.Enqueue<ProductEmbeddingJob>(job => job.BackfillAsync(clamped, CancellationToken.None));
             await AuditAsync("catalog.backfill", "catalog", null, $"limit={clamped}; job={jobId}", cancellationToken);
             SetFlash($"Backfill queued for up to {clamped} products (job {jobId}). Reload in a minute to see the numbers move.");

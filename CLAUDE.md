@@ -255,7 +255,7 @@ External Python workers (a separate repo) push the catalog through the internal 
 - **Jobs live in `Features/Notification/Jobs/`, are plain classes with constructor injection, are idempotent, and run from Hangfire**
   (PostgreSQL storage, schema `hangfire`, same database). **Tests call them directly**; the Hangfire server is never started in tests
   (`Hangfire:Enabled=false`). The core of every job takes an optional user filter so integration tests that share one database only
-  touch their own rows; `weekly-matches` also takes the products to consider, because its candidates are global: its tests pass the ones they created. Every job has `[DisableConcurrentExecution(60)]` and `[AutomaticRetry(Attempts = 0)]` (the next run is the retry).
+  touch their own rows; `weekly-matches` also takes the products to consider, because its candidates are global: its tests pass the ones they created. Every job has `[DisableConcurrentExecution(60)]` and `[AutomaticRetry(Attempts = 0)]` (the next run is the retry), except the two embedding entry points, which are guarded by an advisory lock instead (Visual search rules).
 
   | Job id | Schedule | Does |
   |---|---|---|
@@ -583,7 +583,17 @@ External Python workers (a separate repo) push the catalog through the internal 
 - **On-demand backfill:** `ProductEmbeddingJob.BackfillAsync(limit)` (fire-and-forget, `[AutomaticRetry(Attempts = 0)]`) is what the admin panel's
   "Run backfill now" enqueues; it calls the same `EmbedAsync` as the endpoint and the nightly run, with the nightly time budget, so a click never holds
   a web request.
-- **`product-embeddings`** (`Features/Catalog/Jobs/ProductEmbeddingJob.cs`, daily 03:00 `Europe/Istanbul`, `[DisableConcurrentExecution(60)]`,
+- **One embedding run at a time** (`EmbeddingRunLock`, `Features/Catalog/Embeddings`). `EmbedAsync` is the only way in (the nightly `RunAsync`, the admin's
+  `BackfillAsync` and `POST /internal/catalog/embeddings/run` all end there) and it takes a PostgreSQL session-level advisory lock
+  (`pg_try_advisory_lock(0x4B4F4D42, 1)`) on a dedicated, unpooled connection held for the whole run, released in `finally` and by the server if the
+  process dies. It never waits: a caller that does not get it receives `EmbeddingRunSummary.AlreadyRunning` and has done nothing. The nightly job and
+  the backfill log "already running" and end successfully; the internal endpoint answers 409 `Catalog.EmbeddingRunInProgress`; the admin button looks
+  (`IsHeldAsync`) and flashes a Turkish "run in progress" message instead of queuing. **`RunAsync` and `BackfillAsync` deliberately have no
+  `[DisableConcurrentExecution]`**: Hangfire's lock has no heartbeat and counts as abandoned after 10 minutes, and a second caller would wait 60 s and
+  then fail. Never call the run's inner work without the lock. Tests that run the job against the shared database belong to the
+  `EmbeddingRuns` collection (they would skip each other's runs in parallel); `FakeCatalogImageHandler.Hold(url)` parks a run deterministically.
+  Hangfire's storage uses the sliding invisibility timeout (`NotificationModule.StorageOptions`), so no job that is still running is fetched again.
+- **`product-embeddings`** (`Features/Catalog/Jobs/ProductEmbeddingJob.cs`, daily 03:00 `Europe/Istanbul`,
   `[AutomaticRetry(Attempts = 0)]`, time budget `CatalogEmbeddings:MaxRunDuration` 3 h; tests call `EmbedAsync(productIds, limit, budget, ct)`
   with their own product IDs). Which product is due is the pure `ProductEmbeddingRules.IsDue`: no row; a `Ready` row whose image URL or model
   changed; an `Unusable` row (404/410, not an image, > 8 MB, refused by vision) only for a new URL or after 30 days; a `Failed` row (transient)

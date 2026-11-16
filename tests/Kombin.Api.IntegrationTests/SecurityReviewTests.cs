@@ -14,6 +14,7 @@ namespace Kombin.Api.IntegrationTests;
 /// The findings of the security review (<c>docs/security-review.md</c>) that were fixed, each proven by the attack it stops. Every test here
 /// failed before its fix.
 /// </summary>
+[Collection(EmbeddingRuns.Name)]
 public sealed class SecurityReviewTests(ApiFactory factory)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

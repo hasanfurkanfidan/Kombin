@@ -21,9 +21,45 @@ internal sealed class FakeCatalogImageHandler : HttpMessageHandler
 
     public static int Requests(string url) => Counts.GetValueOrDefault(url);
 
+    private static readonly ConcurrentDictionary<string, ImageGate> Gates = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Holds every request for exactly <paramref name="url"/> until <see cref="ImageGate.Open"/>: a run that is deterministically "in progress".
+    /// <see cref="ImageGate.Entered"/> completes when a request has arrived, <see cref="ImageGate.Dispose"/> removes the gate.
+    /// </summary>
+    public static ImageGate Hold(string url)
+    {
+        var gate = new ImageGate(url);
+        Gates[url] = gate;
+
+        return gate;
+    }
+
+    internal sealed class ImageGate(string url) : IDisposable
+    {
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void Open() => Release.TrySetResult();
+
+        public void Dispose()
+        {
+            Release.TrySetResult();
+            Gates.TryRemove(url, out _);
+        }
+    }
+
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         var url = request.RequestUri!.ToString();
+
+        // A shop a test holds shut: the request waits until the test lets it go (or the run is cancelled).
+        if (Gates.TryGetValue(url, out var gate))
+        {
+            gate.Entered.TrySetResult();
+            await gate.Release.Task.WaitAsync(cancellationToken);
+        }
 
         // A slow shop: the answer takes long enough for a second request to arrive meanwhile.
         if (url.Contains("slow", StringComparison.Ordinal))
