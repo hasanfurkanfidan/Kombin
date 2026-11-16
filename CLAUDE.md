@@ -69,6 +69,7 @@ Identity rules).
   with an `errorCode` extension and the `correlationId`.
 - Input validation uses FluentValidation through `ValidationFilter`: failures become a 400 problem with an `errors`
   dictionary (`{ "email": ["..."] }`, camelCase keys). Do not validate inside handlers what a validator can express.
+- A JSON `null` inside a list is a 400, never a 500: every `RuleForEach` over objects starts with `.NotNull()` (`NullElementTests`).
 - Every response, including errors, carries `X-Correlation-ID`.
 
 ## Identity rules

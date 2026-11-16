@@ -21,7 +21,7 @@ internal sealed class PublishPostValidator : AbstractValidator<PublishPostReques
             .Must(tags => tags is null || tags.Count <= SocialLimits.MaxTags)
             .WithMessage($"A post has at most {SocialLimits.MaxTags} tags.");
 
-        RuleForEach(request => request.Tags).ChildRules(tag =>
+        RuleForEach(request => request.Tags).NotNull().ChildRules(tag =>
         {
             tag.RuleFor(item => item.Kind)
                 .NotEmpty()

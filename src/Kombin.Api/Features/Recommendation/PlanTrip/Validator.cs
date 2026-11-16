@@ -29,7 +29,7 @@ internal sealed class TripPlanRequestValidator : AbstractValidator<TripPlanReque
             .WithMessage("One plan per day.")
             .When(request => request.Occasions is not null);
 
-        RuleForEach(request => request.Occasions).ChildRules(entry =>
+        RuleForEach(request => request.Occasions).NotNull().ChildRules(entry =>
         {
             entry.RuleFor(occasion => occasion.Date).NotNull();
             entry.RuleFor(occasion => occasion.Occasion).NotEmpty().Must(EnumNames.IsValid<Occasion>).WithMessage(DailyOutfitQueryValidator.OccasionMessage);
