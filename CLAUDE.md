@@ -120,7 +120,7 @@ Identity rules).
   expires, as with disabling. **`account-deletion`** (hourly at :43 `Europe/Istanbul`, `[DisableConcurrentExecution(60)]`, `[AutomaticRetry(Attempts = 0)]`,
   tests call `DeleteDueAsync(userIds, ct)`, registered by `UseIdentityJobs` after `UseSocialJobs`) runs `AccountPurger` for every account whose window is
   over, one by one: **objects first** (the keys are read from the user's wardrobe items and posts; a storage failure leaves the account and its rows
-  untouched, so the next run retries and one failing account never stops the others), then one transaction that decrements the like counters of other
+  untouched, so the next run retries and one failing account never stops the others; a database failure inside the transaction is caught per account by the job too, logged, counted in `Failures` and retried the next hour), then one transaction that decrements the like counters of other
   posts, anonymises clicks (`user_id`, `persona_id`, `creator_id`), analytics events (`user_id`) and referral rows (`creator_id`, `viewer_user_id`; amounts stay)
   and deletes the user row, whose foreign keys cascade the rest. `docs/privacy-notes.md` section 1a lists every table and what happens to it: **a new
   table that holds a user's data must be added there and given a cascade (or an explicit step in `AccountPurger`) and a line in

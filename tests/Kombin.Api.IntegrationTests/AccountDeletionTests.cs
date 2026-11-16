@@ -287,6 +287,48 @@ public sealed class AccountDeletionTests(ApiFactory factory)
     }
 
     [Fact]
+    public async Task ADatabaseFailureOnOneAccountDoesNotStopTheOthersOrTheRun()
+    {
+        var (broken, _) = await NewUserAsync();
+        var (fine, _) = await NewUserAsync();
+        using var _1 = broken;
+        using var _2 = fine;
+        foreach (var user in new[] { broken, fine })
+        {
+            using var requested = await DeleteMeAsync(user.Client, ApiClientExtensions.DefaultPassword);
+            Assert.Equal(HttpStatusCode.Accepted, requested.StatusCode);
+        }
+
+        // The broken account asked first, so it is the first of the batch; its row cannot be deleted (a trigger on a marker name stands in for any
+        // database failure: the purge's transaction fails after the objects are already gone).
+        await BackdateAsync(broken.Id, 10);
+        await BackdateAsync(fine.Id, 8);
+        await factory.WithDbAsync(db => db.Users.Where(user => user.Id == broken.Id).ExecuteUpdateAsync(set => set.SetProperty(user => user.DisplayName, "b6-simulated-failure"), Ct));
+        await factory.WithDbAsync(db => db.Database.ExecuteSqlAsync(
+            $"CREATE FUNCTION b6_fail_delete() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF OLD.display_name = 'b6-simulated-failure' THEN RAISE EXCEPTION 'simulated failure'; END IF; RETURN OLD; END $$; CREATE TRIGGER b6_fail_delete BEFORE DELETE ON identity.users FOR EACH ROW EXECUTE FUNCTION b6_fail_delete();",
+            Ct));
+
+        try
+        {
+            var summary = await RunJobAsync(broken.Id, fine.Id);
+
+            // The healthy account is gone, the broken one is untouched and counted; the run finished.
+            Assert.Equal((1, 1), (summary.AccountsDeleted, summary.Failures));
+            Assert.Null(await UserRowAsync(fine.Id));
+            Assert.NotNull(await UserRowAsync(broken.Id));
+        }
+        finally
+        {
+            await factory.WithDbAsync(db => db.Database.ExecuteSqlAsync($"DROP TRIGGER b6_fail_delete ON identity.users; DROP FUNCTION b6_fail_delete();", Ct));
+        }
+
+        // The next run (the database is fine again) finishes the broken one.
+        var next = await RunJobAsync(broken.Id);
+        Assert.Equal((1, 0), (next.AccountsDeleted, next.Failures));
+        Assert.Null(await UserRowAsync(broken.Id));
+    }
+
+    [Fact]
     public async Task AStorageFailurePostponesTheDeletionAndTheNextRunFinishesIt()
     {
         var (user, _) = await NewUserAsync();
@@ -303,7 +345,7 @@ public sealed class AccountDeletionTests(ApiFactory factory)
         var failed = await RunJobAsync(user.Id);
 
         // Nothing was touched: the account, its rows and its objects are all still there for the retry.
-        Assert.Equal((0, 1), (failed.AccountsDeleted, failed.StorageFailures));
+        Assert.Equal((0, 1), (failed.AccountsDeleted, failed.Failures));
         Assert.NotNull(await UserRowAsync(user.Id));
         Assert.Equal(1, await factory.WithDbAsync(db => db.WardrobeItems.CountAsync(row => row.UserId == user.Id, Ct)));
         Assert.All(keys, key => Assert.NotNull(factory.Storage.Find(key)));
@@ -311,7 +353,7 @@ public sealed class AccountDeletionTests(ApiFactory factory)
         factory.Storage.StopFailingDeletes(prefix);
         var finished = await RunJobAsync(user.Id);
 
-        Assert.Equal((1, 0), (finished.AccountsDeleted, finished.StorageFailures));
+        Assert.Equal((1, 0), (finished.AccountsDeleted, finished.Failures));
         Assert.Null(await UserRowAsync(user.Id));
         Assert.All(keys, key => Assert.Null(factory.Storage.Find(key)));
     }
