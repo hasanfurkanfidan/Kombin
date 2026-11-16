@@ -1,6 +1,7 @@
 using Hangfire;
+using Kombin.Api.Common.Hosting;
 using Kombin.Api.Common.Http;
-using Kombin.Api.Features.Notification;
+using Kombin.Api.Common.Time;
 using Kombin.Api.Features.Wardrobe.AddFromProduct;
 using Kombin.Api.Features.Wardrobe.ArchiveItem;
 using Kombin.Api.Features.Wardrobe.CreateUploadUrl;
@@ -65,7 +66,7 @@ internal static class WardrobeModule
     /// </summary>
     public static void UseWardrobeJobs(this WebApplication app)
     {
-        if (!app.Configuration.GetValue<bool>(NotificationModule.HangfireEnabledKey))
+        if (!app.Configuration.GetValue<bool>(HangfireSettings.EnabledKey))
         {
             return;
         }
@@ -74,6 +75,6 @@ internal static class WardrobeModule
             WardrobeCleanupJob.JobId,
             job => job.RunAsync(CancellationToken.None),
             WardrobeCleanupJob.Cron,
-            new RecurringJobOptions { TimeZone = QuietHours.Zone });
+            new RecurringJobOptions { TimeZone = Istanbul.Zone });
     }
 }

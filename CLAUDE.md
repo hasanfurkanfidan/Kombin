@@ -65,7 +65,7 @@ The backend is one project, so nothing in the compiler stops `Features/A` from u
 (`tests/Kombin.Api.Tests`) does: it reads the sources, lists every type of another feature that a feature names (a `using` that is really used, a
 fully qualified name, `using static`, an alias; also in `.cshtml`) and fails for one that is not on `FeatureBoundaryAllowList`, the frozen
 list of what existed in task B7 (141 references in 37 feature pairs, 90 of them `Seam` = fine as it is and 51 `Legacy` = would be shared code
-today, with a line saying where it belongs). It forbids nothing that exists; it stops the list from growing, and `TheAllowListHoldsNoReferenceThatNoLongerExists`
+today, with a line saying where it belongs; task L2 moved the Istanbul zone and the Hangfire flag to `Common` and left 129 in 33 pairs, 39 `Legacy`). It forbids nothing that exists; it stops the list from growing, and `TheAllowListHoldsNoReferenceThatNoLongerExists`
 makes it shrink: remove a reference and the test tells you to delete the line.
 
 **Sharing code between features.**
@@ -306,7 +306,7 @@ External Python workers (a separate repo) push the catalog through the internal 
   deactivates the old row (`Replaced`) and adds/reactivates the new one; logout (`expoPushToken` in the body) and
   `DELETE /me/devices/{token}` deactivate with `UserRemoved`. Other features reach this only through `IDeviceDeactivator`.
 - **Time zone:** quiet hours (`HH:mm`, both or neither, may wrap midnight) and the weekly schedule are in `Europe/Istanbul`
-  (`QuietHours.Zone`). The Docker runtime image installs `tzdata` for it. Stored instants are always UTC (`timestamptz`).
+  (`Istanbul.Zone`, `Common/Time`; every recurring job and calendar day uses it, and the Hangfire flag key is `HangfireSettings.EnabledKey` in `Common/Hosting`). The Docker runtime image installs `tzdata` for it. Stored instants are always UTC (`timestamptz`).
 - **Hangfire wiring:** `AddNotificationFeature` registers storage lazily; `UseNotificationJobs` (called in `Program.cs` after the EF
   migrations and the seeds) is what first creates the `hangfire` schema, registers the recurring jobs (`UseCatalogJobs` adds the
   Catalog's `offer-sweep`, `UseAnalyticsJobs` the Analytics' `weekly-metrics` and `analytics-retention`, `UseWardrobeJobs` the Wardrobe's `wardrobe-cleanup` and
@@ -640,6 +640,32 @@ External Python workers (a separate repo) push the catalog through the internal 
   `FakeVisionClient.LensPhoto(text, regions...)` is a query photo whose regions embed as that text. `FakeCatalogImageHandler` 404s `missing`,
   503s `busy` and counts requests per URL. The search is global: give each test its own look key.
 
+## League rules
+
+- **What exists (task L2, PR 1 of 4):** "Kombin Ligi" foundations in `Features/League` (design and the owner's decisions: `docs/design/league.md`;
+  the rules: `Tasarım/kombin-ligi-aritmetik.md`, a product decision: never change a rule in code, raise it). Schema `league` with all 14 tables
+  of the design (players, consents, days, entries, entry_pieces, pairs, reports, daily_scores, weeks, groups, group_members, style_scores,
+  engine_preferences, state), `LeagueOptions`, `LeagueConsent`, and `GET /api/v1/league/me`, `POST /league/join`, `POST /league/leave`. No job,
+  no entry, no pairing, no vote, no close yet: the next PRs add them in the order of the note's section 14.
+- **Off by default.** `League:Enabled` (env `League__Enabled`) is false until the app screens ship: the routes stay mapped (OpenAPI, the
+  authorization matrix) but `LeagueEnabledFilter` answers 404 `League.Disabled` first. `ApiFactory` switches it on; a test that needs it off
+  builds its own host.
+- **Every number is a setting** (`League:*`, `LeagueOptions`, validated at start with every problem listed; `LeagueOptionsTests` pins the
+  defaults to the note). A new number of the league is a setting there and a row in the note's settings table, never a constant.
+- **Consent:** versioned and append-only like the posting consent (`LeagueConsent.Versions`, hash pinned in `LeagueConsentTests`, glossary-checked).
+  Version `2026-11-v1` is the owner's text, whose last sentence is the 18+ declaration; counsel has not reviewed it (privacy notes, question 17).
+  Every join writes a `league.consents` row with the exact text; leaving writes a `Leave` row. Joining again under the current version is a no-op.
+- **Age:** a birth year that shows the caller under `League:MinAge` (`LeagueRules.IsUnderAge`: `year − birthYear < 18`) is 403
+  `League.AgeRestricted`; an unknown year may join (the consent is the declaration). No other age gate.
+- **Anonymity is the contract.** No league response may ever carry another player's user ID, name, e-mail, entry ID or wardrobe storage key;
+  group tables show a generated per-week alias. Wardrobe keys contain the owner's ID (`StorageKeys.Build`), so league images will be copies
+  under random keys. **Account deletion:** every league table cascades on the user; `AccountPurger` deletes the league image copies first
+  (found through `league.entries`); `AccountDeletionTests`' matrix covers the league tables. A new league table that holds a user's data needs
+  the same three things (cascade or purger step, privacy notes 1a, the matrix line).
+- **Boundaries:** the league reads other features' tables through `KombinDbContext` only. The design allows two seams later (`WardrobeModerator`
+  for `IsShareable`, a new `CatalogOutfitSampler` in Recommendation for engine outfits); nothing in Recommendation or Wardrobe may ever reference
+  League (it pulls, nothing pushes into it). Metabase never gets the `league` schema.
+
 ## Admin rules
 
 - **What exists:** the founder's panel, server-rendered Razor Pages under `/admin` in the API project (`Features/Admin`, pages in
@@ -786,5 +812,6 @@ and saved trips) and
 Social (versioned posting consent, photo and outfit posts with moderation, metadata stripping and confirmed shoppable tags, likes, follows,
 blocks, reports and review, the feed, try-with-wardrobe, creators with click attribution and earnings estimates) and Lens (visual search:
 catalog embeddings and their job, photo search with family, floor and audience guardrails, wardrobe matches) and Admin (the founder's
-panel: review queue, creators, catalog and backfill, user disable, audit log, dashboard). Learning from
+panel: review queue, creators, catalog and backfill, user disable, audit log, dashboard) and League (Kombin Ligi foundations: schema, settings, consent,
+join and leave; off by default). Learning from
 clicks, saves and outfit feedback is still to come, and not Profile's job. Add other features only when a task asks for them.

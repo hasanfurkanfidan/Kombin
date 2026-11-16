@@ -1,3 +1,4 @@
+using Kombin.Api.Common.Time;
 using Kombin.Api.Persistence;
 using Kombin.Api.Persistence.Entities.Notification;
 using Npgsql;
@@ -22,7 +23,7 @@ internal sealed record PreferencesResponse(
         preference.MaxRecommendationsPerWeek,
         Format(preference.QuietHoursStart),
         Format(preference.QuietHoursEnd),
-        QuietHours.ZoneId,
+        Istanbul.ZoneId,
         preference.UpdatedAt);
 
     private static string? Format(TimeOnly? time) => time?.ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture);

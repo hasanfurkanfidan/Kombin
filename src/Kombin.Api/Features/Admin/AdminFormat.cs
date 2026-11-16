@@ -1,6 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
-using Kombin.Api.Features.Notification;
+using Kombin.Api.Common.Time;
 
 namespace Kombin.Api.Features.Admin;
 
@@ -11,7 +11,7 @@ internal static class AdminFormat
 
     /// <summary>Times are shown in Istanbul (the founder's day, like the job schedules): <c>2026-11-14 18:30</c>.</summary>
     public static string Time(DateTimeOffset? value) =>
-        value is { } time ? TimeZoneInfo.ConvertTime(time, QuietHours.Zone).ToString("yyyy-MM-dd HH:mm", Culture) : "-";
+        value is { } time ? TimeZoneInfo.ConvertTime(time, Istanbul.Zone).ToString("yyyy-MM-dd HH:mm", Culture) : "-";
 
     public static string Money(decimal value) => string.Create(Culture, $"{value:N2} ₺");
 

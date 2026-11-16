@@ -1,4 +1,5 @@
 using System.Globalization;
+using Kombin.Api.Common.Time;
 using Kombin.Api.Features.Notification;
 using Kombin.Api.Features.Notification.Jobs;
 using Kombin.Api.Persistence.Entities.Notification;
@@ -135,7 +136,7 @@ public sealed class AlertDispatcherTests(ApiFactory factory)
         var device = Assert.Single(await factory.WithDbAsync(db => db.Devices.AsNoTracking().Where(candidate => candidate.UserId == user.Id).ToListAsync(Ct)));
 
         // A window around the current Istanbul time, which also works when it wraps past midnight.
-        var local = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, QuietHours.Zone);
+        var local = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, Istanbul.Zone);
         (await user.Client.PutPreferencesAsync(new
         {
             quietHoursStart = local.AddHours(-1).ToString("HH:mm", CultureInfo.InvariantCulture),

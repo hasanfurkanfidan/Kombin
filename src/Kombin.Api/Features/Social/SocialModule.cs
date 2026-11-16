@@ -1,6 +1,7 @@
 using Hangfire;
 using Kombin.Api.Common.Auth;
-using Kombin.Api.Features.Notification;
+using Kombin.Api.Common.Hosting;
+using Kombin.Api.Common.Time;
 using Kombin.Api.Features.Social.Consent;
 using Kombin.Api.Features.Social.CreateOutfitPost;
 using Kombin.Api.Features.Social.CreateUploadUrl;
@@ -75,7 +76,7 @@ internal static class SocialModule
     /// </summary>
     public static void UseSocialJobs(this WebApplication app)
     {
-        if (!app.Configuration.GetValue<bool>(NotificationModule.HangfireEnabledKey))
+        if (!app.Configuration.GetValue<bool>(HangfireSettings.EnabledKey))
         {
             return;
         }
@@ -84,6 +85,6 @@ internal static class SocialModule
             SocialPurgeJob.JobId,
             job => job.RunAsync(CancellationToken.None),
             SocialPurgeJob.Cron,
-            new RecurringJobOptions { TimeZone = QuietHours.Zone });
+            new RecurringJobOptions { TimeZone = Istanbul.Zone });
     }
 }

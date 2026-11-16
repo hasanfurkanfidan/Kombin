@@ -103,7 +103,7 @@ internal sealed partial class AlertDispatcherJob(KombinDbContext db, IClock cloc
                 usersWithDevice.Contains(trigger.UserId),
                 recent.Contains((trigger.UserId, dedupeKey)),
                 now,
-                QuietHours.Zone);
+                Istanbul.Zone);
 
             trigger.ConsumedAt = now;
 

@@ -179,6 +179,11 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
             [HttpStatusCode.NotFound],
             async (w, f) => Assert.Equal("{}", await f.WithDbAsync(db => db.Trips.Where(trip => trip.Id == w.TripId).Select(trip => trip.PlanJson).SingleAsync(Ct)))),
 
+        // League
+        ["GET /api/v1/league/me"] = ScopedRead("/api/v1/league/me"),
+        ["POST /api/v1/league/join"] = Exempt("Joins the caller; it takes no ID."),
+        ["POST /api/v1/league/leave"] = Exempt("The caller leaves; it takes no ID."),
+
         // Social
         ["GET /api/v1/social/consent"] = ScopedRead("/api/v1/social/consent"),
         ["POST /api/v1/social/consent"] = Exempt("Records the caller's own consent."),

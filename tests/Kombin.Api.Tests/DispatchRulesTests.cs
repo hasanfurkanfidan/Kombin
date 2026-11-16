@@ -1,3 +1,4 @@
+using Kombin.Api.Common.Time;
 using Kombin.Api.Features.Notification;
 using Kombin.Api.Persistence.Entities.Engagement;
 using Kombin.Api.Persistence.Entities.Notification;
@@ -17,7 +18,7 @@ public class DispatchRulesTests
         NotificationPreference? preference = null,
         bool hasDevice = true,
         bool duplicate = false) =>
-        DispatchRules.Decide(kind, preference, hasDevice, duplicate, Now, QuietHours.Zone);
+        DispatchRules.Decide(kind, preference, hasDevice, duplicate, Now, Istanbul.Zone);
 
     [Fact]
     public void ADeviceAndNoObstaclesMakeAPendingNotificationDueNow()

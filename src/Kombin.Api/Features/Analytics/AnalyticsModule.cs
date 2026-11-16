@@ -1,10 +1,11 @@
 using Hangfire;
 using Kombin.Api.Common.Auth;
+using Kombin.Api.Common.Hosting;
 using Kombin.Api.Common.RateLimiting;
+using Kombin.Api.Common.Time;
 using Kombin.Api.Features.Analytics.GetWeeklyMetrics;
 using Kombin.Api.Features.Analytics.Jobs;
 using Kombin.Api.Features.Analytics.RecordEvents;
-using Kombin.Api.Features.Notification;
 using Microsoft.Extensions.Options;
 
 namespace Kombin.Api.Features.Analytics;
@@ -45,7 +46,7 @@ internal static class AnalyticsModule
     /// </summary>
     public static void UseAnalyticsJobs(this WebApplication app)
     {
-        if (!app.Configuration.GetValue<bool>(NotificationModule.HangfireEnabledKey))
+        if (!app.Configuration.GetValue<bool>(HangfireSettings.EnabledKey))
         {
             return;
         }
@@ -54,12 +55,12 @@ internal static class AnalyticsModule
             WeeklyMetricsJob.JobId,
             job => job.RunAsync(CancellationToken.None),
             WeeklyMetricsJob.Cron,
-            new RecurringJobOptions { TimeZone = QuietHours.Zone });
+            new RecurringJobOptions { TimeZone = Istanbul.Zone });
 
         app.Services.GetRequiredService<IRecurringJobManager>().AddOrUpdate<AnalyticsRetentionJob>(
             AnalyticsRetentionJob.JobId,
             job => job.RunAsync(CancellationToken.None),
             AnalyticsRetentionJob.Cron,
-            new RecurringJobOptions { TimeZone = QuietHours.Zone });
+            new RecurringJobOptions { TimeZone = Istanbul.Zone });
     }
 }

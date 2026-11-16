@@ -12,6 +12,7 @@ using Kombin.Api.Features.Analytics;
 using Kombin.Api.Features.Catalog;
 using Kombin.Api.Features.Engagement;
 using Kombin.Api.Features.Identity;
+using Kombin.Api.Features.League;
 using Kombin.Api.Features.Legal;
 using Kombin.Api.Features.Lens;
 using Kombin.Api.Features.Notification;
@@ -66,6 +67,7 @@ builder.Services.AddRecommendationFeature();
 builder.Services.AddSocialFeature();
 builder.Services.AddAdminFeature();
 builder.Services.AddLegalFeature();
+builder.Services.AddLeagueFeature();
 
 var app = builder.Build();
 
@@ -114,6 +116,7 @@ app.MapSocialEndpoints();
 app.MapLensEndpoints();
 app.MapAdminEndpoints();
 app.MapLegalEndpoints();
+app.MapLeagueEndpoints();
 
 await app.MigrateDatabaseOnStartupAsync();
 await app.SeedStyleCardsOnStartupAsync();

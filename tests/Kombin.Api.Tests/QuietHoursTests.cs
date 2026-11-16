@@ -4,7 +4,7 @@ namespace Kombin.Api.Tests;
 
 public class QuietHoursTests
 {
-    private static readonly TimeZoneInfo Istanbul = QuietHours.Zone;
+    private static readonly TimeZoneInfo Istanbul = Common.Time.Istanbul.Zone;
 
     /// <summary>Istanbul is UTC+3 all year, so a local time is written here as the UTC instant it names.</summary>
     private static DateTimeOffset Utc(int day, int hour, int minute = 0) => new(2026, 11, day, hour, minute, 0, TimeSpan.Zero);
@@ -16,7 +16,7 @@ public class QuietHoursTests
     [Fact]
     public void TheZoneIsIstanbul()
     {
-        Assert.Equal("Europe/Istanbul", QuietHours.ZoneId);
+        Assert.Equal("Europe/Istanbul", Common.Time.Istanbul.ZoneId);
         Assert.Equal(TimeSpan.FromHours(3), Istanbul.GetUtcOffset(Utc(1, 12)));
     }
 

@@ -13,7 +13,7 @@ Hangfire) and **Analytics** (an event intake for the app, the four beta metrics,
 and a rule-based gap analysis with catalog suggestions) and an **Admin panel** (server-rendered pages under `/admin` for the founder: review
 queue, creators, catalog, users, audit log) and **launch readiness**: account deletion with a 7-day cancellation window, rate limits, request body limits,
 the public legal pages (privacy, terms, deleting your account), a Production mode that refuses development defaults, and the deploy kit (compose
-override, Caddy, backups, `docs/deploy.md`).
+override, Caddy, backups, `docs/deploy.md`). **Kombin Ligi** (the league) has its foundations (schema, settings, consent, joining) and is off by default.
 
 ## Requirements
 
@@ -545,6 +545,21 @@ Design: `docs/design/visual-search.md`. Public; a bearer token adds the caller's
 | `product-embeddings` | daily 03:00 Istanbul (3 h budget) | embeds due products' primary images through `kombin-vision /v1/embed` (new, new image, new model, failed after back-off); 1 request per image host per second as `KombinBot`; a 404 is marked and not refetched for 30 days |
 
 Measured by `LensPerformanceTests` (50k products, one region, `KOMBIN_PERF=1`, vision excluded): p95 71 ms signed in (wardrobe of 200 pieces, profile audience), 54 ms anonymous (budget 400 ms).
+
+### League ("Kombin Ligi")
+
+Design: `docs/design/league.md`. **Off by default**: with `League:Enabled` false (env `League__Enabled`) every route below answers 404
+`League.Disabled`; configuration switches it on when the app screens ship. Task L2 built the foundations (schema `league`, the settings, the
+consent, joining and leaving); entries, voting, the 21:00 day close and the weekly tables come next. Signed in.
+
+| Method | Route | Success | Errors |
+|---|---|---|---|
+| GET | `/league/me` | 200 `{ joined, consentRequired, consent { version, text }, tier, joinedAt }` (`tier` null before the first join) | |
+| POST | `/league/join` | 200, same shape. Body `{ consentVersion }` (the current one); idempotent | 400 `League.ConsentVersionInvalid`; 403 `League.AgeRestricted` (a birth year that shows the caller under 18) |
+| POST | `/league/leave` | 204: no outfit enters from now on, today's is withdrawn; a later join keeps the tier | 403 `League.NotJoined` |
+
+- The consent (version `2026-11-v1`) is also the 18+ declaration; its text is pinned by `LeagueConsentTests` and every join stores the text shown.
+- Every number of the league is a `League:*` setting (the design note's section 14 lists them with their defaults).
 
 ### Admin panel
 

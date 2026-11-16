@@ -16,7 +16,7 @@ internal sealed partial class WeeklyMatchesJob(KombinDbContext db, IClock clock,
 {
     public const string JobId = "weekly-matches";
 
-    /// <summary>Sunday 19:00 in <see cref="QuietHours.ZoneId"/>.</summary>
+    /// <summary>Sunday 19:00 in <see cref="Istanbul.ZoneId"/>.</summary>
     public const string Cron = "0 19 * * 0";
 
     /// <summary>Only the newest products are scored, as in <c>sort=match</c> of the catalog list.</summary>
@@ -49,7 +49,7 @@ internal sealed partial class WeeklyMatchesJob(KombinDbContext db, IClock clock,
             return 0;
         }
 
-        var isoWeek = WeeklyMatchSelection.IsoWeekKey(now, QuietHours.Zone);
+        var isoWeek = WeeklyMatchSelection.IsoWeekKey(now, Istanbul.Zone);
         var created = 0;
         Guid? last = null;
 
@@ -194,7 +194,7 @@ internal sealed partial class WeeklyMatchesJob(KombinDbContext db, IClock clock,
                 Data = NotificationData.ForNewMatches(persona.Id, [.. picks.Select(pick => pick.Candidate.ProductId)]),
                 DedupeKey = dedupeKey,
                 CreatedAt = now,
-                ScheduledFor = QuietHours.NextAllowed(now, preference?.QuietHoursStart, preference?.QuietHoursEnd, QuietHours.Zone),
+                ScheduledFor = QuietHours.NextAllowed(now, preference?.QuietHoursStart, preference?.QuietHoursEnd, Istanbul.Zone),
                 Status = NotificationStatus.Pending,
             });
 

@@ -116,7 +116,8 @@ No new cycle: neither Wardrobe nor Recommendation will ever reference League (th
 ## 3. Data model
 
 Schema `league`, snake_case by the global convention. Every `user_id` has a foreign key to `identity.users` with `ON DELETE CASCADE` unless
-said otherwise. Instants are `timestamptz` (UTC); a league day is a `date` in Europe/Istanbul.
+said otherwise. Instants are `timestamptz` (UTC); a league day is a `date` in Europe/Istanbul. Enums are stored as their names (`text`, at most 30
+characters), like every other schema here. Built in PR 1 as migration `League` (14 tables).
 
 ### 3.1 Tables
 
@@ -125,7 +126,7 @@ said otherwise. Instants are `timestamptz` (UTC); a league day is a `date` in Eu
 | Column | Type | Note |
 |---|---|---|
 | `user_id` | uuid PK | |
-| `tier` | smallint | `LeagueTier`: Bronze, Silver, Gold, Platinum, Diamond (Bronz, Gümüş, Altın, Platin, Elmas); Bronze on join |
+| `tier` | text (enum name) | `LeagueTier`: Bronze, Silver, Gold, Platinum, Diamond (Bronz, Gümüş, Altın, Platin, Elmas); Bronze on join |
 | `joined_at` | timestamptz | the latest join |
 | `left_at` | timestamptz null | set by leave, cleared by a new join |
 | `consent_version` | text | the version accepted at the latest join |
@@ -145,14 +146,14 @@ text shown, as `social.posting_consents` stores it), `at`. It is the join/leave 
 | `id` | uuid PK | never shown to anyone but the owner |
 | `day` | date | |
 | `user_id` | uuid null | null for an engine outfit |
-| `kind` | smallint | `Human`, `Engine` |
+| `kind` | text (enum name) | `Human`, `Engine` |
 | `outfit_id` | uuid null | the source `recommendation.outfits` row, `ON DELETE SET NULL` |
-| `audience` | smallint | `Audience` (Women, Men, Unisex) |
-| `occasion` | smallint null | `Occasion` (Office, Weekend, Evening, Sport, Event); null is its own bucket |
+| `audience` | text (enum name) | `Audience` (Women, Men, Unisex) |
+| `occasion` | text null (enum name) | `Occasion` (Office, Weekend, Evening, Sport, Event); null is its own bucket |
 | `piece_ids` | uuid[] | sorted wardrobe item IDs of the non-accessory pieces (product IDs for engine) |
 | `piece_set_hash` | text | SHA-256 hex (32) of `piece_ids` joined, like `OutfitHash.Of` (`Features/Recommendation/OutfitGenerator.cs:42`) |
-| `status` | smallint | `Pending` (waiting for the safety check), `Competing`, `NotCompeting`, `Withdrawn`, `Removed` |
-| `reason` | smallint null | for `NotCompeting`: `RecentlyCompeted`, `UnsafePiece`, `IncompleteOutfit`, `PieceUnavailable`, `AgeRestricted` |
+| `status` | text (enum name) | `Pending` (waiting for the safety check), `Competing`, `NotCompeting`, `Withdrawn`, `Removed` |
+| `reason` | text null (enum name) | for `NotCompeting`: `RecentlyCompeted`, `UnsafePiece`, `IncompleteOutfit`, `PieceUnavailable`, `AgeRestricted` |
 | `exposures` | int | pairs served with this entry |
 | `comparisons` | int | counted votes on this entry (unweighted; the "8 comparisons" threshold) |
 | `weighted_wins`, `weighted_games` | real | running sums of counted votes; the win rate shown after a vote (section 7) |
@@ -179,11 +180,11 @@ Accessories are stored and shown; they are only left out of `piece_ids`.
 | `voter_id` | uuid | |
 | `left_entry_id`, `right_entry_id` | uuid | cascade from `entries` |
 | `low_entry_id`, `high_entry_id` | uuid | the two IDs ordered, for the uniqueness below |
-| `match_level` | smallint | `Strict` (same occasion and audience), `SameAudience`, `Any` |
+| `match_level` | text (enum name) | `Strict` (same occasion and audience), `SameAudience`, `Any` |
 | `sequence` | smallint | 1..30 within the voter's day |
 | `served_at` | timestamptz | |
 | `answered_at` | timestamptz null | |
-| `choice` | smallint null | `Left`, `Right`, `Skip` |
+| `choice` | text null (enum name) | `Left`, `Right`, `Skip` |
 | `client_decision_ms` | int null | what the app measured from display to tap |
 | `counted` | bool | |
 | `weight` | real | 1, or 0.5 for the voter's first 20 counted votes; 0 when not counted |
@@ -192,7 +193,7 @@ Indexes: **unique `(voter_id, day, low_entry_id, high_entry_id)`** (the same pai
 player per pair); **unique `(voter_id, day, sequence)`** (the 30-pair cap cannot be raced); `(day) INCLUDE (left_entry_id, right_entry_id, choice, weight)`
 for the close; **partial unique `(voter_id, day) WHERE answered_at IS NULL`** (at most one open pair per voter).
 
-**`league.reports`**: `entry_id` (cascade), `reporter_id`, `reason` smallint null (`Inappropriate`, `NotClothing`, `Other`), `counts` bool (trusted
+**`league.reports`**: `entry_id` (cascade), `reporter_id`, `reason` text null (`Inappropriate`, `NotClothing`, `Other`), `counts` bool (trusted
 reporter, decided at report time), `created_at`. PK `(entry_id, reporter_id)` (one report per player and outfit).
 
 **`league.daily_scores`**: one row per player and closed day with any points or an entry.
@@ -211,10 +212,10 @@ Index `(day)`, and the PK serves the week sums.
 
 **`league.weeks`**: `week_start` date PK (a Monday), `ends_at` (Sunday 21:00), `closed_at` null, `groups_formed_at` null.
 
-**`league.groups`**: `id` uuid PK, `week_start`, `tiers` smallint[] (one tier, or two or more when merged), `capacity` int.
+**`league.groups`**: `id` uuid PK, `week_start`, `tiers` text[] (tier names) (one tier, or two or more when merged), `capacity` int.
 
 **`league.group_members`**: `week_start`, `user_id`, `group_id`, `alias` text (section 4), `tier` (the player's own label, kept in a merged
-group), `week_points` int null, `competed_days` smallint null, `final_rank` int null, `outcome` smallint null (`Promoted`, `Relegated`, `Stayed`,
+group), `week_points` int null, `competed_days` smallint null, `final_rank` int null, `outcome` text null (`Promoted`, `Relegated`, `Stayed`,
 `IdleRelegated`), `joined_at`. PK `(week_start, user_id)` (one group per player per week); **unique `(group_id, alias)`** (an alias is unique
 within its group).
 
@@ -295,7 +296,7 @@ and a check that the user's league image copies are gone from `FakeObjectStorage
 
 **Minors.** The rules: "Katılım 18 yaş ve üstü içindir: rıza metni bunu söyler, doğum yılı 18'den küçük gösteren hesap katılamaz."
 `UserProfile.BirthYear` (`Persistence/Entities/Profile/UserProfile.cs:15`) is optional. A player whose birth year makes them younger than
-`League:MinAge` (18) in the current Istanbul year (`year − birthYear < 18`, the cautious reading of a year without a date) cannot join
+`League:MinAge` (18) in the current Istanbul year (`year − birthYear < 18`: the year shows the player under 18; someone born in 2008 may join in 2026, since a year alone cannot say whether the birthday has passed) cannot join
 (403 `League.AgeRestricted`), and no entry is created if such a year is set later (`AgeRestricted`). An unknown birth year may join: the consent
 sentence "Katılarak 18 yaşından büyük olduğunu onaylarsın" is the declaration, and there is no separate age gate.
 
@@ -583,7 +584,7 @@ User-facing words are rendered by the app; the backend returns codes, except the
 
 | Endpoint | Request | Response | Errors |
 |---|---|---|---|
-| `GET /league/me` | | `{ joined, consentRequired, consent: { version, text } \| null, tier, today: { day, closesAt, entry: { status, reason, message, pieces[] } \| null, servedPairs, countedVotes, target: 10, limit: 30 }, week: { groupRank, groupSize, points, pointsToPromotion, endsAt } \| null }`; `message` is "Bu kombin yakın zamanda yarıştı, bugün yarışmıyor." for `RecentlyCompeted` | |
+| `GET /league/me` | | `{ joined, consentRequired, consent: { version, text }, tier, joinedAt, today: { day, closesAt, entry: { status, reason, message, pieces[] } \| null, servedPairs, countedVotes, target: 10, limit: 30 }, week: { groupRank, groupSize, points, pointsToPromotion, endsAt } \| null }`; `message` is "Bu kombin yakın zamanda yarıştı, bugün yarışmıyor." for `RecentlyCompeted`. PR 1 returns the first five fields; `today` and `week` come with entries (PR 2) and groups (PR 4) | 404 `League.Disabled` |
 | `POST /league/join` | `{ consentVersion }` | 200 = `GET /league/me` (joining again with the current version is a no-op, 200) | 400 `League.ConsentVersionInvalid` (not the current version), 403 `League.AgeRestricted` |
 | `POST /league/leave` | | 204 | 403 `League.NotJoined` |
 | `DELETE /league/me/entry` | | 204 | 403 `League.NotJoined`, 404 `League.NoEntryToday`, 409 `League.DayClosed` |

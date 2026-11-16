@@ -45,6 +45,10 @@ What happens to every table that holds data about a user:
 | `social.follows`, `social.blocks` | deleted in both directions |
 | `social.posting_consents` | deleted (the proof of consent goes with the account; see open question 11) |
 | `social.creator_profiles` | deleted |
+| `league.players`, `league.consents` (joins and leaves with the consent text shown), `league.daily_scores`, `league.group_members` (with the weekly alias), `league.style_scores` | deleted (cascade) |
+| `league.entries`, `league.entry_pieces` | deleted (cascade); the league's copies of the outfit thumbnails are deleted from storage first (their keys carry no user ID: `AccountPurger` finds them through the entries) |
+| `league.pairs` (the user's votes, and pairs that showed the user's outfits), `league.reports` (made by the user, or on the user's outfits) | deleted (cascade); other players' closed days keep their stored scores |
+| `league.engine_preferences` | not personal data (engine products and a weight, no user ID); untouched |
 | `engagement.clicks` | **anonymised**: `user_id`, `persona_id` and (as a creator) `creator_id` become null; the rest stays (offer, product, seller, source, post ID, user agent, salted IP hash) as the revenue record |
 | `analytics.events` | **anonymised**: `user_id` becomes null; `anonymous_id` (a random install ID) stays (open question 12) |
 | `social.referral_events` | **kept** as the financial record: `creator_id` and `viewer_user_id` become null, the amounts stay |
@@ -192,6 +196,22 @@ restart forgets everything. The address is the real client's when the reverse pr
 (client address, path, status) to its container log, rotated by size; the API's own log has correlation IDs and paths, not addresses, e-mail
 addresses or tokens. Neither is searched per user.
 
+## 6b. Kombin Ligi (League, task L2; design `docs/design/league.md`)
+
+Off until the app screens ship (`League:Enabled` false). Task L2 built joining and leaving; the rows below marked *later* are designed, not built.
+
+| What | Why | Where | Who sees it | How long |
+|---|---|---|---|---|
+| Join and leave records, with the exact consent text shown and its version | proof of the consent and of the 18+ declaration | `league.consents`, `league.players` | the operator | until the account is deleted |
+| Birth year (read, not stored again) | a year that shows the player under 18 cannot join | `profile.user_profiles` | nobody new | as the profile |
+| *later*: the day's worn outfit (its pieces) and copies of the pieces' thumbnails | the outfit competes | `league.entries`, `entry_pieces`, object storage `league/{random}/{random}/thumb.*` | **other players**, anonymously: only the piece images, under keys that hold no user ID and differ every day; only pieces the safety filter allowed (`IsShareable`) | images 7 days after the day; entries 90 days |
+| *later*: votes (which of two outfits, how fast) | the day's ranking | `league.pairs` | the operator; nobody sees who voted | 30 days |
+| *later*: daily points, week groups with a generated alias ("Yeşil Trençkot"), the style score | the tables; creator eligibility (no screen) | `league.daily_scores`, `group_members`, `style_scores` | the group sees the alias and points, never a name, e-mail or ID; the style score nobody but the operator | until the account is deleted |
+| *later*: engine preference rows | the engine learns which catalog outfits win | `league.engine_preferences` | the operator | no user ID at all |
+
+The league schema is **not** readable by Metabase (`metabase_ro`); its first-month metrics are SQL run by hand. Leaving stops every future entry and
+withdraws the day's outfit; deleting the account removes everything above (section 1a).
+
 ## 7. Processors and transfers
 
 | Recipient | What | Where |
@@ -232,3 +252,8 @@ Photos of posts and visual-search photos are never sent to a third party.
     log addresses at all?
 15. Backups keep deleted data for up to 7 days after the removal. Is "within 7 days of the removal" an acceptable statement, and should the legal pages say so as precisely?
 16. The public legal pages are drafts written from this document; `docs/legal-review.md` lists every sentence flagged for a lawyer.
+17. **Kombin Ligi consent, version `2026-11-v1` (section 6b): not reviewed by counsel.** The owner's text: "Katılırsan dolabındaki parçaların
+    fotoğrafları diğer oyunculara gösterilir. Adın ve profilin görünmez. İstediğin gün kombinini çıkarabilir, ayarlardan ligden ayrılabilirsin.
+    Katılarak 18 yaşından büyük olduğunu onaylarsın." Its last sentence is the only age declaration (an unknown birth year may join; a birth year
+    that shows the player under 18 cannot). Is it enough as consent for showing wardrobe photos to strangers and as an 18+ declaration? A changed
+    text becomes version 2 and every player accepts again.

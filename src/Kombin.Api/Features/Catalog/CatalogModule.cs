@@ -1,6 +1,8 @@
 using Hangfire;
 using Kombin.Api.Common.Auth;
+using Kombin.Api.Common.Hosting;
 using Kombin.Api.Common.Http;
+using Kombin.Api.Common.Time;
 using Kombin.Api.Features.Catalog.Embeddings;
 using Kombin.Api.Features.Catalog.GetPriceHistory;
 using Kombin.Api.Features.Catalog.GetProduct;
@@ -13,7 +15,6 @@ using Kombin.Api.Features.Catalog.PutSeller;
 using Kombin.Api.Features.Catalog.RunEmbeddings;
 using Kombin.Api.Features.Catalog.SweepOffers;
 using Kombin.Api.Features.Catalog.UpsertOffers;
-using Kombin.Api.Features.Notification;
 using Microsoft.Extensions.Options;
 
 namespace Kombin.Api.Features.Catalog;
@@ -66,7 +67,7 @@ internal static class CatalogModule
     /// </summary>
     public static void UseCatalogJobs(this WebApplication app)
     {
-        if (!app.Configuration.GetValue<bool>(NotificationModule.HangfireEnabledKey))
+        if (!app.Configuration.GetValue<bool>(HangfireSettings.EnabledKey))
         {
             return;
         }
@@ -75,12 +76,12 @@ internal static class CatalogModule
             OfferSweepJob.JobId,
             job => job.RunAsync(CancellationToken.None),
             OfferSweepJob.Cron,
-            new RecurringJobOptions { TimeZone = QuietHours.Zone });
+            new RecurringJobOptions { TimeZone = Istanbul.Zone });
 
         app.Services.GetRequiredService<IRecurringJobManager>().AddOrUpdate<ProductEmbeddingJob>(
             ProductEmbeddingJob.JobId,
             job => job.RunAsync(CancellationToken.None),
             ProductEmbeddingJob.Cron,
-            new RecurringJobOptions { TimeZone = QuietHours.Zone });
+            new RecurringJobOptions { TimeZone = Istanbul.Zone });
     }
 }

@@ -83,7 +83,10 @@ internal sealed partial class AccountPurger(KombinDbContext db, IObjectStorage s
         return new PurgeResult(PurgeStatus.Purged, keys.Count);
     }
 
-    /// <summary>Every object of the user: wardrobe originals, cutouts and thumbnails, post originals, feed images and previews.</summary>
+    /// <summary>
+    /// Every object of the user: wardrobe originals, cutouts and thumbnails, post originals, feed images and previews, and the league's copies of
+    /// the thumbnails of the user's outfits (their keys carry no user ID, so they are found through the entries).
+    /// </summary>
     private async Task<List<string>> ObjectKeysAsync(Guid userId, CancellationToken cancellationToken)
     {
         var wardrobe = await db.WardrobeItems
@@ -96,10 +99,16 @@ internal sealed partial class AccountPurger(KombinDbContext db, IObjectStorage s
             .Select(post => new { post.ImageOriginalKey, post.ImageFeedKey, post.ImagePreviewKey })
             .ToListAsync(cancellationToken);
 
+        var league = await db.LeagueEntryPieces
+            .Where(piece => piece.ImageKey != null && db.LeagueEntries.Any(entry => entry.Id == piece.EntryId && entry.UserId == userId))
+            .Select(piece => piece.ImageKey!)
+            .ToListAsync(cancellationToken);
+
         return
         [
             .. wardrobe.SelectMany(item => new[] { item.ImageOriginalKey, item.ImageCutoutKey, item.ImageThumbKey }.OfType<string>()),
             .. posts.SelectMany(post => new[] { post.ImageOriginalKey, post.ImageFeedKey, post.ImagePreviewKey }.OfType<string>()),
+            .. league,
         ];
     }
 

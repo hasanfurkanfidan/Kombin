@@ -1,4 +1,4 @@
-using Kombin.Api.Features.Notification;
+using Kombin.Api.Common.Time;
 
 namespace Kombin.Api.Features.Wardrobe;
 
@@ -12,7 +12,7 @@ internal static class WearRules
     public static readonly DateOnly Earliest = new(2000, 1, 1);
 
     /// <summary>The calendar day in Europe/Istanbul at <paramref name="now"/>; "today" for the default <c>wornOn</c>.</summary>
-    public static DateOnly Today(DateTimeOffset now) => DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(now, QuietHours.Zone).DateTime);
+    public static DateOnly Today(DateTimeOffset now) => Istanbul.Today(now);
 
     /// <summary>The day to record, or an error message: the default is today, a future day or one before <see cref="Earliest"/> is refused.</summary>
     public static (DateOnly Day, string? Error) Resolve(DateOnly? requested, DateOnly today)
