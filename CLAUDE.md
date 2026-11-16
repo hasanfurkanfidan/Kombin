@@ -473,7 +473,7 @@ External Python workers (a separate repo) push the catalog through the internal 
   with shoes up to `OverBudgetReach` 1.5 × the budget), then the empty one. Candidates: per slot ≤ 300 (newest 100 in each of 3 price bands up to 1.5 × the budget), through `ix_products_budget`
   and `ix_offers_sellable_price`; then the shortlist keeps the best 3 per price quartile by piece score. The persona's own budget band is ignored.
   Offers: the cheapest in the caller's size (`BudgetOffers.Choose`: own size-map entry for the brand, else `SizeInference`); offers listing other
-  sizes only are out; unknown size → `sizeUnknown`. `savings` only with a real crossed-out price. Buy links `/go/{offerId}?src=budget` (also on
+  sizes only are out; unknown size → `sizeUnknown`. `savings` only with a real crossed-out price (list price minus price, both without shipping); the offer's `price` includes shipping, `shippingCost` says how much (0 when free) and `originalPrice` is the list price plus that same shipping, never below `price` (`BudgetOffer.ListPrice`). Buy links `/go/{offerId}?src=budget` (also on
   `GET /me/outfits/{id}` of a `Budget` outfit, `OutfitResponses.GoPath`). Signed-in outfits are stored with `OutfitStore` as `OutfitKind.Budget`;
   anonymous ones are not stored (template line or a cached LLM line) and use no wardrobe, sizes, persona or weather (`audience` is required).
 - **"The one missing piece" is narrated only for exactly one gap** (`OutfitScoring.Explain`): with two or more (shopping ideas, budget outfits)

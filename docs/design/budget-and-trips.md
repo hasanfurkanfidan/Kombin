@@ -92,8 +92,8 @@ Nothing is invented: pieces come only from the wardrobe.
 
 - `POST /me/outfits/budget`, `POST /outfits/budget` → `{ budget, date, occasion, audience, weather?, overBudget, message?, outfits: [{ id?,
   status?, completeness, score, rule, pieces: [{ slot, role, source, wardrobeItemId?, productId?, name, categorySlug, color, imageUrl,
-  price, offer?: { offerId, seller, price, originalPrice?, goPath }, size?, sizeUnknown? }], totalPrice, remainingBudget, ownedCount,
-  savings?, overBudgetBy?, withoutShoes, narration }], withoutShoes }`; the body takes `includeShoes` (default true). Signed-in outfits are stored (kind `Budget`), so save, worn, feedback and dismiss work on them.
+  price, offer?: { offerId, seller, price, originalPrice?, goPath, shippingCost }, size?, sizeUnknown? }], totalPrice, remainingBudget, ownedCount,
+  savings?, overBudgetBy?, withoutShoes, narration }], withoutShoes }`; the body takes `includeShoes` (default true). Signed-in outfits are stored (kind `Budget`), so save, worn, feedback and dismiss work on them. `offer.price` includes the seller's shipping (the budget counts it); `offer.shippingCost` is that shipping (0 when free, for "kargo dahil") and `offer.originalPrice` is the crossed-out price on the same basis, list price plus the same shipping, so it is never below `price`. `savings` stays what the seller shows (list price minus price, both without shipping).
 - `POST /me/trips/plan` → `{ city, startDate, endDate, pieceCount, pieces: [{ slot, items: [{ wardrobeItemId, name, categorySlug, color,
   imageUrl, days }] }], days: [{ date, occasion?, weather: { source, … }, outfit? }], coverage: { covered, total, percent }, gaps, message? }`.
 - `POST /me/trips` (name + the plan request; the server plans again and stores its own result, never a client snapshot), `GET /me/trips`,

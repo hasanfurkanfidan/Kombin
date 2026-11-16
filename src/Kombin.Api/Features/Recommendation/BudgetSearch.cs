@@ -194,10 +194,17 @@ internal sealed record OfferOption(Guid OfferId, decimal EffectivePrice, decimal
 /// <summary>
 /// The offer a budget outfit buys. <c>Size</c> is the caller's size when the offer lists it; <c>SizeUnknown</c> when the caller's size is not
 /// known or the offer does not list sizes. <c>Savings</c> exists only when the seller shows a real crossed-out price above today's.
+/// <c>Price</c> includes shipping (the budget counts it) while <c>CurrentPrice</c> and <c>OriginalPrice</c> are the seller's own, without it:
+/// <c>ShippingCost</c> is the difference (0 when shipping is free) and <c>ListPrice</c> the crossed-out price on the basis of <c>Price</c>.
 /// </summary>
 internal sealed record BudgetOffer(Guid OfferId, decimal Price, decimal CurrentPrice, decimal? OriginalPrice, string? Size, bool SizeUnknown)
 {
     public decimal? Savings => OriginalPrice is { } original && original > CurrentPrice ? original - CurrentPrice : null;
+
+    public decimal ShippingCost => Price - CurrentPrice;
+
+    /// <summary>The crossed-out price plus the same shipping as <c>Price</c>, so "old" is never below "new". Null without savings.</summary>
+    public decimal? ListPrice => Savings is null ? null : OriginalPrice + ShippingCost;
 }
 
 internal static class BudgetOffers
