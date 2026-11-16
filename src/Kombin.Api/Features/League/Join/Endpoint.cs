@@ -25,7 +25,7 @@ internal static class JoinLeagueEndpoint
 
     /// <summary>
     /// "Lige katıl": records the consent (with the exact text shown, which is also the 18+ declaration) and makes the caller a player, in Bronze
-    /// the first time, in their old tier after leaving. A birth year that shows the caller under <c>League:MinAge</c> is 403
+    /// the first time, in their old tier after leaving. A known birth year that does not make the caller certainly <c>League:MinAge</c> or older is 403
     /// <c>League.AgeRestricted</c>. Idempotent: joining again under the current version changes nothing and writes no consent row.
     /// </summary>
     private static async Task<IResult> Handle(

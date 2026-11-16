@@ -254,6 +254,6 @@ Photos of posts and visual-search photos are never sent to a third party.
 16. The public legal pages are drafts written from this document; `docs/legal-review.md` lists every sentence flagged for a lawyer.
 17. **Kombin Ligi consent, version `2026-11-v1` (section 6b): not reviewed by counsel.** The owner's text: "Katılırsan dolabındaki parçaların
     fotoğrafları diğer oyunculara gösterilir. Adın ve profilin görünmez. İstediğin gün kombinini çıkarabilir, ayarlardan ligden ayrılabilirsin.
-    Katılarak 18 yaşından büyük olduğunu onaylarsın." Its last sentence is the only age declaration (an unknown birth year may join; a birth year
-    that shows the player under 18 cannot). Is it enough as consent for showing wardrobe photos to strangers and as an 18+ declaration? A changed
+    Katılarak 18 yaşından büyük olduğunu onaylarsın." Its last sentence is the only age declaration (an unknown birth year may join; a known birth year
+    joins only when it makes the player certainly 18, so a player born in 2008 waits until 2027). Is it enough as consent for showing wardrobe photos to strangers and as an 18+ declaration? A changed
     text becomes version 2 and every player accepts again.

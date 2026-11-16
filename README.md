@@ -555,7 +555,7 @@ consent, joining and leaving); entries, voting, the 21:00 day close and the week
 | Method | Route | Success | Errors |
 |---|---|---|---|
 | GET | `/league/me` | 200 `{ joined, consentRequired, consent { version, text }, tier, joinedAt }` (`tier` null before the first join) | |
-| POST | `/league/join` | 200, same shape. Body `{ consentVersion }` (the current one); idempotent | 400 `League.ConsentVersionInvalid`; 403 `League.AgeRestricted` (a birth year that shows the caller under 18) |
+| POST | `/league/join` | 200, same shape. Body `{ consentVersion }` (the current one); idempotent | 400 `League.ConsentVersionInvalid`; 403 `League.AgeRestricted` (a known birth year that does not make the caller certainly 18: `year − birthYear <= 18`) |
 | POST | `/league/leave` | 204: no outfit enters from now on, today's is withdrawn; a later join keeps the tier | 403 `League.NotJoined` |
 
 - The consent (version `2026-11-v1`) is also the 18+ declaration; its text is pinned by `LeagueConsentTests` and every join stores the text shown.

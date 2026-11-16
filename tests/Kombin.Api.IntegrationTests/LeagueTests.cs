@@ -93,12 +93,15 @@ public sealed class LeagueTests(ApiFactory factory)
         Assert.Empty(await ConsentsAsync(user.Id));
     }
 
-    [Fact]
-    public async Task ABirthYearThatShowsUnderEighteenCannotJoin()
+    // Strict: 17 by the year, and 18 by the year (who may still be 17 until the birthday), both wait.
+    [Theory]
+    [InlineData(17)]
+    [InlineData(18)]
+    public async Task ABirthYearThatMayStillBeUnderEighteenCannotJoin(int yearsAgo)
     {
         using var user = await factory.CreateUserAsync(Ct);
         var thisYear = Istanbul.Today(DateTimeOffset.UtcNow).Year;
-        await SetBirthYearAsync(user.Client, thisYear - 17);
+        await SetBirthYearAsync(user.Client, thisYear - yearsAgo);
 
         using var response = await user.Client.JoinLeagueAsync(LeagueConsent.Current.Version, Ct);
 
@@ -109,11 +112,11 @@ public sealed class LeagueTests(ApiFactory factory)
     }
 
     [Fact]
-    public async Task EighteenByTheYearOrAnUnknownYearMayJoin()
+    public async Task CertainlyEighteenOrAnUnknownYearMayJoin()
     {
         using var adult = await factory.CreateUserAsync(Ct);
         using var unknown = await factory.CreateUserAsync(Ct);
-        await SetBirthYearAsync(adult.Client, Istanbul.Today(DateTimeOffset.UtcNow).Year - 18);
+        await SetBirthYearAsync(adult.Client, Istanbul.Today(DateTimeOffset.UtcNow).Year - 19);
 
         Assert.True((await adult.Client.JoinLeagueOkAsync(Ct)).GetProperty("joined").GetBoolean());
         Assert.True((await unknown.Client.JoinLeagueOkAsync(Ct)).GetProperty("joined").GetBoolean());

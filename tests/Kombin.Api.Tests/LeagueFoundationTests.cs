@@ -105,14 +105,21 @@ public class LeagueRulesTests
 {
     private static readonly DateOnly Today = new(2026, 11, 16);
 
+    // Strict: a known year blocks unless the player is certainly 18 (2008 may still be 17 in 2026, so it waits for 2027).
     [Theory]
-    [InlineData(2009, true)]
+    [InlineData(2026, true)]
     [InlineData(2016, true)]
-    [InlineData(2008, false)]
+    [InlineData(2009, true)]
+    [InlineData(2008, true)]
+    [InlineData(2007, false)]
     [InlineData(1990, false)]
     [InlineData(null, false)]
-    public void ABirthYearThatShowsUnderEighteenIsUnderAge(int? birthYear, bool underAge) =>
+    public void ABirthYearBlocksUnlessThePlayerIsCertainlyEighteen(int? birthYear, bool underAge) =>
         Assert.Equal(underAge, LeagueRules.IsUnderAge(birthYear, Today, 18));
+
+    [Fact]
+    public void TheYearTurnsTheAnswer() =>
+        Assert.Equal((true, false), (LeagueRules.IsUnderAge(2008, new DateOnly(2026, 12, 31), 18), LeagueRules.IsUnderAge(2008, new DateOnly(2027, 1, 1), 18)));
 
     [Fact]
     public void AMinimumAgeOfZeroChecksNothing() => Assert.False(LeagueRules.IsUnderAge(2020, Today, 0));

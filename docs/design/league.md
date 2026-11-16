@@ -295,9 +295,11 @@ user), `league.reports` (`reporter_id` = user, or an entry of the user), `league
 and a check that the user's league image copies are gone from `FakeObjectStorage` and that another player's `daily_scores` row is unchanged.
 
 **Minors.** The rules: "Katılım 18 yaş ve üstü içindir: rıza metni bunu söyler, doğum yılı 18'den küçük gösteren hesap katılamaz."
-`UserProfile.BirthYear` (`Persistence/Entities/Profile/UserProfile.cs:15`) is optional. A player whose birth year makes them younger than
-`League:MinAge` (18) in the current Istanbul year (`year − birthYear < 18`: the year shows the player under 18; someone born in 2008 may join in 2026, since a year alone cannot say whether the birthday has passed) cannot join
-(403 `League.AgeRestricted`), and no entry is created if such a year is set later (`AgeRestricted`). An unknown birth year may join: the consent
+`UserProfile.BirthYear` (`Persistence/Entities/Profile/UserProfile.cs:15`) is optional. The rule is **strict** (task L3, the owner's
+correction of PR 1): a known birth year blocks unless the player is certainly of age, `year − birthYear <= League:MinAge` (18) in the current
+Istanbul year. A year alone cannot say whether the birthday has passed, so someone born in 2008 waits until 2027 even if they turned 18 in
+2026; that is the accepted cost. Such a player cannot join (403 `League.AgeRestricted`), and no entry is created if such a year is set later
+(`AgeRestricted`), by the same `LeagueRules.IsUnderAge`. An unknown birth year may join: the consent
 sentence "Katılarak 18 yaşından büyük olduğunu onaylarsın" is the declaration, and there is no separate age gate.
 
 **Records for counsel.** `docs/privacy-notes.md` gets a section "League": the consent (and that counsel has not reviewed it), the 18+
@@ -800,7 +802,7 @@ the consent texts and the alias word lists (versioned in code, pinned by tests).
 | 2 | Consent text | the owner's text, version `2026-11-v1`; counsel review open | 4 |
 | 3 | "En iyi kombin 70" | the formula stays; 70 only from N = 36 | 9 |
 | 4 | Small groups | `min(5, floor(competed / 3))` each | 10 |
-| 5 | Minors | birth year under 18 cannot join; unknown may; the consent is the declaration | 4 |
+| 5 | Minors | a known birth year joins only when certainly 18 (`year − birthYear > 18`, strict since task L3); unknown may; the consent is the declaration | 4 |
 | 6 | Revoking the creator right | v1 never revokes; the columns stay unwritten | 11 |
 | 7 | Near rule | one piece swapped, added or removed, accessories ignored | 5 |
 | 8 | After 21:00 | a wear earns nothing that day; a piece counts for the next day | 9 |

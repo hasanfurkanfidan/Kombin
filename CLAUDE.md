@@ -655,8 +655,9 @@ External Python workers (a separate repo) push the catalog through the internal 
 - **Consent:** versioned and append-only like the posting consent (`LeagueConsent.Versions`, hash pinned in `LeagueConsentTests`, glossary-checked).
   Version `2026-11-v1` is the owner's text, whose last sentence is the 18+ declaration; counsel has not reviewed it (privacy notes, question 17).
   Every join writes a `league.consents` row with the exact text; leaving writes a `Leave` row. Joining again under the current version is a no-op.
-- **Age:** a birth year that shows the caller under `League:MinAge` (`LeagueRules.IsUnderAge`: `year − birthYear < 18`) is 403
-  `League.AgeRestricted`; an unknown year may join (the consent is the declaration). No other age gate.
+- **Age (strict):** a known birth year blocks unless the caller is certainly of age (`LeagueRules.IsUnderAge`: `year − birthYear <= League:MinAge`,
+  in the Istanbul year; born 2008 waits until 2027): 403 `League.AgeRestricted` on join, and entry reason `AgeRestricted` for a player whose year
+  is set later. An unknown year may join (the consent is the declaration). No other age gate.
 - **Anonymity is the contract.** No league response may ever carry another player's user ID, name, e-mail, entry ID or wardrobe storage key;
   group tables show a generated per-week alias. Wardrobe keys contain the owner's ID (`StorageKeys.Build`), so league images will be copies
   under random keys. **Account deletion:** every league table cascades on the user; `AccountPurger` deletes the league image copies first
