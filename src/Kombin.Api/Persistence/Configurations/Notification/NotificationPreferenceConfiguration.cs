@@ -13,6 +13,7 @@ internal sealed class NotificationPreferenceConfiguration : IEntityTypeConfigura
         builder.HasKey(preference => preference.UserId);
         builder.Property(preference => preference.UserId).ValueGeneratedNever();
 
+        builder.Property(preference => preference.LeagueResults).HasDefaultValue(true);
         builder.Property(preference => preference.QuietHoursStart).HasColumnType("time without time zone");
         builder.Property(preference => preference.QuietHoursEnd).HasColumnType("time without time zone");
 

@@ -19,6 +19,9 @@ internal sealed class NotificationPreference : IAuditable
 
     public int MaxRecommendationsPerWeek { get; set; } = DefaultMaxRecommendationsPerWeek;
 
+    /// <summary>The evening result of Kombin Ligi.</summary>
+    public bool LeagueResults { get; set; } = true;
+
     /// <summary>Local time in Europe/Istanbul; both or neither. The interval may wrap past midnight.</summary>
     public TimeOnly? QuietHoursStart { get; set; }
 

@@ -78,6 +78,51 @@ internal static class LeagueClientExtensions
         return new DateOnly(2040, 1, 1).AddDays((last - steps + 1) * 3);
     }
 
+    /// <summary>The first Monday of a run of three weeks of the test's own.</summary>
+    public static DateOnly NewMonday()
+    {
+        var first = NewBlock(21);
+        return first.AddDays(((int)DayOfWeek.Monday - (int)first.DayOfWeek + 7) % 7);
+    }
+
+    /// <summary>Marks <paramref name="days"/> days from <paramref name="from"/> closed, as the day close would (no results are computed).</summary>
+    public static Task<int> CloseDaysDirectlyAsync(this ApiFactory factory, DateOnly from, int days = 7, CancellationToken cancellationToken = default) => factory.WithDbAsync(async db =>
+    {
+        foreach (var day in Enumerable.Range(0, days).Select(from.AddDays))
+        {
+            await db.Database.ExecuteSqlAsync(
+                $"INSERT INTO league.days (day, closes_at, closed_at, ranked_count, engine_count, pair_count, bt_iterations, bt_converged, close_ms) VALUES ({day}, {Time(day, 21)}, {Time(day, 21, 1)}, 30, 0, 0, 0, true, 0) ON CONFLICT (day) DO UPDATE SET closed_at = excluded.closed_at",
+                cancellationToken);
+        }
+
+        return 0;
+    });
+
+    /// <summary>Result rows as a day close stores them, one per given total from <paramref name="from"/> on: 10 worn points plus vote points, competed when above zero.</summary>
+    public static Task<int> InsertWeekScoresAsync(this ApiFactory factory, Guid userId, DateOnly from, params int[] totals) => factory.WithDbAsync(async db =>
+    {
+        db.LeagueDailyScores.AddRange(totals.Select((total, offset) => new LeagueDailyScore
+        {
+            UserId = userId,
+            Day = from.AddDays(offset),
+            Competed = total > 0,
+            WornPoints = total > 0 ? 10 : 0,
+            VotePoints = Math.Max(0, Math.Min(70, total - 10)),
+            Total = total > 0 ? 10 + Math.Max(0, Math.Min(70, total - 10)) : 0,
+        }));
+        return await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+    });
+
+    /// <summary>The caller's <c>GET /league/table</c>, asserting a 200.</summary>
+    public static async Task<JsonElement> TableOkAsync(this HttpClient client, CancellationToken cancellationToken)
+    {
+        using var response = await client.GetAsync("/api/v1/league/table", cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        Assert.True(response.StatusCode == HttpStatusCode.OK, body);
+
+        return JsonDocument.Parse(body).RootElement.Clone();
+    }
+
     /// <summary>Closes <paramref name="day"/> with the close the job and the internal endpoint use, at <paramref name="now"/>.</summary>
     public static Task<DayCloseResult> CloseDayAsync(this ApiFactory factory, DateOnly day, DateTimeOffset now, CancellationToken cancellationToken) =>
         factory.RunJobAsync<DayCloser, DayCloseResult>(closer => closer.CloseAsync(day, now, cancellationToken));

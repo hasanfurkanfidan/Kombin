@@ -5,8 +5,8 @@ competes, aliases in the table, 18+, the win rate after a vote; quoted as "the r
 `Tasarım/kombin-ligi/01-05` are context only. This document changes no rule. The owner's answers to the open questions of the first draft
 (task L1) are written into the sections they belong to; one question remains [open](#open-questions).
 
-Status: accepted (task L2). PR 1 (foundations, task L2), PR 2 (entering and voting, task L3) and PR 3 (day close, points, results, task L4) are
-implemented; PR 4 (weeks, aliases, style score, reviews, the push, the metrics) is design. "Not verified" marks a statement about behaviour I
+Status: accepted (task L2). PR 1 (foundations, task L2), PR 2 (entering and voting, task L3), PR 3 (day close, points, results, task L4) and PR 4
+(weeks, aliases, style score, reviews, the push, the metrics, task L5) are implemented. "Not verified" marks a statement about behaviour I
 did not read in the code.
 
 ---
@@ -923,6 +923,56 @@ change. The push copy, in `Features/Notification/Copy.cs` (owner's text):
 `StyleScoreTests` (the formula, days with fewer than 30 ranked skipped, 4 consecutive weeks, never cleared), `CopyGlossaryTests` (the aliases
 and the push copy), `MetricSqlTests` (the job's metrics unchanged); integration: a full week, a mid-week joiner, review restore/remove,
 `LeagueAnonymityTests` (table; the same player has different aliases in two weeks), the push respects the preference.
+
+*As built (task L5).* `WeeklyTable`, `GroupFormation`, `LeagueAliases`, `StyleScore` (pure, in `Rules/`), `WeekCloser` (one transaction under
+`pg_try_advisory_xact_lock(0x4B4F4D42, 3)`), `LeagueGroups` (the week rows and the mid-week placement), `LeagueTables` (the table read model),
+`GET /league/table`, `week` in `GET /league/me` and `GET /league/results`, `GET /internal/league/review-queue` and
+`POST /internal/league/entries/{entryId}/review` (over `LeagueEntryReviewer`, which came with the PR 3 fix), and Notification's `league-results`
+job with the `LeagueResult` kind and the `leagueResults` preference (migration `LeagueWeeks`: the preference column and a partial index on the
+results not pushed yet), and the six `-- league:` blocks of `docs/metrics.sql` with the `MetricSql.Parse` change (a line starting `-- league:`
+closes the job's current block; the section opens with one, so its header comment never lands in the job's last metric;
+`AnalyticsRulesTests` pins that the job still sees the same four metrics, and `LeagueMetricsSqlTests` runs every league block against the schema).
+The league blocks take `:day_start` / `:day_end` (dates) and return named counts, not a (numerator, denominator) pair. The decisions:
+
+- **When weeks close**: `league-close`, after the days of its window, closes every week whose Sunday is in the window (seven days closed, Sunday's
+  21:00 passed), oldest first; a failure stops the run and the next hour retries. The internal day-close endpoint closes the day only (not the
+  week), so an operator's hand close never runs the week's idleness over the whole database by surprise; the next hourly run closes the week.
+- **Who is in a group**: a player is placed (the mid-week rule) when they join, when they open `GET /league/me` or `GET /league/table`, and by
+  the day close for every player with a result that day who is in no group of that week (someone who only wore an outfit). The week close forms
+  the next week's groups from the players with a result row in the closing week, at their new tier; anyone already placed there (a join after
+  Sunday's close) keeps their group. Leaving takes the player off the current week's group (a closed week keeps its final table); joining again
+  places them again with a new alias; the player row, the consents and every result stay (one history).
+- **Ties**: points, the seven-day sum, competed days, then an FNV hash of (week, user), so every rank is distinct and stable; the hash also cuts the
+  groups. Group sizes differ by at most one.
+- **Idleness** counts every joined player without a competed day, in a group or not; the second idle week in a row costs one tier (Bronze stays) and
+  restarts the count.
+- **Results under review count in the week** with their stored points (the PR 3 fix); a removal after the close lowers the live week total
+  because the table is computed from the daily rows; a closed week is not undone.
+- **The table**: an open week is computed on read (the live rank moves at each close and is stored only at the week close); a closed week shows
+  what its close stored, renumbered 1..n so a deleted account leaves no gap and no other rank changes. Between Sunday's close and Monday 00:00 the
+  table is last week's final one. `todayPoints` is today's total once today is closed (without vote points held back by a review), else the
+  usage points earned so far. Rows are `{ rank, points, isMe, alias }` and nothing else.
+- **Aliases**: 18 colours × 16 garments (288), drawn with `RandomNumberGenerator`, unique in the group, never the player's alias of the week before.
+  They are the one random part of a week close; points, ranks, outcomes, tiers and groups are decided by the rows in a fixed order.
+- **Style score**: computed at every week close for every player with a result in the 90 days before the week's end (or a score row): only ranked
+  days not under review whose day ranked at least 30 outfits; `qualifying_weeks` and the never-cleared `league_eligible_at` as section 11 says;
+  "no entry removed in the last 90 days" means an entry with status `Removed`.
+- **The review queue** has no admin page (section 13: "An admin page is later work"); the internal endpoints call `LeagueEntryReviewer`, which
+  writes the `admin.audit_log` row (actor `internal-key` for the internal route) in its own transaction, so a page can call it later unchanged.
+- **The result push** (`league-results`, every 5 minutes): only for days closed in the last 12 hours (21:00 to 09:00; later, "Bugünkü kombinin"
+  would be wrong), once per player and day (`daily_scores.notified_at` set in the same transaction as the notification row, dedupe key
+  `league:{day}`), through the alert dispatcher's rules (preference, device, quiet hours); never for a player who left, is disabled or whose
+  deletion is pending, nor for a result removed by a review; a result under review waits and is pushed if restored within the window. The
+  window is Notification's constant, not a `League:*` setting.
+
+*Where it differs from this note:* the internal close does not close the week (above) and its response has no `weekClosed`; the review decision
+is `Restore` or `Remove` as section 12 says (the brief's "clear" is `Restore`); `GET /league/results` gained `status` and `message` (the PR 3 fix);
+the review queue items carry `status` and `underReview` besides section 12's fields; `LeagueTableRow` ranks are positions (distinct), never shared.
+
+*Measured* (`LeaguePerformanceTests`, `KOMBIN_PERF=1`, own container, quiet machine): the week close of 1,000 players 1.86 s and of 10,000 players
+3.67 s (estimate ~3 s; budget 30 s, the day close's); `GET /league/table` p95 10.3 ms at 10,000 players in groups of 30 (budget 100 ms, the
+pairing's). On the same run: `pairs/next` p95 21.9 ms; the day close 0.44 s at 1,000 players and 2.15 s at 10,000 (it now also places the 10,000
+players of the seed, who were in no group: 1.32 s before the placement).
 
 ### Settings (`League:*` unless noted; every number above)
 

@@ -29,7 +29,7 @@ internal enum LeagueResultStatus
     Removed,
 }
 
-/// <summary>The caller's week (tier, group rank, points to the promotion line, when it ends). Always null until the weekly leagues (league PR 4).</summary>
+/// <summary>The caller's week of that day (their tier, place in the group, points to the promotion line, when it ends); null when they were in no group.</summary>
 internal sealed record LeagueResultsWeekResponse(LeagueTier Tier, int GroupRank, int? PointsToPromotion, DateTimeOffset EndsAt);
 
 /// <summary>
@@ -146,6 +146,8 @@ internal static class GetResultsEndpoint
                 score.PiecePoints,
                 held ? score.Total - score.VotePoints : score.Total),
             pieceDays < options.Points.PieceDaysPerWeek,
-            null));
+            await LeagueTables.ForMemberAsync(db, options, score.UserId, LeagueDays.WeekStart(score.Day), cancellationToken) is { } week
+                ? new LeagueResultsWeekResponse(week.Tier, week.MyRank, week.PointsToPromotion, week.EndsAt)
+                : null));
     }
 }

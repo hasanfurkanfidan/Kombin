@@ -52,6 +52,12 @@ internal static class LeaveLeagueEndpoint
             dayOpen = !await db.LeagueDays.AnyAsync(row => row.Day == today && row.ClosedAt != null, cancellationToken);
         }
 
+        // Off the current week's group table (a closed week keeps its final table).
+        var week = LeagueGroups.PlacementWeek(now, options.Value.DayClosesAt);
+        await db.LeagueGroupMembers
+            .Where(member => member.UserId == userId && member.WeekStart == week && !db.LeagueWeeks.Any(row => row.WeekStart == week && row.ClosedAt != null))
+            .ExecuteDeleteAsync(cancellationToken);
+
         player.LeftAt = now;
         db.LeagueConsents.Add(new LeagueConsentRecord { UserId = userId, Action = LeagueConsentAction.Leave, At = now });
         await db.SaveChangesAsync(cancellationToken);

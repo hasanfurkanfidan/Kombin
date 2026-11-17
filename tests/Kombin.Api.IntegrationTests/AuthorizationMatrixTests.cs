@@ -204,6 +204,8 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
         ["GET /api/v1/league/results"] = Probe(
             w => new HttpRequestMessage(HttpMethod.Get, $"/api/v1/league/results?day={w.LeagueResultsDay.Iso()}"),
             [HttpStatusCode.NotFound]),
+        // B's own group table this week (B is a player): rows carry only rank, points, isMe and the weekly alias, never A's identifiers.
+        ["GET /api/v1/league/table"] = ScopedRead("/api/v1/league/table"),
         ["GET /api/v1/league/results/latest"] = Probe(
             w => new HttpRequestMessage(HttpMethod.Get, "/api/v1/league/results/latest"),
             [HttpStatusCode.NotFound]),

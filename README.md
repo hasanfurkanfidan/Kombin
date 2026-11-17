@@ -210,7 +210,7 @@ goes through the **Expo Push Service**: the app registers Expo push tokens, the 
 |---|---|---|---|
 | PUT | `/me/devices` | 204; body `{ expoPushToken, platform: Ios\|Android, appVersion?, deviceName? }`; upsert, a token moves to the caller if it belonged to someone else | 400 validation, 400 `Notification.InvalidPushToken` |
 | DELETE | `/me/devices/{token}` | 204, idempotent (URL-encode the token); call it on logout | - |
-| GET | `/me/notification-preferences` | 200 `{ priceAlerts, stockAlerts, recommendations, maxRecommendationsPerWeek, quietHoursStart, quietHoursEnd, timeZone, updatedAt }`, created with the defaults on first read | - |
+| GET | `/me/notification-preferences` | 200 `{ priceAlerts, stockAlerts, recommendations, maxRecommendationsPerWeek, leagueResults, quietHoursStart, quietHoursEnd, timeZone, updatedAt }`, created with the defaults on first read | - |
 | PUT | `/me/notification-preferences` | 200 same shape; every field optional (`clearQuietHours: true` removes the quiet hours); times are `HH:mm` in `Europe/Istanbul` | 400 validation (`maxRecommendationsPerWeek` 0-7), 400 `Notification.QuietHoursIncomplete` |
 | GET | `/me/notifications?page=&pageSize=` | 200 paged feed, newest first, everything except `Failed`: `{ id, kind, title, body, data, createdAt, readAt, status }` | - |
 | GET | `/me/notifications/unread-count` | 200 `{ count }` | - |
@@ -233,6 +233,7 @@ The push payload's `data` additionally carries `notificationId` and `kind`, so t
 | `push-sender` | every minute | sends due notifications to Expo in batches of 100, one message per device; a dead device is deactivated; a failed call is retried, the 5th failure fails the notification |
 | `push-receipts` | every 15 min | asks Expo what became of pushes sent 15 min - 24 h ago |
 | `weekly-matches` | Sunday 19:00 `Europe/Istanbul` | top 3 products added in the last 7 days that score at least 70 for the user's active persona, at most `maxRecommendationsPerWeek` per week |
+| `league-results` | every 5 minutes | the Kombin Ligi evening result ("Kombin Ligi sonuçları" / "Bugünkü kombinin {rank}. oldu. Puanın {total}." or "Bugün yeterli oy toplanamadı. Puanın {total}."), once per player and day, within 12 hours of the day's close; `leagueResults` off, a player who left, a result removed by a review → nothing; a result under review waits for the review |
 
 Configuration: `Hangfire__Enabled` (compose: `HANGFIRE_ENABLED`, default true), `Expo__AccessToken` (compose: `EXPO_ACCESS_TOKEN`, optional).
 
@@ -550,8 +551,8 @@ Measured by `LensPerformanceTests` (50k products, one region, `KOMBIN_PERF=1`, v
 
 Design: `docs/design/league.md`. **Off by default**: with `League:Enabled` false (env `League__Enabled`) every route below answers 404
 `League.Disabled`; configuration switches it on when the app screens ship. Task L2 built the foundations (schema `league`, the settings, the
-consent, joining and leaving); task L3 the entries and the voting; task L4 the 21:00 day close, the daily points and the results. The weekly
-tables come next. Signed in.
+consent, joining and leaving); task L3 the entries and the voting; task L4 the 21:00 day close, the daily points and the results; task L5 the
+weeks, the group table, the review queue and the evening result push. Signed in.
 
 | Method | Route | Success | Errors |
 |---|---|---|---|
@@ -563,6 +564,9 @@ tables come next. Signed in.
 | POST | `/league/pairs/{pairId}/vote` | 200 `{ counted, chosenWinRate, chosenGames, countedToday, servedToday, target, limit }`. Body `{ choice: "left" \| "right" \| "skip", decisionMs }`; the same vote again returns the result | 400; 404 `League.PairNotFound`; 409 `League.AlreadyVoted`, `League.DayClosed` |
 | GET | `/league/results?day=yyyy-MM-dd` | 200 `{ day, status, message, entry: { pieces } \| null, competed, ranked, rank, rankedCount, comparisons, points: { votes, voting, worn, pieces, total }, piecePointsAvailable, week }` for the caller's own closed day. `status`: `Final`, `UnderReview` (reported, waiting for a review: `ranked`, `rank`, `points.votes` null, `total` = usage points, `message` "Kombinin inceleniyor. Sonuç inceleme bitince görünecek.") or `Removed` (taken out by a review after the close: no rank, 0 vote points) | 400 `League.InvalidDay`; 404 `League.ResultsNotReady` (not closed, or no entry and no points that day) |
 | GET | `/league/results/latest` | 200 same shape, the caller's latest closed day with a result | 404 `League.ResultsNotReady` |
+| GET | `/league/table` | 200 `{ weekStart, endsAt, tier, todayPoints, todayIsFinal, promoteCount, relegateCount, tierUp, tierDown, size, rows: [{ rank, points, isMe, alias }] }`: the caller's group this week (last week's final table between Sunday's close and Monday 00:00); the rows carry the weekly alias only | 403 `League.NotJoined`; 404 `League.NoGroup` |
+| GET | `/internal/league/review-queue` | 200 `[{ entryId, day, status, countingReports, reports, underReview, pieces }]` (internal key): reported outfits not removed, oldest report first, at most 100 | 401 |
+| POST | `/internal/league/entries/{entryId}/review` | 200 `{ entryId, status, resultChanged }` (internal key). Body `{ decision: "Restore" \| "Remove" }`; written to `admin.audit_log` (actor `internal-key`) | 400; 401; 404 `League.EntryNotFound`; 409 `League.NotReviewable` |
 | POST | `/internal/league/days/{date}/close` | 200 `{ day, closedNow, closedAt, rankedCount, engineCount, pairCount, btIterations, btConverged, closeMs }` (internal key); closing a closed day changes nothing (`closedNow: false`) | 400 `League.InvalidDay`; 401; 409 `League.DayNotOver`, `League.CloseInProgress` |
 | POST | `/league/pairs/{pairId}/report` | 202 `{ reported: true }`. Body `{ side: "left" \| "right", reason? }` (`Inappropriate`, `NotClothing`, `Other`); an open pair is used up as a skip | 400; 404 `League.PairNotFound`; 409 `League.AlreadyReported` |
 
@@ -581,6 +585,7 @@ tables come next. Signed in.
 | `league-entries` | every minute | resolves the players who wore an outfit in the last 10 minutes and those whose entry waits for the image safety check (asking it for at most 50 pieces a run); copies the thumbnails of a competing entry; deletes the copies of withdrawn and removed entries |
 | `league-fill` | every 15 minutes, 00:00-20:45 Istanbul | tops a small pool (fewer than 30 competing players' outfits per audience and occasion) up with catalog-only engine outfits, at most 20 per bucket a run |
 | `league-close` | hourly at :00 Istanbul | closes, oldest first, every day of the last 7 whose 21:00 has passed and that is not closed: Bradley–Terry over the day's counted votes, rank and percentile of the outfits with at least 8 of them, every player's daily points (votes up to 70, voting on 10 pairs 15, worn 10, a piece 5 on at most 3 days a week); one transaction under an advisory lock |
+| `league-close` (weeks) | after Sunday's day close, in the same run | the week's final tables (best 5 of 7 days), promotion and relegation (`min(5, floor(competed / 3))`, Bronze does not go down, Diamond does not go up), two idle weeks cost a tier, next week's groups of about 30 (tiers under 15 players merged, labels kept, new aliases), the style scores |
 | `league-purge` | daily 04:15 Istanbul | deletes the image copies 7 days after their day, votes and the voters' day counters 30 days and entries 90 days after a closed day, and copies under `league/` no entry names once a day old |
 
 The jobs are registered only when `League:Enabled` is true. Measured by `LeaguePerformanceTests` (`KOMBIN_PERF=1`): `pairs/next` p95 23.7 ms at

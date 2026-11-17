@@ -25,13 +25,16 @@ internal sealed record LeagueTodayEntryResponse(LeagueEntryStatus Status, League
 internal sealed record LeagueTodayResponse(
     DateOnly Day, DateTimeOffset ClosesAt, LeagueTodayEntryResponse? Entry, int ServedPairs, int CountedVotes, int Target, int Limit);
 
-/// <summary>The caller's week in their group (rank, size, points, points to the promotion line). Always null until the weekly leagues exist.</summary>
+/// <summary>
+/// The caller's week in their group: place, group size, week points so far (the best five closed days), points to the promotion line ("5. sıraya
+/// 17 puan"; null inside the band or without one) and when the week ends. Null for a player in no group this week.
+/// </summary>
 internal sealed record LeagueWeekResponse(int GroupRank, int GroupSize, int Points, int? PointsToPromotion, DateTimeOffset EndsAt);
 
 /// <summary>
 /// The caller's league state. <c>Joined</c>: in the league now. <c>ConsentRequired</c>: the join screen must be shown (never joined, left, or
 /// joined under an older consent version). <c>Tier</c> is null for someone who never joined; a player who left keeps theirs. <c>Today</c>: the
-/// day's entry and votes. <c>Week</c>: null for now (the weekly groups come later).
+/// day's entry and votes. <c>Week</c>: the caller's group this week (null when not in one).
 /// </summary>
 internal sealed record LeagueMeResponse(
     bool Joined,
@@ -68,7 +71,15 @@ internal static partial class GetLeagueMeEndpoint
             player?.Tier,
             joined ? player!.JoinedAt : null,
             await TodayAsync(db, storage, options, userId, now, cancellationToken),
-            null);
+            joined ? await WeekAsync(db, options, userId, now, cancellationToken) : null);
+    }
+
+    private static async Task<LeagueWeekResponse?> WeekAsync(KombinDbContext db, LeagueOptions options, Guid userId, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        await LeagueGroups.PlaceOneAsync(db, options, userId, now, cancellationToken);
+        var view = await LeagueTables.ForMemberAsync(db, options, userId, LeagueDays.WeekStart(Istanbul.Today(now)), cancellationToken);
+
+        return view is null ? null : new LeagueWeekResponse(view.MyRank, view.Rows.Count, view.MyPoints, view.PointsToPromotion, view.EndsAt);
     }
 
     private static async Task<LeagueTodayResponse> TodayAsync(

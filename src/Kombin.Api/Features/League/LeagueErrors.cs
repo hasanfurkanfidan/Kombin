@@ -34,6 +34,18 @@ internal static class LeagueErrors
     public static readonly Error AlreadyReported =
         Error.Conflict("League.AlreadyReported", "You already reported this outfit.");
 
+    /// <summary>The caller is in no group this week (joined after Sunday's close: their group starts on Monday).</summary>
+    public static readonly Error NoGroup =
+        Error.NotFound("League.NoGroup", "You are not in a league group this week yet.");
+
+    /// <summary>No such player outfit (engine outfits are never reviewed).</summary>
+    public static readonly Error EntryNotFound =
+        Error.NotFound("League.EntryNotFound", "League entry not found.");
+
+    /// <summary>A removed outfit cannot be restored: removal is final.</summary>
+    public static readonly Error NotReviewable =
+        Error.Conflict("League.NotReviewable", "This outfit was removed; a removal is final.");
+
     /// <summary>The day is not closed yet, or the caller has no result on it (no entry and no points).</summary>
     public static readonly Error ResultsNotReady =
         Error.NotFound("League.ResultsNotReady", "There are no results for you on this day.");

@@ -150,7 +150,10 @@ public sealed class LeagueCloseTests(ApiFactory factory)
         Assert.Equal(mine.Total, result.GetProperty("points").GetProperty("total").GetInt32());
         Assert.Equal(3, result.GetProperty("entry").GetProperty("pieces").GetArrayLength());
         Assert.True(result.GetProperty("piecePointsAvailable").GetBoolean());
-        Assert.Equal(JsonValueKind.Null, result.GetProperty("week").ValueKind);
+        // The close placed every player with a result in a group of the week (task L5): one Bronze group of the twelve.
+        var week = result.GetProperty("week");
+        Assert.Equal("Bronze", week.GetProperty("tier").GetString());
+        Assert.InRange(week.GetProperty("groupRank").GetInt32(), 1, 12);
         foreach (var other in players.Skip(1))
         {
             Assert.DoesNotContain(other.Id.ToString(), text, StringComparison.OrdinalIgnoreCase);

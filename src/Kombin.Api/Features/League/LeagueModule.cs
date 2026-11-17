@@ -6,7 +6,10 @@ using Kombin.Api.Common.Results;
 using Kombin.Api.Common.Time;
 using Kombin.Api.Features.League.GetMe;
 using Kombin.Api.Features.League.GetResults;
+using Kombin.Api.Features.League.GetTable;
 using Kombin.Api.Features.League.Internal.CloseDay;
+using Kombin.Api.Features.League.Internal.Review;
+using Kombin.Api.Features.League.Internal.ReviewQueue;
 using Kombin.Api.Features.League.Jobs;
 using Kombin.Api.Features.League.Join;
 using Kombin.Api.Features.League.Leave;
@@ -36,6 +39,7 @@ internal static class LeagueModule
         services.AddScoped<LeagueFillJob>();
         services.AddScoped<DayCloser>();
         services.AddScoped<LeagueEntryReviewer>();
+        services.AddScoped<WeekCloser>();
         services.AddScoped<LeagueCloseJob>();
         services.AddScoped<LeaguePurgeJob>();
 
@@ -60,6 +64,7 @@ internal static class LeagueModule
         WithdrawEntryEndpoint.Map(league);
 
         GetResultsEndpoint.Map(league);
+        GetTableEndpoint.Map(league);
 
         var voting = league.MapGroup(string.Empty).RequireRateLimiting(RateLimitPolicies.League);
         NextPairEndpoint.Map(voting);
@@ -72,6 +77,8 @@ internal static class LeagueModule
             .RequireInternalKey()
             .AddEndpointFilter<RouteGroupBuilder, LeagueEnabledFilter>();
         CloseDayEndpoint.Map(internalLeague);
+        ReviewQueueEndpoint.Map(internalLeague);
+        ReviewEntryEndpoint.Map(internalLeague);
 
         return app;
     }

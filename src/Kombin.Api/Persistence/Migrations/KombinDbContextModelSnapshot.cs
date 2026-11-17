@@ -1530,6 +1530,10 @@ namespace Kombin.Api.Persistence.Migrations
                     b.HasIndex("EntryId")
                         .HasDatabaseName("ix_daily_scores_entry_id");
 
+                    b.HasIndex(new[] { "Day" }, "ix_daily_scores_day_unnotified")
+                        .HasDatabaseName("ix_daily_scores_day_unnotified")
+                        .HasFilter("notified_at IS NULL");
+
                     b.ToTable("daily_scores", "league", t =>
                         {
                             t.HasCheckConstraint("ck_daily_scores_parts", "vote_points BETWEEN 0 AND 70 AND voting_points IN (0, 15) AND worn_points IN (0, 10) AND piece_points IN (0, 5)");
@@ -2412,6 +2416,12 @@ namespace Kombin.Api.Persistence.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
+
+                    b.Property<bool>("LeagueResults")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("league_results");
 
                     b.Property<int>("MaxRecommendationsPerWeek")
                         .HasColumnType("integer")

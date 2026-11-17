@@ -65,8 +65,9 @@ internal sealed record DayCloseResult(
 /// pending) who had an entry that day or earned a point (<see cref="DailyPoints.For"/>). <c>competed</c> is true for every entry still
 /// <c>Competing</c> at the close, ranked or not: the repeat rule reads it. The voting points come from the voter's own counter
 /// (<c>league.voter_days</c>), so pairs deleted with another account during the day cost the voter nothing.</item>
-/// <item><b>Writes</b>: the entries' strength, percentile and rank, the score rows (one statement each, from arrays), the engine preference rows
-/// (no user ID), the day row's numbers and <c>closed_at</c>. Then the commit.</item>
+/// <item><b>Writes</b>: the entries' strength, percentile and rank, the score rows (one statement each, from arrays), the group placement of every
+/// player with a row who is in no group of the week yet (<see cref="LeagueGroups.PlaceAsync"/>, task L5), the engine preference rows (no user ID),
+/// the day row's numbers and <c>closed_at</c>. Then the commit.</item>
 /// </list>
 /// Determinism: entries and pairs are read in ID order, the fit and the ranking are pure and ordered, and nothing depends on the clock but
 /// <c>closed_at</c> and <c>close_ms</c>, so the same rows give the same strengths, percentiles, ranks and points.
@@ -119,6 +120,9 @@ internal sealed partial class DayCloser(KombinDbContext db, IOptions<LeagueOptio
 
         await WriteEntriesAsync(input, outcome, now, cancellationToken);
         await WriteScoresAsync(day, outcome, cancellationToken);
+
+        // Everyone with a result this day is in a group of its week (a player who only wore an outfit and never opened the league screen too).
+        await LeagueGroups.PlaceAsync(db, settings, LeagueDays.WeekStart(day), [.. outcome.Scores.Select(score => score.UserId)], now, cancellationToken);
         db.LeagueEnginePreferences.AddRange(outcome.EnginePreferences);
 
         dayRow.ClosedAt = now;

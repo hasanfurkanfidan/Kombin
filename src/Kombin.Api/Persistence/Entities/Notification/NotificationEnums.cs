@@ -13,6 +13,9 @@ internal enum NotificationKind
     AnyChange,
     NewMatches,
     System,
+
+    /// <summary>The evening result of Kombin Ligi (the league's result push).</summary>
+    LeagueResult,
 }
 
 internal enum NotificationStatus

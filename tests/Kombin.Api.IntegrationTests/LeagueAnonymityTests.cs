@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
+using System.Text.Json;
 using Kombin.Api.Features.League;
 using Kombin.Api.Features.Recommendation;
 using Kombin.Api.Persistence.Entities.League;
@@ -122,6 +123,57 @@ public sealed class LeagueAnonymityTests(ApiFactory factory)
         var sourceHashes = outfit.ThumbKeys.Concat(others.ThumbKeys).Select(key => Convert.ToHexString(SHA256.HashData(factory.Storage.Find(key)!.Content))).ToList();
         Assert.Equal(6, copyHashes.Distinct().Count());
         Assert.Empty(copyHashes.Intersect(sourceHashes));
+    }
+
+    /// <summary>
+    /// The weekly table (task L5): player B sees player A only as a row <c>{ rank, points, isMe, alias }</c>: no user ID, name, e-mail or entry ID,
+    /// nothing that names a day or an outfit, so a row cannot be matched to an entry of the day. A's alias is new the next week.
+    /// </summary>
+    [Fact]
+    public async Task TheTableShowsOnlyAWeeklyAliasThatChangesEveryWeek()
+    {
+        var monday = NewMonday();
+        var email = ApiClientExtensions.NewEmail();
+        var displayName = $"Tablo Oyuncusu {Guid.NewGuid():N}"[..24];
+        using var ownerClient = factory.CreateAnonymousClient();
+        using (var registered = await ownerClient.RegisterAsync(email, displayName: displayName, cancellationToken: Ct))
+        {
+            ownerClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", (await registered.ReadTokensAsync(Ct)).AccessToken);
+        }
+
+        var ownerId = (await ownerClient.GetJsonAsync("/api/v1/me", Ct)).GetProperty("id").GetGuid();
+        ownerClient.At(Time(monday, 12));
+        await ownerClient.JoinLeagueOkAsync(Ct);
+        var entryId = await factory.InsertEntryAsync(monday, ownerId, cancellationToken: Ct);
+        using var viewer = await factory.CreatePlayerAsync(monday, Ct);
+        await factory.InsertWeekScoresAsync(ownerId, monday, 60);
+        await factory.InsertWeekScoresAsync(viewer.Id, monday, 40);
+
+        var bodies = new List<string> { (await viewer.Client.At(Time(monday.AddDays(2), 12)).TableOkAsync(Ct)).GetRawText() };
+        await factory.CloseDaysDirectlyAsync(monday, 7, Ct);
+        await factory.RunJobAsync<WeekCloser, WeekCloseResult>(closer => closer.CloseWeekAsync(monday, Time(monday.AddDays(6), 21, 5), [ownerId, viewer.Id], Ct));
+        bodies.Add((await viewer.Client.At(Time(monday.AddDays(6), 22)).TableOkAsync(Ct)).GetRawText());
+        bodies.Add((await viewer.Client.At(Time(monday.AddDays(7), 12)).TableOkAsync(Ct)).GetRawText());
+        bodies.Add((await viewer.Client.GetJsonAsync(Me, Ct)).GetRawText());
+
+        string[] secrets = [ownerId.ToString(), ownerId.ToString("N"), email, displayName, entryId.ToString()];
+        foreach (var body in bodies)
+        {
+            Assert.All(secrets, secret => Assert.False(body.Contains(secret, StringComparison.OrdinalIgnoreCase), $"player B was shown '{secret}': {body}"));
+            if (JsonDocument.Parse(body).RootElement.TryGetProperty("rows", out var rows))
+            {
+                // Nothing in a table names a day or an outfit.
+                Assert.DoesNotContain("\"day\"", body, StringComparison.Ordinal);
+                Assert.DoesNotContain("entry", body, StringComparison.OrdinalIgnoreCase);
+                Assert.All(rows.EnumerateArray(), row => Assert.Equal(["alias", "isMe", "points", "rank"], row.EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal)));
+            }
+        }
+
+        var aliases = await factory.WithDbAsync(db => db.LeagueGroupMembers.AsNoTracking().Where(member => member.UserId == ownerId).OrderBy(member => member.WeekStart).Select(member => member.Alias).ToListAsync(Ct));
+        Assert.Equal(2, aliases.Count);
+        Assert.NotEqual(aliases[0], aliases[1]);
+        Assert.Contains(aliases[0], bodies[1], StringComparison.Ordinal);
+        Assert.Contains(aliases[1], bodies[2], StringComparison.Ordinal);
     }
 
     /// <summary>A worn-able outfit of the owner's existing wardrobe items (top, bottom, shoes in that order), as the engine would store it.</summary>

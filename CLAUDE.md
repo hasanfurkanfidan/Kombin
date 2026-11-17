@@ -44,7 +44,8 @@ exist: `POST /internal/catalog/offers/upsert`, `POST /internal/catalog/offers/sw
 `POST /internal/notifications/test`,
 `GET /internal/analytics/weekly` (see Analytics rules), `PUT` and `DELETE /internal/social/creators/{userId}`, `GET /internal/social/review-queue`
 and `POST /internal/social/posts/{id}/review` (see Social rules), `POST /internal/identity/users/{userId}/disable` and `/enable` (see
-Identity rules), and `POST /internal/league/days/{date}/close` (see League rules).
+Identity rules), and `POST /internal/league/days/{date}/close`, `GET /internal/league/review-queue` and `POST /internal/league/entries/{entryId}/review`
+(see League rules).
 
 ## How to add a new use case
 
@@ -276,7 +277,7 @@ External Python workers (a separate repo) push the catalog through the internal 
 ## Notification rules
 
 - **What exists:** devices (Expo push tokens), per-user preferences, the `notification.notifications` table (it is both the push to
-  deliver and the in-app feed), four Hangfire jobs, and the push delivery through the **Expo Push Service**.
+  deliver and the in-app feed), five Hangfire jobs, and the push delivery through the **Expo Push Service**.
 - **Expo is the only push path.** The app registers Expo push tokens; the backend never talks to FCM or APNs. The client is a plain
   `HttpClient` behind `IExpoPushClient` (`Features/Notification/ExpoPushClient.cs`); it never throws on a non-2xx, it returns a
   result the job interprets, and tests replace it with a fake. `Expo:AccessToken` (env `Expo__AccessToken`) is optional and only
@@ -292,6 +293,7 @@ External Python workers (a separate repo) push the catalog through the internal 
   | `push-sender` | every minute | due `Pending` notifications → Expo, batches of 100 messages, one message per active device, one row per notification |
   | `push-receipts` | every 15 min | Expo receipts for `Sent` pushes 15 min - 24 h old, once each (`ReceiptCheckedAt`) |
   | `weekly-matches` | Sunday 19:00 `Europe/Istanbul` | per user with a device: top 3 new products (score ≥ 70) for the active persona → one `NewMatches` notification |
+  | `league-results` | every 5 min | Kombin Ligi's evening result: `league.daily_scores` rows of days closed in the last 12 h, not pushed (`notified_at`), not under review → one `LeagueResult` notification per player and day (`Copy.ForLeagueResult`, dedupe `league:{day}`, `DispatchRules.Decide`: the `LeagueResults` preference, devices, quiet hours); nothing for a player who left, is disabled or pending deletion, or a result removed by a review |
 
 - **Notifications are created by the jobs, never by request handlers** (the one exception is the internal QA endpoint
   `POST /internal/notifications/test`). Rules of the dispatcher, in order (`DispatchRules`, pure): preference for the kind off
@@ -357,7 +359,8 @@ External Python workers (a separate repo) push the catalog through the internal 
 - **Metrics have one source of truth: `docs/metrics.sql`.** It is embedded in the assembly (`MetricSql`; the Dockerfile copies it into the
   build) and each `-- name:` block is run with `:cohort_start`, `:cohort_end` and `:as_of` bound as Npgsql parameters, so what operators run
   by hand is what the job runs. An actor is `COALESCE(user_id::text, anonymous_id)`; a cohort is the actors whose first `app_open` falls in
-  `[cohort_start, cohort_end)`. Each block returns `(numerator, denominator)`. Change a metric there, and update the README table.
+  `[cohort_start, cohort_end)`. Each block returns `(numerator, denominator)`. Change a metric there, and update the README table. A line starting
+  `-- league:` closes the current block without opening one (`MetricSql.Parse`): the Kombin Ligi blocks after it are run by hand, never by the job.
 - **`WeeklyMetricsJob`** (plain class like the other jobs, `[DisableConcurrentExecution(60)]`, `[AutomaticRetry(Attempts = 0)]`, tests call
   `ComputeAsync(asOf, ct)`, registered by `UseAnalyticsJobs` behind `Hangfire:Enabled`, called in `Program.cs` after `UseCatalogJobs`) runs
   Monday 08:00 `Europe/Istanbul` (`weekly-metrics`) for the last 4 cohort weeks (Monday-based in Istanbul, `CohortWeeks`) and overwrites
@@ -648,14 +651,15 @@ External Python workers (a separate repo) push the catalog through the internal 
 
 ## League rules
 
-- **What exists (tasks L2, L3 and L4, PRs 1 to 3 of 4):** "Kombin Ligi" in `Features/League` (design and the owner's decisions: `docs/design/league.md`;
+- **What exists (tasks L2 to L5, all four PRs):** "Kombin Ligi" in `Features/League` (design and the owner's decisions: `docs/design/league.md`;
   the rules: `Tasarım/kombin-ligi-aritmetik.md`, a product decision: never change a rule in code, raise it). Schema `league` with all 14 tables
   of the design (players, consents, days, entries, entry_pieces, pairs, reports, daily_scores, weeks, groups, group_members, style_scores,
   engine_preferences, state) plus `voter_days` (task L4), `LeagueOptions`, `LeagueConsent`; `GET /api/v1/league/me` (with the `today` block), `POST /league/join`,
   `POST /league/leave`, `DELETE /league/me/entry`, `GET /league/pairs/next`, `POST /league/pairs/{pairId}/vote`, `POST /league/pairs/{pairId}/report`,
-  `GET /league/results?day=`, `GET /league/results/latest`, `POST /internal/league/days/{date}/close`; the jobs `league-entries`, `league-fill`,
-  `league-close` and `league-purge`. No table, weeks, aliases, style score, review endpoints or result push yet (PR 4; the push copy is already in
-  `Copy.ForLeagueResult`).
+  `GET /league/results?day=`, `GET /league/results/latest`, `GET /league/table`, `POST /internal/league/days/{date}/close`,
+  `GET /internal/league/review-queue`, `POST /internal/league/entries/{entryId}/review`; the jobs `league-entries`, `league-fill`, `league-close`
+  (days and weeks) and `league-purge`, Notification's `league-results`, and the `-- league:` first-month metric blocks of `docs/metrics.sql`
+  (run by hand, `LeagueMetricsSqlTests` runs them). Not built: an admin page for the review queue (the note: later work).
 - **Off by default.** `League:Enabled` (env `League__Enabled`) is false until the app screens ship: the routes stay mapped (OpenAPI, the
   authorization matrix) but `LeagueEnabledFilter` answers 404 `League.Disabled` first. `ApiFactory` switches it on; a test that needs it off
   builds its own host.
@@ -732,6 +736,21 @@ External Python workers (a separate repo) push the catalog through the internal 
   Every boundary is 21:00:00 Istanbul, half-open: a vote, a wear or a piece at 21:00:00 is past the day.
 - **Results** (`GET /league/results?day=`, `/results/latest`): the caller's own `daily_scores` row of a closed day and their own entry
   (`LeagueResponses.ForOwnerAsync`), nothing of anyone else; 404 `League.ResultsNotReady` otherwise.
+- **Weeks** (`WeekCloser`, design note section 10, decisions under PR 4 in section 14): one transaction under
+  `pg_try_advisory_xact_lock(0x4B4F4D42, 3)`, the week row `FOR UPDATE`, only once Sunday's 21:00 passed and all seven days are closed; closed once.
+  The pure `WeeklyTable` (best `BestDays` totals; ties by the seven-day sum, competed days and an FNV hash of (week, user); bands
+  `min(5, floor(competed / 3))`, Diamond never up, Bronze never down; two idle weeks cost a tier), `GroupFormation` (tiers under `MinTierPlayers` merged
+  upward, the top remainder into the set below, labels kept, cut into near-equal groups by the hash) and `LeagueAliases` (18 colours × 16 garments,
+  cryptographically random, unique in the group, never last week's: the one random part). `league-close` closes the weeks of its window after the
+  days; the internal day close does not. `CloseWeekAsync(weekStart, now, players, ct)`: tests always pass their players (idleness would otherwise reach
+  every player of the shared database). Placement (`LeagueGroups.PlaceAsync`, under the week's advisory lock): on join, on `GET /league/me` and
+  `/table`, and by the day close for every player with a result; leaving takes the player off the current week's group.
+- **The table** (`GET /league/table`, `LeagueTables`): rows `{ rank, points, isMe, alias }` and nothing else, ever (`LeagueAnonymityTests`); an open
+  week computed on read, a closed week as stored and renumbered 1..n. `week` in `/league/me` and in the results comes from the same reader.
+- **Style score** (pure `StyleScore`, at every week close, `league.style_scores`): no endpoint and no screen read it.
+- **Review** (`LeagueEntryReviewer`, the one home of the decision; `GET /internal/league/review-queue`, `POST /internal/league/entries/{id}/review`
+  `{ decision: Restore | Remove }`): every decision writes an `admin.audit_log` row (the entity; League never names the Admin feature).
+- **The result push** is Notification's `league-results` job (reads `league.daily_scores`, calls no league code; see Notification rules).
 - **`league-purge`** (daily 04:15, `[DisableConcurrentExecution(60)]`, `[AutomaticRetry(Attempts = 0)]`, tests call `PurgeAsync(now, days, sweepOrphans, ct)`
   with their own days): copies 7 days after their day, pairs and voter counters 30 days and entries 90 days after a **closed** day, and objects under
   `league/` that no entry piece names once older than `League:Retention:OrphanGrace` (`IObjectStorage.ListAsync`).
@@ -889,5 +908,6 @@ blocks, reports and review, the feed, try-with-wardrobe, creators with click att
 catalog embeddings and their job, photo search with family, floor and audience guardrails, wardrobe matches) and Admin (the founder's
 panel: review queue, creators, catalog and backfill, user disable, audit log, dashboard) and League (Kombin Ligi: schema, settings, consent,
 join and leave, the worn outfit's entry with its image copies, engine outfits, pairing, voting, reports and withdrawing, the day close with
-Bradley–Terry and the daily points, the results, the purge; off by default). Learning from
+Bradley–Terry and the daily points, the results, the purge, weeks with groups, aliases, promotion and relegation, the table, the style score, the
+review queue and the evening result push; off by default). Learning from
 clicks, saves and outfit feedback is still to come, and not Profile's job. Add other features only when a task asks for them.

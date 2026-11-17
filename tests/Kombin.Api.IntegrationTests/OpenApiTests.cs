@@ -79,6 +79,29 @@ public sealed class OpenApiTests(ApiFactory factory)
         Assert.Equal(["pieces"], Properties("LeagueResultEntryResponse"));
         Assert.Equal(["endsAt", "groupRank", "pointsToPromotion", "tier"], Properties("LeagueResultsWeekResponse"));
         Assert.Equal(["btConverged", "btIterations", "closeMs", "closedAt", "closedNow", "day", "engineCount", "pairCount", "rankedCount"], Properties("CloseDayResponse"));
+        Assert.Equal(["Final", "UnderReview", "Removed"], schemas.GetProperty("LeagueResultStatus").GetProperty("enum").EnumerateArray().Select(value => value.GetString()));
+    }
+
+    // Task L5 (league PR 4): the weekly table, the review queue and the result push's preference; this completes the league contract.
+    [Fact]
+    public async Task TheLeagueTableAndTheReviewRoutesAreDocumented()
+    {
+        var document = await DocumentAsync();
+        var paths = document.GetProperty("paths");
+        var schemas = document.GetProperty("components").GetProperty("schemas");
+        string[] Properties(string schema) => [.. schemas.GetProperty(schema).GetProperty("properties").EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal)];
+
+        Assert.Contains("LeagueTableResponse", paths.GetProperty("/api/v1/league/table").GetProperty("get").GetProperty("responses").GetProperty("200").GetRawText(), StringComparison.Ordinal);
+        Assert.Contains("LeagueReviewItem", paths.GetProperty("/api/v1/internal/league/review-queue").GetProperty("get").GetProperty("responses").GetProperty("200").GetRawText(), StringComparison.Ordinal);
+        Assert.Contains("ReviewEntryResponse", paths.GetProperty("/api/v1/internal/league/entries/{entryId}/review").GetProperty("post").GetProperty("responses").GetProperty("200").GetRawText(), StringComparison.Ordinal);
+
+        Assert.Equal(["endsAt", "promoteCount", "relegateCount", "rows", "size", "tier", "tierDown", "tierUp", "todayIsFinal", "todayPoints", "weekStart"], Properties("LeagueTableResponse"));
+        Assert.Equal(["alias", "isMe", "points", "rank"], Properties("LeagueTableRow"));
+        Assert.Equal(["endsAt", "groupRank", "groupSize", "points", "pointsToPromotion"], Properties("LeagueWeekResponse"));
+        Assert.Equal(["countingReports", "day", "entryId", "pieces", "reports", "status", "underReview"], Properties("LeagueReviewItem"));
+        Assert.Equal(["entryId", "resultChanged", "status"], Properties("ReviewEntryResponse"));
+        Assert.Contains("leagueResults", Properties("PreferencesResponse"));
+        Assert.Contains("leagueResults", Properties("UpdatePreferencesRequest"));
     }
 
     // Security review M5: the API documentation must say that "Followers" is not private (anyone can follow without approval).

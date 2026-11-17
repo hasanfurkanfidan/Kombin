@@ -26,7 +26,7 @@ public sealed class AccountDeletionTests(ApiFactory factory)
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     /// <summary>The league tables a player who entered, voted and was reported has rows in.</summary>
-    private static readonly string[] PlayedLeagueTables = ["league.players", "league.consents", "league.entries", "league.entry_pieces", "league.pairs", "league.reports", "league.voter_days"];
+    private static readonly string[] PlayedLeagueTables = ["league.players", "league.consents", "league.entries", "league.entry_pieces", "league.pairs", "league.reports", "league.voter_days", "league.group_members"];
 
     private static string Wrong => "Wrong-password-1";
 
