@@ -7,8 +7,9 @@ namespace Kombin.Api.Features.League;
 
 /// <summary>
 /// One piece of an outfit as the league shows it: the slot and an image, nothing else. To a voter the image is always the league's own copy
-/// (random key) or a catalog image, so nothing in it links to a person or to the same piece on another day. <c>ImageUrl</c> is null only in the
-/// owner's own view of an entry whose piece has no image any more.
+/// (a random key, new every day) or a catalog image. The league's promise is no name, no profile and no stable identifier in any response; it is
+/// not that an outfit cannot be traced to its owner, because the picture is the owner's own photo (only the file's bytes differ) and someone who
+/// knows the piece can recognise it. <c>ImageUrl</c> is null only in the owner's own view of an entry whose piece has no image any more.
 /// </summary>
 internal sealed record LeaguePieceResponse(OutfitSlot Slot, string? ImageUrl);
 
