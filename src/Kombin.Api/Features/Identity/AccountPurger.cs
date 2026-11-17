@@ -74,7 +74,8 @@ internal sealed partial class AccountPurger(KombinDbContext db, IObjectStorage s
 
         // The cascade: external logins, refresh tokens, profile, personas (+ swipes, style profiles), sizes, saved products, alerts (+ triggers),
         // notifications, devices, preferences, wardrobe items (+ wears), outfits (+ items, feedback), posts (+ tags, likes, reports), follows,
-        // blocks, likes, reports and posting consents of the user, and the creator profile.
+        // blocks, likes, reports and posting consents of the user, the creator profile, the league's rows and try-on's renders, reports and the
+        // prepared garments of the user's wardrobe items.
         await db.Users.Where(user => user.Id == userId).ExecuteDeleteAsync(cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
@@ -84,8 +85,9 @@ internal sealed partial class AccountPurger(KombinDbContext db, IObjectStorage s
     }
 
     /// <summary>
-    /// Every object of the user: wardrobe originals, cutouts and thumbnails, post originals, feed images and previews, and the league's copies of
-    /// the thumbnails of the user's outfits (their keys carry no user ID, so they are found through the entries).
+    /// Every object of the user: wardrobe originals, cutouts and thumbnails, post originals, feed images and previews, the league's copies of
+    /// the thumbnails of the user's outfits (their keys carry no user ID, so they are found through the entries), and try-on: the mannequin
+    /// drawings (they reveal body proportions) and the prepared cutouts of the user's wardrobe items (catalogue rows are not the user's).
     /// </summary>
     private async Task<List<string>> ObjectKeysAsync(Guid userId, CancellationToken cancellationToken)
     {
@@ -104,11 +106,23 @@ internal sealed partial class AccountPurger(KombinDbContext db, IObjectStorage s
             .Select(piece => piece.ImageKey!)
             .ToListAsync(cancellationToken);
 
+        var renders = await db.TryOnRenders
+            .Where(render => render.UserId == userId && render.ImageKey != null)
+            .Select(render => render.ImageKey!)
+            .ToListAsync(cancellationToken);
+
+        var prepared = await db.TryOnGarments
+            .Where(garment => garment.CutoutKey != null && db.WardrobeItems.Any(item => item.Id == garment.WardrobeItemId && item.UserId == userId))
+            .Select(garment => garment.CutoutKey!)
+            .ToListAsync(cancellationToken);
+
         return
         [
             .. wardrobe.SelectMany(item => new[] { item.ImageOriginalKey, item.ImageCutoutKey, item.ImageThumbKey }.OfType<string>()),
             .. posts.SelectMany(post => new[] { post.ImageOriginalKey, post.ImageFeedKey, post.ImagePreviewKey }.OfType<string>()),
             .. league,
+            .. renders,
+            .. prepared,
         ];
     }
 

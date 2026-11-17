@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Kombin.Api.Common.Vision;
 using Kombin.Api.Features.Social;
 using Kombin.Api.Features.Social.Jobs;
 using Kombin.Api.Persistence.Entities.Social;

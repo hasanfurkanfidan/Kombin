@@ -2,6 +2,7 @@ using System.Text.Json.Serialization;
 using Kombin.Api.Common.Auth;
 using Kombin.Api.Common.Results;
 using Kombin.Api.Common.Storage;
+using Kombin.Api.Common.Vision;
 using Kombin.Api.Features.Catalog;
 using Kombin.Api.Features.Engagement;
 using Kombin.Api.Features.Recommendation;

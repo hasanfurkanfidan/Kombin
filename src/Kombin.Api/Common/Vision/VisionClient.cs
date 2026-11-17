@@ -3,7 +3,7 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 
-namespace Kombin.Api.Features.Wardrobe;
+namespace Kombin.Api.Common.Vision;
 
 /// <summary>The <c>kombin-vision</c> service. <c>InternalKey</c> is that service's <c>VISION_INTERNAL_KEY</c>, not our own <c>Internal:ApiKey</c>.</summary>
 internal sealed class VisionOptions
@@ -92,16 +92,62 @@ internal sealed record VisionDetection(string Layout, IReadOnlyList<VisionRegion
 /// <summary>The answer of <c>POST /v1/embed</c>: 512 unit-length floats.</summary>
 internal sealed record VisionEmbedding(float[] Embedding);
 
-/// <summary>A value or an error, like <see cref="VisionResult"/> for the other endpoints.</summary>
+/// <summary>
+/// A value or an error, like <see cref="VisionResult"/> for the other endpoints. <c>Status</c> and <c>Detail</c> are the HTTP status and the
+/// service's error code (<c>{"detail": "incomplete_outfit"}</c>) when it answered with an error; both are null for a network failure.
+/// </summary>
 internal sealed record VisionCall<T>(T? Value, string? Error, bool IsTransient)
     where T : class
 {
+    public int? Status { get; init; }
+
+    public string? Detail { get; init; }
+
     public static VisionCall<T> Ok(T value) => new(value, null, false);
 
     public static VisionCall<T> Permanent(string error) => new(null, error, false);
 
     public static VisionCall<T> Transient(string error) => new(null, error, true);
+
+    /// <summary>An error answer of the service: transient or not as <see cref="VisionClient"/> classifies the status.</summary>
+    public static VisionCall<T> Answered(int status, string detail, bool isTransient) =>
+        new(null, $"vision_{status}: {detail}", isTransient) { Status = status, Detail = detail };
 }
+
+/// <summary>One photo for <c>/v1/garment/prepare</c>: its bytes and content type.</summary>
+internal sealed record VisionImage(byte[] Content, string ContentType);
+
+/// <summary>
+/// The answer of <c>POST /v1/garment/prepare</c> (contract in <c>kombin-vision/README.md</c>). <c>Cutout</c> is a base64 RGBA PNG of the garment
+/// only; <c>Landmarks</c> and <c>Sleeves</c> are kept as the service sent them (stored as jsonb and sent back to the renderer unchanged).
+/// <c>MayBeOutermost</c> is false only for a top with sleeves folded across the front (or one the service cannot read).
+/// </summary>
+internal sealed record VisionPrepared(
+    string Version,
+    string Cutout,
+    int Width,
+    int Height,
+    string Family,
+    string Source,
+    int ImageIndex,
+    bool Reliable,
+    IReadOnlyList<string> Flags,
+    JsonElement Landmarks,
+    JsonElement? Sleeves,
+    bool? MayBeOutermost);
+
+/// <summary>One garment of a <c>/v1/tryon/render</c> answer: <c>FitLevel</c> is <c>Tight</c>, <c>TrueToSize</c>, <c>Loose</c> or null.</summary>
+internal sealed record VisionRenderedGarment(int Index, string? FitLevel, string? FitSource, string? Placement, IReadOnlyList<string>? Warnings);
+
+/// <summary>The answer of <c>POST /v1/tryon/render</c>: a base64 image of <c>Width</c> × <c>Height</c>, one entry per garment sent.</summary>
+internal sealed record VisionRender(
+    string Renderer,
+    string Image,
+    string Format,
+    int Width,
+    int Height,
+    IReadOnlyList<VisionRenderedGarment> Garments,
+    IReadOnlyList<string> DefaultedMeasurements);
 
 /// <summary>What <c>GET /health</c> of the vision service said, for the admin panel: <c>Detail</c> is the HTTP status or why it could not be asked.</summary>
 internal sealed record VisionHealth(bool IsHealthy, string? ClipModel, string Detail);
@@ -128,6 +174,21 @@ internal interface IVisionClient
 
     /// <summary>A live <c>GET /health</c> (never cached, unlike the model name), for the admin panel's health strip.</summary>
     Task<VisionHealth> CheckHealthAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// <c>POST /v1/garment/prepare</c>: one to six photos of one garment (at most 8 MB each and 16 MB together; the caller scales them) and its
+    /// leaf category slug. The service picks the photo and answers what the try-on renderer needs.
+    /// </summary>
+    Task<VisionCall<VisionPrepared>> PrepareAsync(IReadOnlyList<VisionImage> images, string categorySlug, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// <c>POST /v1/tryon/render</c>: <paramref name="spec"/> is the JSON spec (body, garments, width, format), <paramref name="garments"/> the
+    /// prepared cutouts in the same order.
+    /// </summary>
+    Task<VisionCall<VisionRender>> RenderAsync(string spec, IReadOnlyList<byte[]> garments, CancellationToken cancellationToken);
+
+    /// <summary>The try-on renderer behind <c>/v1/tryon/render</c> (<c>/health</c>'s <c>renderer</c>), or null when the service cannot be asked.</summary>
+    Task<string?> GetRendererAsync(CancellationToken cancellationToken);
 }
 
 internal sealed partial class VisionClient(HttpClient http, ILogger<VisionClient> logger) : IVisionClient
@@ -138,6 +199,9 @@ internal sealed partial class VisionClient(HttpClient http, ILogger<VisionClient
 
     // The model only changes when the vision service is redeployed with another one; asking once per process is enough.
     private static string? CachedEmbeddingModel;
+
+    // Like the model: the renderer changes only with a redeploy of the vision service (restart the API after one, as for a new CLIP model).
+    private static string? CachedRenderer;
 
     /// <summary>Sets the base address, key and timeout on the typed client.</summary>
     public static void Configure(IServiceProvider provider, HttpClient client)
@@ -171,8 +235,54 @@ internal sealed partial class VisionClient(HttpClient http, ILogger<VisionClient
     public Task<VisionCall<VisionEmbedding>> EmbedAsync(byte[] image, string contentType, CancellationToken cancellationToken) =>
         PostImageAsync<VisionEmbedding>("v1/embed?removeBackground=false", image, contentType, cancellationToken);
 
+    public Task<VisionCall<VisionPrepared>> PrepareAsync(IReadOnlyList<VisionImage> images, string categorySlug, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(images);
+
+        return PostAsync<VisionPrepared>("v1/garment/prepare", content =>
+        {
+            for (var index = 0; index < images.Count; index++)
+            {
+                var file = new ByteArrayContent(images[index].Content);
+                file.Headers.ContentType = MediaTypeHeaderValue.Parse(images[index].ContentType);
+                content.Add(file, "image", $"photo{index}");
+            }
+
+            content.Add(new StringContent(categorySlug), "category");
+        }, cancellationToken);
+    }
+
+    public Task<VisionCall<VisionRender>> RenderAsync(string spec, IReadOnlyList<byte[]> garments, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(garments);
+
+        return PostAsync<VisionRender>("v1/tryon/render", content =>
+        {
+            content.Add(new StringContent(spec, System.Text.Encoding.UTF8, "application/json"), "spec");
+            for (var index = 0; index < garments.Count; index++)
+            {
+                var file = new ByteArrayContent(garments[index]);
+                file.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+                content.Add(file, "garment", $"garment{index}.png");
+            }
+        }, cancellationToken);
+    }
+
     /// <summary>Posts the image as the multipart field <c>image</c> and reads the JSON answer; failures become values, never exceptions.</summary>
-    private async Task<VisionCall<T>> PostImageAsync<T>(string path, byte[] image, string contentType, CancellationToken cancellationToken)
+    private Task<VisionCall<T>> PostImageAsync<T>(string path, byte[] image, string contentType, CancellationToken cancellationToken)
+        where T : class =>
+        PostAsync<T>(path, content =>
+        {
+            var file = new ByteArrayContent(image);
+            file.Headers.ContentType = MediaTypeHeaderValue.Parse(contentType);
+            content.Add(file, "image", "upload");
+        }, cancellationToken);
+
+    /// <summary>
+    /// Posts a multipart body built by <paramref name="build"/> and reads the JSON answer; failures become values, never exceptions. Only the
+    /// path and the service's error code are logged: a render spec carries body measurements, which never reach a log line.
+    /// </summary>
+    private async Task<VisionCall<T>> PostAsync<T>(string path, Action<MultipartFormDataContent> build, CancellationToken cancellationToken)
         where T : class
     {
         if (http.BaseAddress is null)
@@ -183,19 +293,17 @@ internal sealed partial class VisionClient(HttpClient http, ILogger<VisionClient
         try
         {
             using var content = new MultipartFormDataContent();
-            var file = new ByteArrayContent(image);
-            file.Headers.ContentType = MediaTypeHeaderValue.Parse(contentType);
-            content.Add(file, "image", "upload");
+            build(content);
 
             using var response = await http.PostAsync(new Uri(path, UriKind.Relative), content, cancellationToken);
             var body = await response.Content.ReadAsStringAsync(cancellationToken);
 
             if (!response.IsSuccessStatusCode)
             {
-                var error = $"vision_{(int)response.StatusCode}: {ReadDetail(body)}";
-                LogCallFailed(logger, path, error);
+                var call = VisionCall<T>.Answered((int)response.StatusCode, ReadDetail(body), IsTransient(response.StatusCode));
+                LogCallFailed(logger, path, call.Error!);
 
-                return IsTransient(response.StatusCode) ? VisionCall<T>.Transient(error) : VisionCall<T>.Permanent(error);
+                return call;
             }
 
             var value = JsonSerializer.Deserialize<T>(body, Json);
@@ -217,9 +325,30 @@ internal sealed partial class VisionClient(HttpClient http, ILogger<VisionClient
 
     public async Task<string?> GetEmbeddingModelAsync(CancellationToken cancellationToken)
     {
-        if (CachedEmbeddingModel is not null || http.BaseAddress is null)
+        if (CachedEmbeddingModel is null)
         {
-            return CachedEmbeddingModel;
+            await ReadHealthAsync(cancellationToken);
+        }
+
+        return CachedEmbeddingModel;
+    }
+
+    public async Task<string?> GetRendererAsync(CancellationToken cancellationToken)
+    {
+        if (CachedRenderer is null)
+        {
+            await ReadHealthAsync(cancellationToken);
+        }
+
+        return CachedRenderer;
+    }
+
+    /// <summary>Reads <c>/health</c> once and caches its <c>clipModel</c> and <c>renderer</c> for the process; a failure caches nothing.</summary>
+    private async Task ReadHealthAsync(CancellationToken cancellationToken)
+    {
+        if (http.BaseAddress is null)
+        {
+            return;
         }
 
         try
@@ -227,7 +356,7 @@ internal sealed partial class VisionClient(HttpClient http, ILogger<VisionClient
             using var response = await http.GetAsync(new Uri("health", UriKind.Relative), cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
-                return null;
+                return;
             }
 
             using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
@@ -236,7 +365,10 @@ internal sealed partial class VisionClient(HttpClient http, ILogger<VisionClient
                 CachedEmbeddingModel = model.GetString();
             }
 
-            return CachedEmbeddingModel;
+            if (document.RootElement.TryGetProperty("renderer", out var renderer) && renderer.ValueKind == JsonValueKind.String)
+            {
+                CachedRenderer = renderer.GetString();
+            }
         }
         catch (Exception exception) when (exception is HttpRequestException or JsonException or TaskCanceledException or IOException)
         {
@@ -244,8 +376,6 @@ internal sealed partial class VisionClient(HttpClient http, ILogger<VisionClient
             {
                 throw;
             }
-
-            return null;
         }
     }
 

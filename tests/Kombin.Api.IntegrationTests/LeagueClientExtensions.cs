@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using Kombin.Api.Common.Storage;
+using Kombin.Api.Common.Vision;
 using Kombin.Api.Features.League;
 using Kombin.Api.Features.League.Jobs;
 using Kombin.Api.Features.Recommendation;

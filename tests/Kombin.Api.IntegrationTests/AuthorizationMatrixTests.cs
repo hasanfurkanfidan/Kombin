@@ -179,6 +179,16 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
             [HttpStatusCode.NotFound],
             async (w, f) => Assert.Equal("{}", await f.WithDbAsync(db => db.Trips.Where(trip => trip.Id == w.TripId).Select(trip => trip.PlanJson).SingleAsync(Ct)))),
 
+        // Try-on: A's outfit is not B's to draw or to report (the product route takes a public ID and B's own wardrobe only).
+        ["GET /api/v1/me/tryon"] = Probe(
+            w => new HttpRequestMessage(HttpMethod.Get, $"/api/v1/me/tryon?outfitId={w.OutfitId}"),
+            [HttpStatusCode.NotFound],
+            async (w, f) => Assert.False(await f.WithDbAsync(db => db.TryOnGarments.AnyAsync(row => row.WardrobeItemId == w.ItemId, Ct)))),
+        ["POST /api/v1/me/tryon/reports"] = Probe(
+            w => Json(HttpMethod.Post, "/api/v1/me/tryon/reports", new { outfitId = w.OutfitId, garmentIds = new[] { w.ItemId }, renderer = "mannequin-v5" }),
+            [HttpStatusCode.NotFound],
+            async (w, f) => Assert.False(await f.WithDbAsync(db => db.TryOnReports.AnyAsync(report => report.OutfitId == w.OutfitId, Ct)))),
+
         // League
         ["GET /api/v1/league/me"] = ScopedRead("/api/v1/league/me"),
         ["POST /api/v1/league/join"] = Exempt("Joins the caller; it takes no ID."),

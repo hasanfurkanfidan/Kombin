@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Kombin.Api.Common.Vision;
 using Kombin.Api.Features.Catalog;
 using Kombin.Api.Persistence.Entities.Catalog;
 using Kombin.Api.Persistence.Entities.Wardrobe;

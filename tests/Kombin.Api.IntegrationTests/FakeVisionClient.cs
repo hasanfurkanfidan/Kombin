@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using Kombin.Api.Common.Vision;
 using Kombin.Api.Features.Wardrobe;
 
 namespace Kombin.Api.IntegrationTests;
@@ -49,6 +50,8 @@ internal sealed partial class FakeVisionClient : IVisionClient
 
     public static byte[] CutoutFor(string photoText) =>
         photoText.StartsWith("hold:", StringComparison.Ordinal) ? Encoding.UTF8.GetBytes($"cutout-png-bytes:{photoText}")
+        // Try-on flavours (FakeVisionClient.TryOn.cs) travel with the cutout to /v1/garment/prepare.
+        : photoText.Contains("tryon-", StringComparison.Ordinal) ? Encoding.UTF8.GetBytes($"cutout-png-bytes:{photoText}")
         : photoText.Contains("nsfw", StringComparison.Ordinal) ? Encoding.UTF8.GetBytes("cutout-png-bytes:nsfw")
         : photoText.Contains("borderline", StringComparison.Ordinal) ? Encoding.UTF8.GetBytes("cutout-png-bytes:borderline")
         : photoText.Contains("moderation-down", StringComparison.Ordinal) ? Encoding.UTF8.GetBytes("cutout-png-bytes:unreachable")

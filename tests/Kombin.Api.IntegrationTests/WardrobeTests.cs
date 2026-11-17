@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Kombin.Api.Common.Vision;
 using Kombin.Api.Features.Wardrobe.Jobs;
 using Kombin.Api.Persistence.Entities.Catalog;
 using Kombin.Api.Persistence.Entities.Wardrobe;

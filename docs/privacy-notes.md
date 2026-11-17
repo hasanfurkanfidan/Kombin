@@ -50,6 +50,9 @@ What happens to every table that holds data about a user:
 | `league.pairs` (the user's votes, and pairs that showed the user's outfits), `league.reports` (made by the user, or on the user's outfits) | deleted (cascade); other players' closed days keep their stored scores |
 | `league.voter_days` (the user's served pairs and counted votes per day) | deleted (cascade); other voters' counters are their own rows, so their voting points of an open day do not change when the user's outfit (and the pairs that showed it) goes |
 | `league.engine_preferences` | not personal data (engine products and a weight, no user ID); untouched |
+| `tryon.renders` (mannequin drawings: they **reveal body proportions**; the cache key and a hash of the body values) | deleted (cascade); the images are deleted from storage first |
+| `tryon.garments` of the user's wardrobe items (what the vision service read from the photo: outline points, flags) | deleted (cascade with the wardrobe items); the prepared cutouts are deleted from storage first. Catalogue garments are catalogue data, untouched |
+| `tryon.reports` ("Yanlış görünüyor": which outfit or product, which garments, which renderer) | deleted (cascade) |
 | `engagement.clicks` | **anonymised**: `user_id`, `persona_id` and (as a creator) `creator_id` become null; the rest stays (offer, product, seller, source, post ID, user agent, salted IP hash) as the revenue record |
 | `analytics.events` | **anonymised**: `user_id` becomes null; `anonymous_id` (a random install ID) stays (open question 12) |
 | `social.referral_events` | **kept** as the financial record: `creator_id` and `viewer_user_id` become null, the amounts stay |
@@ -236,13 +239,28 @@ under version 1 are asked again and enter no outfit until they accept.
 The league schema is **not** readable by Metabase (`metabase_ro`); its first-month metrics are SQL run by hand. Leaving stops every future entry and
 withdraws the day's outfit; deleting the account removes everything above (section 1a).
 
+## 6c. "Manken üstünde gör" (TryOn, task P3; design `docs/design/try-on.md`)
+
+Off until the app screens ship (`TryOn:Enabled` false). The feature draws an outfit on a mannequin **proportioned from the user's measurements**:
+the drawing is a catalogue figure, not a photo of the user, but its proportions are the user's, so it is treated like the measurements themselves.
+
+| What | Why | Where | Who sees it | How long |
+|---|---|---|---|---|
+| Prepared garments of the user's wardrobe items: a cutout of the garment alone, outline points, the service's flags (no photo of a person: an item whose photo had someone in it is never prepared) | the drawing | `tryon.garments`, object storage `tryon/{user}/{garment}/prepared.png` (private by name; read by the server only, never given out) | nobody; the server sends it to `kombin-vision` when drawing | as the wardrobe item (cascade); deleted with the account |
+| The drawing (a WEBP of the figure wearing the outfit) and a hash of the body values it was made for | "Manken üstünde gör" | `tryon.renders`, object storage `tryon/{user}/{render}/render.webp` (private by name) | **the user only**: a presigned GET valid for one hour, given only in the answer to the user's own request; another user's outfit is 404 | deleted when the user's measurements or audience change (at the next drawing at once, otherwise within a minute by `tryon-prepare`), 30 days after it was last shown, and with the account |
+| Reports ("Yanlış görünüyor"): which outfit or product, which garments, the renderer | finding garments drawn wrong (a top shown from the back) | `tryon.reports` | the operator (`docs/metrics.sql`, `tryon_reported_garments`, which shows a wardrobe garment without anything of its owner) | until the account is deleted |
+
+The measurements (height, weight, chest, waist, hip, audience) go to `kombin-vision` with each new drawing; it stores nothing. They are never written to a log line or an
+analytics event: the vision client logs only the path and the service's error code, the job and the renderer log IDs and codes. No analytics event was
+added. Catalogue garments (products) are catalogue data and hold nothing about users.
+
 ## 7. Processors and transfers
 
 | Recipient | What | Where |
 |---|---|---|
 | Object storage (MinIO on the server; R2 possible) | photos and renditions | the hosting provider's EU region (the plan: one EU VPS) |
 | Backup bucket (S3-compatible, e.g. Cloudflare R2) | the encrypted nightly database dump (age or AES-256; the key is not on the server), kept 7 days | the provider's EU or default jurisdiction: **to be chosen** (open question 6) |
-| `kombin-vision` | photos for analysis, moderation and detection, visual-search query photos; stores nothing | our own service, same deployment |
+| `kombin-vision` | photos for analysis, moderation and detection, visual-search query photos, garment cutouts and **body measurements** for "Manken üstünde gör"; stores nothing | our own service, same deployment |
 | Let's Encrypt | the domain names, for the TLS certificates (no user data) | Let's Encrypt |
 | Expo Push Service | push tokens and notification text | Expo (US) |
 | Open-Meteo | the profile's city, and a trip's destination with its dates (forecast and archive APIs; no user ID) | Open-Meteo (EU) |
@@ -282,3 +300,6 @@ Photos of posts and visual-search photos are never sent to a third party.
     onaylarsın." (v1 was the same without the third sentence.) Its last sentence is the only age declaration (an unknown birth year may join; a known birth year
     joins only when it makes the player certainly 18, so a player born in 2008 waits until 2027). Is it enough as consent for showing wardrobe photos to strangers and as an 18+ declaration? A changed
     text becomes the next version and every player accepts again.
+18. **"Manken üstünde gör" (section 6c).** A drawing shows the user's body proportions (from their own measurements). It is private, served for an hour at a
+    time, deleted when the measurements change and 30 days after it was last shown. Is that retention right, and does entering measurements need a notice
+    that they also shape this drawing (the measurements screen does not say so today)?

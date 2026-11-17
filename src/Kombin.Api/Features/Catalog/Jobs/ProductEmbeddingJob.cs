@@ -1,8 +1,8 @@
 using System.Diagnostics;
 using Hangfire;
 using Kombin.Api.Common.Time;
+using Kombin.Api.Common.Vision;
 using Kombin.Api.Features.Catalog.Embeddings;
-using Kombin.Api.Features.Wardrobe;
 using Kombin.Api.Persistence;
 using Kombin.Api.Persistence.Entities.Catalog;
 using Microsoft.Extensions.Options;

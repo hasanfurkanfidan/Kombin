@@ -42,7 +42,8 @@ internal sealed record ImageFetch(ImageFetchStatus Status, StoredObject? Image, 
 }
 
 /// <summary>
-/// Downloads catalog images for the embedding job: <c>KombinBot</c> user agent, one request per host per <see cref="CatalogEmbeddingOptions.HostInterval"/>
+/// Downloads catalog images for the embedding job and try-on (the one way retailer images are fetched; resolve it from DI, a new instance per
+/// run with its own <see cref="PoliteSchedule"/>): <c>KombinBot</c> user agent, one request per host per <see cref="CatalogEmbeddingOptions.HostInterval"/>
 /// (<see cref="PoliteSchedule"/>), <c>Retry-After</c> honoured, at most the wardrobe photo limit (8 MB), image types only. Unlike the wardrobe's
 /// copy (<c>CatalogImages</c>) it tells a missing image from a host that is down, because only the latter is worth retrying.
 /// </summary>
@@ -50,7 +51,13 @@ internal sealed class CatalogImageFetcher(HttpClient http, PoliteSchedule schedu
 {
     private static readonly TimeSpan MaxRetryAfter = TimeSpan.FromMinutes(2);
 
-    public async Task<ImageFetch> FetchAsync(string url, CancellationToken cancellationToken)
+    public Task<ImageFetch> FetchAsync(string url, CancellationToken cancellationToken) => FetchAsync(url, WardrobeLimits.MaxImageBytes, cancellationToken);
+
+    /// <summary>
+    /// The same download with another size cap: try-on fetches retailer packshots of up to 45 MB and scales them itself (a larger answer is
+    /// <c>Unusable</c>, <c>image_too_large</c>, and never fully read).
+    /// </summary>
+    public async Task<ImageFetch> FetchAsync(string url, long maxBytes, CancellationToken cancellationToken)
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
         {
@@ -96,7 +103,7 @@ internal sealed class CatalogImageFetcher(HttpClient http, PoliteSchedule schedu
                 return new ImageFetch(ImageFetchStatus.Unusable, null, "image_not_an_image");
             }
 
-            if (response.Content.Headers.ContentLength > WardrobeLimits.MaxImageBytes)
+            if (response.Content.Headers.ContentLength > maxBytes)
             {
                 return new ImageFetch(ImageFetchStatus.Unusable, null, "image_too_large");
             }
@@ -109,7 +116,7 @@ internal sealed class CatalogImageFetcher(HttpClient http, PoliteSchedule schedu
             // The length header may be missing or wrong: stop reading at the limit either way.
             while ((read = await stream.ReadAsync(chunk, cancellationToken)) > 0)
             {
-                if (buffer.Length + read > WardrobeLimits.MaxImageBytes)
+                if (buffer.Length + read > maxBytes)
                 {
                     return new ImageFetch(ImageFetchStatus.Unusable, null, "image_too_large");
                 }

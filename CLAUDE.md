@@ -35,7 +35,7 @@ src/Kombin.Api/Persistence/Entities/Identity/User.cs
 src/Kombin.Api/Persistence/Configurations/Identity/UserConfiguration.cs
 ```
 
-Cross-cutting code lives in `src/Kombin.Api/Common/` (Results, Http, Auth, Validation, Pagination, Time, Health, Storage). Development
+Cross-cutting code lives in `src/Kombin.Api/Common/` (Results, Http, Auth, Validation, Pagination, Time, Health, Storage, Vision, Imaging). Development
 seed data lives in `src/Kombin.Api/Persistence/Seed/`.
 
 Internal endpoints (called by workers, not the app) live under `/api/v1/internal/...` and use `.RequireInternalKey()`. The ones that
@@ -67,7 +67,8 @@ The backend is one project, so nothing in the compiler stops `Features/A` from u
 fully qualified name, `using static`, an alias; also in `.cshtml`) and fails for one that is not on `FeatureBoundaryAllowList`, the frozen
 list of what existed in task B7 (141 references in 37 feature pairs, 90 of them `Seam` = fine as it is and 51 `Legacy` = would be shared code
 today, with a line saying where it belongs; task L2 moved the Istanbul zone and the Hangfire flag to `Common` and left 129 in 34 pairs, 39 `Legacy`; task L3 added the league's two
-`Seam`s: 132 in 36 pairs). It forbids nothing that exists; it stops the list from growing, and `TheAllowListHoldsNoReferenceThatNoLongerExists`
+`Seam`s: 132 in 36 pairs; task P3 moved the vision client to `Common/Vision`, which removed eight `Legacy` references and the Admin-Wardrobe pair, and added
+try-on's three `Seam` lines: 130 in 38 pairs, 99 `Seam`, 31 `Legacy`). It forbids nothing that exists; it stops the list from growing, and `TheAllowListHoldsNoReferenceThatNoLongerExists`
 makes it shrink: remove a reference and the test tells you to delete the line.
 
 **Sharing code between features.**
@@ -313,7 +314,7 @@ External Python workers (a separate repo) push the catalog through the internal 
 - **Hangfire wiring:** `AddNotificationFeature` registers storage lazily; `UseNotificationJobs` (called in `Program.cs` after the EF
   migrations and the seeds) is what first creates the `hangfire` schema, registers the recurring jobs (`UseCatalogJobs` adds the
   Catalog's `offer-sweep`, `UseAnalyticsJobs` the Analytics' `weekly-metrics` and `analytics-retention`, `UseWardrobeJobs` the Wardrobe's `wardrobe-cleanup` and
-  `UseSocialJobs` the Social's `social-purge`, `UseIdentityJobs` the Identity's `account-deletion` and `UseLeagueJobs` the League's `league-entries`, `league-fill`, `league-close` and `league-purge` (also behind `League:Enabled`) right after it, behind the same flag; `UseCatalogJobs` also registers `product-embeddings`; `outfit-narrate` and `post-process` are fire-and-forget,
+  `UseSocialJobs` the Social's `social-purge`, `UseIdentityJobs` the Identity's `account-deletion`, `UseLeagueJobs` the League's `league-entries`, `league-fill`, `league-close` and `league-purge` (also behind `League:Enabled`) and `UseTryOnJobs` the TryOn's `tryon-prepare` (also behind `TryOn:Enabled`) right after it, behind the same flag; `UseCatalogJobs` also registers `product-embeddings`; `outfit-narrate` and `post-process` are fire-and-forget,
   not recurring) and, **in Development only**
   (or wherever `Diagnostics:Expose` is true, then behind the `/admin` sign-in), maps the dashboard at `/hangfire` (open in Development, unmapped otherwise). Nothing happens unless `Hangfire:Enabled` is
   true (compose sets it; tests set it to false; `Development` defaults to true). The storage uses `EnableLongPolling`
@@ -380,15 +381,17 @@ External Python workers (a separate repo) push the catalog through the internal 
 - **Flow:** `POST /me/wardrobe/items/upload-url` creates a `Processing` item and a presigned PUT for its original → the app uploads
   straight to storage → `POST /items/{id}/process` checks the object (missing 409, over 8 MB 400) and enqueues `wardrobe-analyze` →
   the app polls `GET /items/{id}`. Items created but never processed are hidden from lists and stats (`VisibleOf`) and deleted after a day.
-- **Vision service contract** (`kombin-vision`, a separate repo; its `README.md` is the source of truth). `POST /v1/garment/analyze`,
+- **Vision service contract** (`kombin-vision`, a separate repo; its `README.md` is the source of truth; the client is shared infrastructure in `Common/Vision`). `POST /v1/garment/analyze`,
   multipart field `image`, header `X-Internal-Key` = `Vision:InternalKey` (env `Vision__InternalKey`, compose `VISION_INTERNAL_KEY`; not our
   own `Internal:ApiKey`). Answer: base64 `cutout` (PNG) and `thumbnail` (WEBP), `category` + `categoryCandidates` (top 3, slugs of our
   leaf categories), `primaryColor`/`secondaryColor` (`ProductColor` names + hex), `pattern` (`ProductPattern` name), a 512-float unit
   `embedding`, `quality { isGarment, confidence, warnings }`. Errors are `{ "detail": "<code>" }`. The typed client is `IVisionClient`
-  (`Features/Wardrobe/VisionClient.cs`, 30 s timeout); like the Expo client it never throws for a failed call: 4xx (except 401/408/429)
+  (`Common/Vision/VisionClient.cs`, registered by `AddVisionClient`, 30 s timeout); like the Expo client it never throws for a failed call: 4xx (except 401/408/429)
   is permanent, the rest transient. It also reads `/health`'s `clipModel` once per process for `EmbeddingModel`. Social posts use two more
   endpoints of the same service through the same client: `POST /v1/moderate?renditions=true` and `POST /v1/detect` (see Social rules), and
-  visual search two: `POST /v1/embed?removeBackground=false` and `POST /v1/detect?embed=true` (see Visual search rules).
+  visual search two: `POST /v1/embed?removeBackground=false` and `POST /v1/detect?embed=true` (see Visual search rules), and try-on two:
+  `POST /v1/garment/prepare` and `POST /v1/tryon/render` (see Try-on rules). A failed call carries the HTTP status and the service's code
+  (`VisionCall.Status`, `.Detail`).
 - **`wardrobe-analyze`** (`Jobs/WardrobeAnalyzeJob.cs`): fire-and-forget per item, `[AutomaticRetry(Attempts = 3)]` with 5/15/30 s delays.
   It only works on a `Processing` item and writes the same keys and fields on every run (idempotent). Category = top candidate when its
   confidence is ≥ 0.35 (`WardrobeAnalysis.CategoryThreshold`), else null and `needsCategory`. `isGarment=false` is still `Ready`, with the
@@ -760,6 +763,53 @@ External Python workers (a separate repo) push the catalog through the internal 
   day joins the `LeagueCloses` collection (one close lock per database). `LeaguePerformanceTests` (`KOMBIN_PERF=1`, own container): `pairs/next`
   p95 ≤ 100 ms at 6,000 entries, the close ≤ 30 s at 10,000 players (measured at 1,000 and 10,000).
 
+## Try-on rules
+
+- **What exists (task P3):** "Manken üstünde gör" in `Features/TryOn` (design and every decision: `docs/design/try-on.md`; the specification is
+  `kombin-vision/docs/design/try-on-briefs.md` and the vision README's `/v1/garment/prepare` and `/v1/tryon/render`). Schema `tryon` (`garments`, one
+  row per wardrobe item or product, updated in place; `renders`; `reports`), `GET /api/v1/me/tryon?outfitId=|productId=&withWardrobe=`,
+  `POST /api/v1/me/tryon/reports`, the job `tryon-prepare`, `TryOnOptions` (`TryOn:*`, every number), `docs/metrics.sql`'s `-- tryon:` block (run by
+  hand). It is a mannequin drawing, never "sanal deneme": the copy and the API description say so.
+- **Off by default.** `TryOn:Enabled` (env `TryOn__Enabled`) is false: the routes stay mapped and answer 404 `TryOn.Disabled` first, the job does
+  nothing. `ApiFactory` switches it on.
+- **The readiness rule is the pure `TryOnReadiness.Decide`**, in the brief's order: BMI over `TryOn:MaxBmi` (36; no weight = the audience's default
+  BMI, no height = the audience's default height, `TryOnBody`) → no family, no top or no bottom → a core piece (top, outerwear, trousers, skirt, shoes)
+  photographed on a person, not preparable, refused, failed or `reliable = false` → the outermost upper garment (outerwear if any, else the top) with
+  `may_be_outermost = false` → a core piece without an answer is `Preparing` → `Ready`. Bags and belts never block. Every 4xx of the renderer (its
+  four 422s above all) is `Unavailable` and is **remembered under the cache key** (`renders.refusal`), so the same inputs never ask again; a transient
+  render failure is 503 `TryOn.RendererUnavailable`. Change the rule there, in its comment block and in the design note together.
+- **Preparing is pull-based.** Nothing pushes into try-on: `tryon-prepare` (every minute, `[AutomaticRetry(Attempts = 0)]`, deliberately no
+  `[DisableConcurrentExecution]`: rows are claimed with a lease) finds due wardrobe items and products by SQL (`TryOnSources`' hash computed by
+  PostgreSQL: change both together) and the pure `TryOnPrepareRules.Due`; a request that finds a piece without an answer creates its row `Pending`
+  (asked for) and enqueues one `PrepareRequestedAsync`. A wardrobe item with the `person_wearing` warning is **never** prepared; one added from the
+  catalogue uses its product's row. Catalogue prepares run **one at a time** under `TryOnCatalogueLock` (`pg_try_advisory_lock(0x4B4F4D42, 4)`),
+  `TryOn:DayCatalogueBatch` per run by day, `TryOn:NightCatalogueBatch` at night. Transient failures: one later retry (`RetryAfter`), then `Failed`
+  for `FailedRetryAfter`; a 4xx is `Refused` until the source changes; an answered row keeps its answer through failures. "The current version" is the
+  latest answer's; other versions are re-prepared last (low priority). Tests call `ProcessAsync(now, scope, ct)` with their own IDs and belong to the
+  `TryOnJobs` collection (one catalogue lock per database).
+- **Photos over 8 MB are scaled before sending** (`Common/Imaging/VisionImageFit`, SkiaSharp, MIT): ≤ 1600 px on the long side, PNG with alpha when
+  transparent, JPEG 90 otherwise; then the largest photos until the request is ≤ 16 MB. Retailer photos come **only** through the catalogue's
+  `CatalogImageFetcher` (resolved from DI; public addresses, politeness) with `TryOn:MaxSourceImageBytes` (50 MB); a photo over `MaxSourcePixels`
+  (60 MP) is never decoded. SkiaSharp is the API's only image library; do not add another.
+- **Cache key and invalidation** (`TryOnCacheKey`, pure): renderer (`/health`'s `renderer`, cached per process like the CLIP model), body values,
+  each garment's row, version, `prepared_at`, answered source hash, size, reference size (`SizeHints`: own size, else the suggestion) and cut, and
+  the width. Every
+  invalidation of the brief is a new key, so Profile never calls try-on; renders of other measurements are deleted at the next render and by the job,
+  renders unused for `RenderRetention` (30 days) by the job.
+- **Limits:** `TryOnRenderGate`, in memory per instance: `TryOn:RendersPerHour` (30) renderer calls per user per rolling hour (429 `RateLimited`
+  with `retryAfterSeconds` and `Retry-After`, the rate limiter's shape) and one in flight (a second request answers `Preparing`). Cache hits are free.
+- **Privacy:** a render reveals body proportions: private key names (`prepared.png`, `render.webp`), a one-hour presigned GET in the owner's answer only,
+  body values never in a log line or an analytics event (the vision client logs only the path and the service's code). `AccountPurger` deletes the
+  render images and the prepared cutouts of the user's wardrobe items; the rows cascade (`AccountDeletionTests`' matrix, `docs/privacy-notes.md` 1a
+  and 6c).
+- **Response IDs:** `garments[].id` and a report's `garmentIds` are the pieces' IDs as the outfit carries them (wardrobe item or product), never a
+  garment row ID; reports store the resolved `tryon.garments` rows.
+- **Boundaries:** three documented seams (allow-list lines `Seam`): Catalog's `CatalogImageFetcher` (the guarded fetcher), Profile's `SizeHints`
+  (the reference size) and Recommendation's `HowToWear` / `OutfitStore` ("Dolabımla dene" with `withWardrobe=true`: the first how-to-wear outfit of
+  the caller's own pieces only; none → the product alone, so `Unavailable`). Nothing may reference TryOn.
+- **Tests:** `FakeVisionClient.TryOn.cs` answers prepare and render by the photos' text (`tryon-unreliable`, `tryon-folded`, `tryon-503`, `tryon-413`,
+  `tryon-r422-<code>`, `tryon-r503`), counts calls, keeps the last spec and can hold a render.
+
 ## Admin rules
 
 - **What exists:** the founder's panel, server-rendered Razor Pages under `/admin` in the API project (`Features/Admin`, pages in
@@ -895,7 +945,8 @@ Apple ID tokens (no OAuth redirect flow, no other providers), an admin UI beyond
 repositories, AutoMapper, email/SMS/marketing notifications, A/B testing, scraping workers, affiliate conversion import, a free-form
 analytics event stream (Analytics accepts only its allow-list), and in Social: comments, DMs, stories or video, hashtags or search over
 posts, follow requests, creator payouts and public web pages for posts, and in Lens: text search, multi-photo or video search, storing
-query photos, retraining or fine-tuning, other model families. Features that exist: Identity (auth with a password or a Google/Apple ID token, me, account deletion with a 7-day window), Legal (the public legal pages and their version), Catalog (brands, sellers, categories, products, offers, price
+query photos, retraining or fine-tuning, other model families, and in TryOn: drawing the user's own photo ("sanal deneme"), garments photographed on a
+person, a review screen for reports. Features that exist: Identity (auth with a password or a Google/Apple ID token, me, account deletion with a 7-day window), Legal (the public legal pages and their version), Catalog (brands, sellers, categories, products, offers, price
 snapshots, internal upsert, seller bootstrap and listing, offer sweep), Engagement (saved products, price alerts and their trigger feed, `/go` redirect, click
 history) and Profile (user profile and measurements, personas, swipe onboarding with style cards, derived style profile,
 rule-based match score, size map with hints) and Notification (devices, notification preferences, the notification feed, push
@@ -909,5 +960,6 @@ catalog embeddings and their job, photo search with family, floor and audience g
 panel: review queue, creators, catalog and backfill, user disable, audit log, dashboard) and League (Kombin Ligi: schema, settings, consent,
 join and leave, the worn outfit's entry with its image copies, engine outfits, pairing, voting, reports and withdrawing, the day close with
 Bradley–Terry and the daily points, the results, the purge, weeks with groups, aliases, promotion and relegation, the table, the style score, the
-review queue and the evening result push; off by default). Learning from
+review queue and the evening result push; off by default) and TryOn ("Manken üstünde gör": prepared garments, the readiness rule, cached
+mannequin drawings, "Yanlış görünüyor" reports; off by default). Learning from
 clicks, saves and outfit feedback is still to come, and not Profile's job. Add other features only when a task asks for them.

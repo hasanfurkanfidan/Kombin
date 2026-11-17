@@ -2,6 +2,7 @@ using Hangfire;
 using Kombin.Api.Common.Http;
 using Kombin.Api.Common.Storage;
 using Kombin.Api.Common.Time;
+using Kombin.Api.Common.Vision;
 using Kombin.Api.Features.Admin;
 using Kombin.Api.Features.Catalog.Jobs;
 using Kombin.Api.Features.Identity.ExternalTokens;
@@ -134,6 +135,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
             ["Admin:Users:0:PasswordHash"] = AdminPasswordHash,
             // League:Enabled is false by default (until the app screens ship); the tests switch it on. LeagueTests checks the switched-off host.
             ["League:Enabled"] = "true",
+            // TryOn:Enabled is false by default too; the tests switch it on (TryOnTests checks the switched-off host).
+            ["TryOn:Enabled"] = "true",
         }));
     }
 }

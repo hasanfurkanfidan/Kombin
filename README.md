@@ -14,6 +14,7 @@ and a rule-based gap analysis with catalog suggestions) and an **Admin panel** (
 queue, creators, catalog, users, audit log) and **launch readiness**: account deletion with a 7-day cancellation window, rate limits, request body limits,
 the public legal pages (privacy, terms, deleting your account), a Production mode that refuses development defaults, and the deploy kit (compose
 override, Caddy, backups, `docs/deploy.md`). **Kombin Ligi** (the league) has its foundations, entries and voting, and the 21:00 day close with points and results; it is off by default.
+**"Manken üstünde gör"** (try-on: an outfit drawn on a mannequin proportioned from the user's measurements) is built and off by default.
 
 ## Requirements
 
@@ -591,6 +592,38 @@ weeks, the group table, the review queue and the evening result push. Signed in.
 The jobs are registered only when `League:Enabled` is true. Measured by `LeaguePerformanceTests` (`KOMBIN_PERF=1`): `pairs/next` p95 23.7 ms at
 6,000 entries (task L3; 34-44 ms in task L4 on a machine under another load, where the L3 code measured 40-41 ms; budget 100 ms); the day close
 0.71 s at 1,000 players and 2.24 s at 10,000 (budget 30 s).
+
+### Try-on ("Manken üstünde gör")
+
+Design: `docs/design/try-on.md`; the specification is the vision team's brief (`kombin-vision/docs/design/try-on-briefs.md`). **Off by default**:
+with `TryOn:Enabled` false (env `TryOn__Enabled`) both routes answer 404 `TryOn.Disabled` and `tryon-prepare` does nothing. It is a catalogue
+drawing on a mannequin proportioned from the user's measurements, never a picture of the user ("sanal deneme" is never the name).
+
+| Method | Path | Success | Errors |
+|---|---|---|---|
+| GET | `/me/tryon?outfitId=…` or `/me/tryon?productId=…&withWardrobe=true` | 200 `{ status, imageUrl, garments: [{ id, fitLevel }], defaultedMeasurements, reason }`. `status`: `Ready` (`imageUrl` a presigned GET valid for one hour; `garments` the drawn pieces by the ID the outfit gives them, `fitLevel` `Tight` / `TrueToSize` / `Loose` / null; `defaultedMeasurements` e.g. `["chest", "hip", "shoulder"]`), `Preparing` (a garment is being prepared, or a drawing of the caller is running: ask again), `Unavailable` (hide the action; `reason`: `BodyOutOfRange`, `UnknownCategory`, `NoTop`, `NoBottom`, `PersonInPhoto`, `PieceNotReady`, `FoldedSleeves`, `RendererRefused`) | 400 (`outfitId` xor `productId`; `withWardrobe` with `productId` only); 404 `TryOn.OutfitNotFound` (also another user's outfit), `TryOn.ProductNotFound`, `TryOn.Disabled`; 429 `RateLimited` (`retryAfterSeconds`, `Retry-After`); 503 `TryOn.RendererUnavailable` |
+| POST | `/me/tryon/reports` | 204 ("Yanlış görünüyor"). Body `{ outfitId \| productId, garmentIds, renderer }`: the `garments[].id` of the answer (1-10) and the renderer (`mannequin-v5`); the same report again stores nothing | 400 (validation, `TryOn.UnknownGarment`: not a drawn piece of that outfit or product); 404 `TryOn.OutfitNotFound`, `TryOn.ProductNotFound`, `TryOn.Disabled` |
+
+- **When it is shown** (`TryOnReadiness`): a top (or outerwear) and a bottom, every core piece (top, outerwear, trousers, skirt, shoes) prepared
+  with `reliable = true`, the outermost upper garment allowed to be outermost (no sleeves folded across the front), and a BMI of at most 36 (no
+  weight: the audience's default). Bags and belts never block. A wardrobe photo of someone wearing the garment is never prepared.
+- `withWardrobe=true` ("Dolabımla dene") draws the product with the first how-to-wear outfit made of the caller's own pieces only; with none (a
+  shirt and no trousers) it is the product alone, so `Unavailable`. Without `withWardrobe` it is the product alone.
+- A drawing is cached per user under a key of the renderer, the body, every garment (row, version, preparation time, size, the size hint's size,
+  cut) and the width: any change of the measurements, a size entry, an item's size or a product's photos draws again. 30 new drawings per user per
+  hour, one at a time; cache hits are free. A renderer refusal (`422`) is remembered for the same inputs.
+- A drawing reveals body proportions: private, served only to its user, deleted when the measurements change, 30 days after it was last shown, and
+  with the account.
+
+| Job | Schedule | Does |
+|---|---|---|
+| `tryon-prepare` | every minute | deletes drawings of old measurements and unused ones; prepares due wardrobe items (up to 20 a run) and, one at a time under an advisory lock, due products (5 a run by day, 40 at night, 01:00-07:00 Istanbul): new, asked for by a request, photos changed, the one retry after a transient failure, then rows of an older service version |
+
+Settings (`TryOn:*`, defaults): `Enabled` false, `MaxBmi` 36, `RendersPerHour` 30, `RenderWidth` 600, `RenderUrlLifetime` 1 h, `RenderRetention`
+30 days, `RetryAfter` 10 min, `FailedRetryAfter` 24 h, `Lease` 5 min, `RequestInterval` 1 min, `WardrobeBatch` 20, `DayCatalogueBatch` 5,
+`NightCatalogueBatch` 40, `NightStartsAt` 01:00, `NightEndsAt` 07:00, `RunBudget` 50 s, `MaxSourceImageBytes` 50 MB, `MaxSourcePixels` 60,000,000.
+Retailer photos over 8 MB are scaled to 1600 px with SkiaSharp (MIT) before they go to the vision service. Reported garments:
+`docs/metrics.sql`, block `tryon_reported_garments` (run by hand).
 
 ### Admin panel
 

@@ -37,6 +37,12 @@ internal static class CatalogModule
             client.DefaultRequestHeaders.UserAgent.ParseAdd(provider.GetRequiredService<IOptions<CatalogEmbeddingOptions>>().Value.UserAgent);
         }).AddPublicOnlyGuard();
 
+        // The guarded, polite downloader for other features (try-on): a new one per resolution, with its own per-host schedule like a job run's.
+        services.AddTransient(provider => new CatalogImageFetcher(
+            provider.GetRequiredService<IHttpClientFactory>().CreateClient(ProductEmbeddingJob.ImageClient),
+            new PoliteSchedule(provider.GetRequiredService<IOptions<CatalogEmbeddingOptions>>().Value.HostInterval),
+            TimeProvider.System));
+
         return services;
     }
 

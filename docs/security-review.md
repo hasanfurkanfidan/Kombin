@@ -66,6 +66,7 @@ the caller chooses; every one of them is checked against the caller where it is 
 | Recommendation | `GET /outfits/daily`, `GET /outfits/how-to-wear`, `GET /outfits/saved`, `GET/DELETE /outfits/{id}`, `POST /outfits/{id}/save|worn|feedback`, `POST /outfits/budget` (`budget`), `POST /trips/plan`, `POST /trips` (`trips`), `GET /trips`, `GET/DELETE /trips/{id}`, `POST /trips/{id}/replan` (`trips`) | outfit, wardrobe item, persona, trip |
 | Social | `GET/POST /api/v1/social/consent`, `POST /api/v1/posts/upload-url`, `POST /api/v1/posts/from-outfit`, `POST /api/v1/posts/{id}/process`, `PUT /api/v1/posts/{id}/publish`, `DELETE /api/v1/posts/{id}`, `POST/DELETE /api/v1/posts/{id}/like`, `POST /api/v1/posts/{id}/report`, `POST /api/v1/posts/{id}/try`, `GET /me/posts`, `GET /me/blocks`, `GET /me/creator/stats`, `POST/DELETE /api/v1/users/{id}/follow`, `POST/DELETE /api/v1/users/{id}/block` | post, outfit, wardrobe items in tags (must be the author's), user |
 | League (`/api/v1/league/...`, tasks L2, L3 and L4; off unless `League:Enabled`, then 404 `League.Disabled`) | `GET /me`, `POST /join`, `POST /leave`, `DELETE /me/entry`, `GET /pairs/next`, `POST /pairs/{pairId}/vote`, `POST /pairs/{pairId}/report` (these three: `league`), `GET /results?day=`, `GET /results/latest` | pair (must be the caller's: 404 `League.PairNotFound` otherwise); results read the caller's own row only (another player's day is 404 `League.ResultsNotReady`); answers carry no other player's identifier (`LeagueAnonymityTests`) |
+| Try-on (task P3; off unless `TryOn:Enabled`, then 404 `TryOn.Disabled`) | `GET /tryon?outfitId=|productId=&withWardrobe=`, `POST /tryon/reports` | outfit (must be the caller's: 404 `TryOn.OutfitNotFound`), product (public), garment IDs of a report (each a piece of that outfit, or the product, or the caller's own wardrobe item: 400 `TryOn.UnknownGarment` otherwise) |
 | League table (task L5) | `GET /api/v1/league/table` | the caller's own group only; rows are `{ rank, points, isMe, alias }` (`LeagueAnonymityTests`) |
 | League internal (tasks L4 and L5) | `POST /api/v1/internal/league/days/{date}/close`, `GET /api/v1/internal/league/review-queue`, `POST /api/v1/internal/league/entries/{entryId}/review` (internal key, then the league switch; every review decision is audited) | closes a day with the hourly job's code; one close at a time (advisory lock, 409 `League.CloseInProgress`), never before the day's 21:00 (409 `League.DayNotOver`) |
 
@@ -98,6 +99,9 @@ show copies under `league/{random}/{random}/thumb.*` instead of the wardrobe key
 or a copy to the wardrobe thumbnail a Social post shows; the pixels are the same, so a person or a perceptual hash can still recognise the
 photo (accepted, `docs/privacy-notes.md` 6b; consent version `2026-11-v2` tells the player: "Parçalarını tanıyan biri kombinin sana ait olduğunu
 anlayabilir."). Account deletion finds those copies through the user's entries (`AccountPurger`).
+Try-on (task P3) stores `tryon/{user}/{garment}/prepared.png` (a garment's prepared cutout; catalogue garments under the empty user ID) and
+`tryon/{user}/{render}/render.webp` (a mannequin drawing, which reveals body proportions): neither name is public, the drawing is served only to its
+user through a one-hour presigned GET, and the prepared cutouts are never given out.
 
 ## 3. Findings
 
@@ -274,13 +278,27 @@ the `events` rate limit per address (600 per 5 minutes), so one address can stil
   deliberately absent (mobile only). `/admin` has its own security headers; the JSON API sends none beyond HSTS behind TLS, which is fine for a
   non-browser client.
 - **I11 · Dependencies:** `dotnet list package --vulnerable --include-transitive`: nothing flagged in any project (2026-11-14). CI now fails on
-  any finding (`Vulnerable packages` step).
+  any finding (`Vulnerable packages` step). Task P3 added SkiaSharp 4.154.0 and its Linux `NoDependencies` native assets (MIT); the check
+  was clean again on 2026-11-17.
 - **I13 · Budget outfits and trips (Task P1, 2026-11-15):** the anonymous budget route reads only the catalog and writes nothing, and is rate
   limited per address like visual search (`budget`); the signed-in routes take a persona (the catalog convention: someone else's is 404) and
   trip IDs filtered by the caller (`GetTrip`, `DeleteTrip`, `ReplanTrip`: 404 for another user's, the harness proves it). A saved trip stores
   the server's own plan, never a client-supplied snapshot, so nobody can store arbitrary JSON; at most 50 per user. The trip city goes to
   Open-Meteo's fixed hosts (no `AddPublicOnlyGuard` needed: the host is ours to choose, the city is only a query parameter, escaped). Candidate
   SQL is interpolated (parameterised). Buy links are `/go` with `src=budget` / `src=trip`; no response carries `Offer.Url`.
+- **I14 · Try-on, "Manken üstünde gör" (Task P3, 2026-11-17):** off by default (`TryOn:Enabled`). **IDOR:** `GET /me/tryon?outfitId=` reads only
+  the caller's outfit (another user's is 404, the harness proves it); `withWardrobe` uses only the caller's own wardrobe; a report's garment IDs
+  must be pieces of the caller's outfit, the product, or the caller's own items. **Privacy of the drawing:** private key name, presigned GET of one
+  hour, given only in the answer to its owner, deleted when the measurements change, after 30 days unused and with the account; body values
+  reach only `kombin-vision` (the vision client logs the path and the service's error code, never a spec). **Cost:** a new drawing is limited to 30
+  per user per hour and one in flight (`TryOnRenderGate`, in memory per instance like the rate limiter; a cache hit is free); a renderer `422` is
+  remembered for the same inputs, so a client cannot make the API ask again. **Retailer photos:** downloaded only through the catalogue's fetcher
+  (`AddPublicOnlyGuard`: public addresses after DNS, re-checked at connect, at most 3 redirects; `KombinBot`, one request per host per second),
+  capped at 50 MB per photo and never read past the cap. **Decoding (new native surface):** photos over 8 MB are decoded and scaled by SkiaSharp
+  (native Skia: libpng, libjpeg-turbo, libwebp) in the background job only, never on a request; the header is read first and a photo over 60 MP is
+  not decoded (an image bomb costs a header read); a malformed photo is a failed decode, which leaves the photo out. Accepted risk: a memory-safety
+  bug in Skia's decoders would run in the API process; keep the package current (the vulnerable-package step covers it). **Concurrency:** a
+  prepare claims its garment row (a lease); catalogue prepares hold a session advisory lock, so two runs never prepare one garment twice.
 - **I12 · Concurrency:** like and follow counts are recomputed from rows (`ON CONFLICT DO NOTHING`), refresh rotation has an `xmin` concurrency
   token, alert notifications are deduplicated for 24 h, external first sign-ins retry once on the unique indexes, publish refuses a post still
   `Processing`, the purge checks the deletion window. Two simultaneous third reports can miss the hide (each counts two); a later report or the

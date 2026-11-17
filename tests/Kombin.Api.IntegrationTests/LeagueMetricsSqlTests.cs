@@ -43,7 +43,8 @@ public sealed partial class LeagueMetricsSqlTests(ApiFactory factory)
         foreach (var line in file.ReplaceLineEndings("\n").Split('\n').Append("-- name: end"))
         {
             var league = LeagueLine().Match(line);
-            if (league.Success || line.StartsWith("-- name:", StringComparison.Ordinal))
+            // A job block or another hand-run section (try-on's "-- tryon:") ends a league block too.
+            if (league.Success || line.StartsWith("-- name:", StringComparison.Ordinal) || line.StartsWith("-- tryon:", StringComparison.Ordinal))
             {
                 if (name is not null)
                 {

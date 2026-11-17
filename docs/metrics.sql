@@ -213,3 +213,28 @@ WITH votes AS (
 SELECT coalesce(sum(weight) FILTER (WHERE (choice = 'Left' AND left_kind = 'Engine') OR (choice = 'Right' AND right_kind = 'Engine')), 0) AS engine_wins,
        coalesce(sum(weight), 0) AS games
 FROM votes;
+
+-- tryon: the block below is try-on's list of reported garments, run by hand and never by the weekly-metrics job.
+-- ============================================================================================================================================
+-- "Manken üstünde gör", reported garments ("Yanlış görünüyor"; docs/design/try-on.md). NOT run by the weekly-metrics job: a "-- tryon:" line
+-- closes the job's last block (MetricSql.Parse). There is no review screen yet: this lists the garments users said look wrong, the most reported
+-- first (a top shown from the back, most often). A catalogue garment carries its product and brand; a wardrobe garment is counted and shown
+-- without anything of its owner. One row per reported garment. Parameters, Istanbul calendar days, end exclusive:
+--   psql "$DATABASE_URL" -v day_start="'2026-12-01'" -v day_end="'2027-01-01'" -f docs/metrics.sql
+-- The tryon schema is never granted to metabase_ro: run it as the operator.
+-- ============================================================================================================================================
+
+-- tryon: tryon_reported_garments
+SELECT g.id AS garment_id,
+       CASE WHEN g.product_id IS NOT NULL THEN 'catalogue' ELSE 'wardrobe' END AS kind,
+       g.product_id, p.name AS product_name, b.name AS brand, g.family, g.prepare_version, g.image_index,
+       count(*) AS reports, count(DISTINCT r.user_id) AS reporters, max(r.created_at) AS last_reported_at
+FROM tryon.reports r
+CROSS JOIN LATERAL unnest(r.garment_ids) AS reported(garment_id)
+JOIN tryon.garments g ON g.id = reported.garment_id
+LEFT JOIN catalog.products p ON p.id = g.product_id
+LEFT JOIN catalog.brands b ON b.id = p.brand_id
+WHERE r.created_at >= (:day_start::date)::timestamp AT TIME ZONE 'Europe/Istanbul'
+  AND r.created_at < (:day_end::date)::timestamp AT TIME ZONE 'Europe/Istanbul'
+GROUP BY g.id, g.product_id, p.name, b.name, g.family, g.prepare_version, g.image_index
+ORDER BY reports DESC, last_reported_at DESC, g.id;
