@@ -18,7 +18,9 @@ internal static class LeaveLeagueEndpoint
 
     /// <summary>
     /// "Ligden ayrıl" (settings): no outfit enters from now on and today's entry is withdrawn. The history stays for the player (and goes with
-    /// the account); joining again keeps the tier. Not a player (never joined, or already left): 403 <c>League.NotJoined</c>.
+    /// the account); joining again keeps the tier. Not a player (never joined, or already left): 403 <c>League.NotJoined</c>. Takes the player's
+    /// day lock (<see cref="EntryMaterializer.LockPlayerDayAsync"/>), so an entry being resolved at the same moment is either withdrawn here or
+    /// never written.
     /// </summary>
     private static async Task<IResult> Handle(ICurrentUser currentUser, KombinDbContext db, IClock clock, CancellationToken cancellationToken)
     {
@@ -33,6 +35,7 @@ internal static class LeaveLeagueEndpoint
         var today = Istanbul.Today(now);
 
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        await EntryMaterializer.LockPlayerDayAsync(db, userId, today, cancellationToken);
 
         player.LeftAt = now;
         db.LeagueConsents.Add(new LeagueConsentRecord { UserId = userId, Action = LeagueConsentAction.Leave, At = now });

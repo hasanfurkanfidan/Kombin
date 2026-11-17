@@ -661,7 +661,8 @@ External Python workers (a separate repo) push the catalog through the internal 
 - **Every number is a setting** (`League:*`, `LeagueOptions`, validated at start with every problem listed; `LeagueOptionsTests` pins the
   defaults to the note). A new number of the league is a setting there and a row in the note's settings table, never a constant.
 - **Consent:** versioned and append-only like the posting consent (`LeagueConsent.Versions`, hash pinned in `LeagueConsentTests`, glossary-checked).
-  Version `2026-11-v1` is the owner's text, whose last sentence is the 18+ declaration; counsel has not reviewed it (privacy notes, question 17).
+  Version `2026-11-v2` (current) is the owner's text, whose last sentence is the 18+ declaration and whose third says that someone who knows the
+  pieces can tell whose outfit it is; v1 lacked that sentence and its players are asked again. Counsel has reviewed neither (privacy notes, question 17).
   Every join writes a `league.consents` row with the exact text; leaving writes a `Leave` row. Joining again under the current version is a no-op.
 - **Age (strict):** a known birth year blocks unless the caller is certainly of age (`LeagueRules.IsUnderAge`: `year − birthYear <= League:MinAge`,
   in the Istanbul year; born 2008 waits until 2027): 403 `League.AgeRestricted` on join, and entry reason `AgeRestricted` for a player whose year
@@ -670,32 +671,41 @@ External Python workers (a separate repo) push the catalog through the internal 
   `Worn`; saving never enters. `EntryMaterializer` turns it into the player's one entry of the day (joined under the current consent, not disabled,
   no deletion pending, before the close), in the order of the pure `EntryEligibility` (age, `IncompleteOutfit`: a piece not owned or fewer than
   `MinPieces` non-accessory pieces, `PieceUnavailable`: archived, gone or without an image, `RecentlyCompeted`: the pure `RepeatRule` over
-  entries that competed at their close, `UnsafePiece`, `Pending` while a piece has no verdict). The entry follows the latest wear until it is
-  first served (`locked_at`), withdrawn and removed are final, one player's resolutions are serialised by an advisory lock and the row is read
-  `FOR UPDATE`. `league-entries` (every minute, `[DisableConcurrentExecution(60)]`, `[AutomaticRetry(Attempts = 0)]`, tests call
-  `ProcessAsync(now, userIds, ct)`) resolves the players with a `Worn` feedback row of the last 10 minutes (index `outfit_feedback (created_at)`)
-  and those still `Pending`, asking the safety filter for at most `ModerationRetriesPerRun` pieces, and deletes the copies of withdrawn and
-  removed entries; `GET /league/me` resolves the caller at once without asking the filter.
+  entries that competed at their close; a catalog piece's identity there is its product, `RepeatRule.Identity`, `UnsafePiece`, `Pending` while a
+  piece has no verdict). The entry follows the latest wear and every change (a birth year, an archived or deleted piece; a dismissed outfit makes
+  it `NotCompeting`/`NotWorn`) until it is first served (`locked_at`), withdrawn and removed are final; one player's resolutions and `POST /league/leave`
+  share an advisory lock (`EntryMaterializer.LockPlayerDayAsync`), the standing is checked again under it, and the row is read `FOR NO KEY UPDATE`.
+  `league-entries` (every minute, `[DisableConcurrentExecution(60)]`, `[AutomaticRetry(Attempts = 0)]`, tests call
+  `ProcessAsync(now, userIds, ct)`) resolves the players with a `Worn` feedback row of the last 10 minutes (index `outfit_feedback (created_at)`),
+  those still `Pending` and those competing but not shown yet, asking the safety filter for at most `ModerationRetriesPerRun` pieces, and deletes
+  the copies of withdrawn and removed entries; `GET /league/me` resolves the caller at once without asking the filter.
 - **Pairing and voting** (sections 6 and 7 of the note): `Pairing.Choose` is pure (A the least exposed human, B by `Strict` → `SameAudience` → `Any`,
-  never a pair twice, ties by a seeded FNV hash); `pairs/next` returns an open pair again, stops at `MaxPairsPerDay` (`DailyLimit`) and serves in
-  one transaction that also bumps both entries' `exposures` and sets `locked_at` (both must still be `Competing`, else it chooses again). A vote
+  never a pair twice, ties by a seeded FNV hash) over **two candidate lists**, the `PairCandidates` least exposed human entries and as many engine
+  ones (one list let engine entries crowd every human one out; index `(day, status, kind, exposures, id)`), without entries of players who left,
+  are disabled or pending deletion;
+  `pairs/next` returns an open pair again, stops at `MaxPairsPerDay` (`DailyLimit`; the count is the last sequence, never reused after a pair
+  vanished with an account) and serves in one transaction that also bumps both entries' `exposures` and sets `locked_at` (both must still be
+  `Competing`, else it chooses again). Serve and vote lock the two entry rows in ID order with `FOR NO KEY UPDATE` in one statement (never
+  `FOR UPDATE`: it conflicts with the key-share locks of new pair rows); keep that order in anything new that updates two entries. A vote
   locks the day row `FOR SHARE` (created if missing; from `closes_at` or `closed_at` on: 409 `League.DayClosed`) and the pair `FOR UPDATE`; same
   choice again = the stored result, another = 409 `League.AlreadyVoted`; counted only when not a skip and both the server's time since serving
   and `decisionMs` reach `MinDecisionTime`; the first `NewVoterVotes` counted votes weigh `NewVoterWeight` (`players.counted_votes` incremented
   with `RETURNING`). The response's `chosenWinRate`/`chosenGames` are the pure `WinRate` over the chosen entry's counters after the update (no
   "% agree", nothing stored). A report (`ReportEntryEndpoint`) goes through the caller's own pair (404 otherwise), one per player and outfit,
-  uses up an open pair as a skip, and counts toward `Reports:HideAt` only from an account at least `Reports:MinAccountAge` old with
+  uses up an open pair as a skip (only while it is still open: `WHERE answered_at IS NULL`), and counts toward `Reports:HideAt` only from an account at least `Reports:MinAccountAge` old with
   `Reports:MinCountedVotes` counted votes. `pairs/next`, `vote` and `report` share the `league` rate-limit policy.
 - **Engine outfits** (`league-fill`, every 15 minutes 00:00-20:45 Istanbul, tests call `FillAsync(day, now, ct)`): per (Women or Men, occasion)
-  bucket with human entries today or yesterday and fewer than `EngineFill:MinPool` competing human entries, up to `EngineFill:MaxPerRun` engine
+  bucket with a competing human entry today and fewer than `EngineFill:MinPool` competing human entries, up to `EngineFill:MaxPerRun` engine
   entries a run from Recommendation's `CatalogOutfitSampler` (seed = day number + bucket; existing piece sets skipped), catalog products only,
   never ranked or listed. `engine_fill_at:{day}` is written to `league.state`. Both jobs are registered by `UseLeagueJobs` (after
   `UseIdentityJobs`) only when `Hangfire:Enabled` and `League:Enabled` are true (removed otherwise), and do nothing while the league is off.
-- **Anonymity is the contract.** No league response may ever carry another player's user ID, name, e-mail, entry ID or wardrobe storage key;
+- **Anonymity is the contract: no name, no profile, no stable identifier in any response** (never describe it as "cannot be linked": the
+  copies are the owner's pictures, and someone who knows the pieces can tell; the consent says so). No league response may ever carry another player's user ID, name, e-mail, entry ID or wardrobe storage key;
   group tables show a generated per-week alias. Wardrobe keys contain the owner's ID (`StorageKeys.Build`), so a competing entry's thumbnails
-  are copied to `league/{random}/{random}/thumb.*` (public by the name, new every day; a catalog item without a thumbnail shows its product image)
+  are copied to `league/{random}/{random}/thumb.*` (public by the name, new every day, and different in bytes from the source and every other copy:
+  `ImageMarker` in `Common/Storage`, so no hash or ETag links them; an image it cannot mark is not copied; a catalog item without a thumbnail shows its product image)
   and `LeagueResponses` is the only builder of piece URLs: voters get copies and catalog images only, the owner may see their own thumbnails.
-  `LeagueAnonymityTests` checks pairs and votes of player B for every identifier of A and that the same piece has new URLs every day. **Account deletion:** every league table cascades on the user; `AccountPurger` deletes the league image copies first
+  `LeagueAnonymityTests` checks pairs and votes of player B for every identifier of A and that the same piece has new URLs and new bytes (content hash) every day. **Account deletion:** every league table cascades on the user; `AccountPurger` deletes the league image copies first
   (found through `league.entries`); `AccountDeletionTests`' matrix covers the league tables. A new league table that holds a user's data needs
   the same three things (cascade or purger step, privacy notes 1a, the matrix line).
 - **Boundaries:** the league reads other features' tables through `KombinDbContext` only and calls exactly two seams (allow-list lines `Seam`):

@@ -81,6 +81,7 @@ public sealed class LeagueTests(ApiFactory factory)
     [InlineData(null)]
     [InlineData("")]
     [InlineData("2020-01-v0")]
+    [InlineData("2026-11-v1")]
     public async Task OnlyTheCurrentConsentVersionCanBeAccepted(string? version)
     {
         using var user = await factory.CreateUserAsync(Ct);
@@ -164,6 +165,37 @@ public sealed class LeagueTests(ApiFactory factory)
         Assert.Equal("Gold", back.GetProperty("tier").GetString());
         Assert.Null((await PlayerAsync(user.Id))!.LeftAt);
         Assert.Equal([LeagueConsentAction.Join, LeagueConsentAction.Leave, LeagueConsentAction.Join], (await ConsentsAsync(user.Id)).Select(row => row.Action));
+    }
+
+    /// <summary>
+    /// A player who joined under version 1 is asked again (version 2 says the pieces can be recognised): <c>consentRequired</c> is true until they
+    /// accept version 2, which writes a new consent row with the exact new text and keeps their tier.
+    /// </summary>
+    [Fact]
+    public async Task APlayerUnderVersionOneIsAskedAgainAndAcceptsVersionTwo()
+    {
+        using var user = await factory.CreateUserAsync(Ct);
+        await user.Client.JoinLeagueOkAsync(Ct);
+        await factory.WithDbAsync(db => db.LeaguePlayers.Where(row => row.UserId == user.Id)
+            .ExecuteUpdateAsync(set => set.SetProperty(row => row.ConsentVersion, "2026-11-v1").SetProperty(row => row.Tier, LeagueTier.Silver), Ct));
+
+        var asked = await user.Client.GetJsonAsync(LeagueClientExtensions.Me, Ct);
+
+        Assert.True(asked.GetProperty("consentRequired").GetBoolean());
+        Assert.Equal("2026-11-v2", asked.GetProperty("consent").GetProperty("version").GetString());
+        Assert.Contains("Parçalarını tanıyan biri kombinin sana ait olduğunu anlayabilir.", asked.GetProperty("consent").GetProperty("text").GetString(), StringComparison.Ordinal);
+
+        using var old = await user.Client.JoinLeagueAsync("2026-11-v1", Ct);
+        Assert.Equal(HttpStatusCode.BadRequest, old.StatusCode);
+
+        var accepted = await user.Client.JoinLeagueOkAsync(Ct);
+
+        Assert.False(accepted.GetProperty("consentRequired").GetBoolean());
+        Assert.Equal("Silver", accepted.GetProperty("tier").GetString());
+        var consents = await ConsentsAsync(user.Id);
+        Assert.Equal(2, consents.Count);
+        Assert.Equal(("2026-11-v2", LeagueConsent.Current.Text), (consents[^1].Version, consents[^1].Text));
+        Assert.Equal("2026-11-v2", (await PlayerAsync(user.Id))!.ConsentVersion);
     }
 
     [Fact]

@@ -5,6 +5,7 @@ using System.Text.Json;
 using Hangfire;
 using Kombin.Api.Common.Storage;
 using Kombin.Api.Common.Time;
+using Kombin.Api.Features.League;
 using Kombin.Api.Features.Recommendation.Weather;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -187,6 +188,26 @@ public sealed class LeaguePerformanceTests(LeaguePerformanceTests.LeaguePerforma
                     await writer.CompleteAsync(cancellationToken);
                 }
 
+                // Every human entry belongs to a joined player (the materializer makes none otherwise), and pairing checks that the player has not left.
+                await using (var writer = await connection.BeginBinaryImportAsync(
+                    "COPY league.players (user_id, tier, joined_at, consent_version, counted_votes, idle_weeks, created_at, updated_at) FROM STDIN (FORMAT BINARY)", cancellationToken))
+                {
+                    foreach (var playerId in playerIds)
+                    {
+                        await writer.StartRowAsync(cancellationToken);
+                        await writer.WriteAsync(playerId, NpgsqlDbType.Uuid, cancellationToken);
+                        await writer.WriteAsync("Bronze", NpgsqlDbType.Varchar, cancellationToken);
+                        await writer.WriteAsync(now, NpgsqlDbType.TimestampTz, cancellationToken);
+                        await writer.WriteAsync(LeagueConsent.Current.Version, NpgsqlDbType.Varchar, cancellationToken);
+                        await writer.WriteAsync(0, NpgsqlDbType.Integer, cancellationToken);
+                        await writer.WriteAsync((short)0, NpgsqlDbType.Smallint, cancellationToken);
+                        await writer.WriteAsync(now, NpgsqlDbType.TimestampTz, cancellationToken);
+                        await writer.WriteAsync(now, NpgsqlDbType.TimestampTz, cancellationToken);
+                    }
+
+                    await writer.CompleteAsync(cancellationToken);
+                }
+
                 var entryIds = new Guid[Players + Engines];
                 await using (var writer = await connection.BeginBinaryImportAsync(
                     "COPY league.entries (id, day, user_id, kind, audience, occasion, piece_ids, piece_set_hash, status, exposures, comparisons, weighted_wins, weighted_games, counting_reports, created_at, updated_at) FROM STDIN (FORMAT BINARY)",
@@ -261,7 +282,7 @@ public sealed class LeaguePerformanceTests(LeaguePerformanceTests.LeaguePerforma
                     await writer.CompleteAsync(cancellationToken);
                 }
 
-                await using var analyze = new NpgsqlCommand("ANALYZE league.entries; ANALYZE league.entry_pieces; ANALYZE identity.users;", connection);
+                await using var analyze = new NpgsqlCommand("ANALYZE league.entries; ANALYZE league.entry_pieces; ANALYZE identity.users; ANALYZE league.players;", connection);
                 await analyze.ExecuteNonQueryAsync(cancellationToken);
             }
 

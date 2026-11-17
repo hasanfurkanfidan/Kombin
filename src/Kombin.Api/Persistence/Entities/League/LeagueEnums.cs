@@ -47,6 +47,9 @@ internal enum LeagueEntryReason
     IncompleteOutfit,
     PieceUnavailable,
     AgeRestricted,
+
+    /// <summary>The outfit is no longer marked worn today (dismissed after it was worn) and no other worn outfit took its place.</summary>
+    NotWorn,
 }
 
 /// <summary>How strictly a pair matched: same occasion and audience, same audience only, or anything.</summary>

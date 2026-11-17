@@ -63,6 +63,25 @@ public class RepeatRuleTests
     }
 
     [Fact]
+    public void ACatalogPieceIsItsProductSoArchivingAndAddingItAgainIsTheSamePiece()
+    {
+        var product = Guid.NewGuid();
+        var archivedItem = Guid.NewGuid();
+        var addedAgain = Guid.NewGuid();
+        var photoOfTheSameProduct = Guid.NewGuid();
+
+        var before = RepeatRule.PieceIds([(OutfitSlot.Top, Shirt), (OutfitSlot.Bottom, Jeans), (OutfitSlot.Shoes, RepeatRule.Identity(archivedItem, product, fromCatalog: true))]);
+        var after = RepeatRule.PieceIds([(OutfitSlot.Top, Shirt), (OutfitSlot.Bottom, Jeans), (OutfitSlot.Shoes, RepeatRule.Identity(addedAgain, product, fromCatalog: true))]);
+
+        Assert.Equal(before, after);
+        Assert.True(Blocked(after, new PastEntry(Day.AddDays(-20), before, Competed: true)));
+
+        // A photo piece keeps its own item ID, even one linked to a product.
+        Assert.Equal(photoOfTheSameProduct, RepeatRule.Identity(photoOfTheSameProduct, product, fromCatalog: false));
+        Assert.Equal(addedAgain, RepeatRule.Identity(addedAgain, null, fromCatalog: true));
+    }
+
+    [Fact]
     public void WithdrawnRemovedOrNotCompetingEntriesBlockNothing() =>
         Assert.False(Blocked(Set(Shirt, Jeans, Sneakers), new PastEntry(Day.AddDays(-1), Set(Shirt, Jeans, Sneakers), Competed: false)));
 

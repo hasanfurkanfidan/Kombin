@@ -89,10 +89,13 @@ Keys are server-built `{area}/{userId}/{ownerId}/{variant}.{ext}` (`StorageKeys.
 `Content-Type` signed, 15 min, **no size cap** (M2). Presigned GET: 1 h for post images, 15 min for wardrobe originals. Public by bucket policy:
 `*/cutout.*` and `*/thumb.*` only (`docker/minio/public-read.json`); everything else, originals and post renditions included, is private.
 Keys contain two random GUIDs (not guessable); public ones are disclosed wherever the image is shown (wardrobe tags on posts).
-The first GUID is the owner's user ID, so a public key links an image to an account: Kombin Ligi, whose outfits are anonymous, will therefore
+The first GUID is the owner's user ID, so a public key links an image to an account: Kombin Ligi, whose responses carry no name, no profile and no stable identifier, will therefore
 show copies under `league/{random}/{random}/thumb.*` instead of the wardrobe keys (`docs/design/league.md`, section 4; built in task L3 by
-`EntryMaterializer`, new keys every day, deleted within minutes of a withdrawal or a leave). Account deletion finds those copies through the
-user's entries (`AccountPurger`).
+`EntryMaterializer`, new keys every day, deleted within minutes of a withdrawal or a leave). Since task L3-fix every copy also differs in bytes
+(`ImageMarker`: a random block in a part of the file decoders skip), so neither a content hash nor the store's ETag links two copies of one piece
+or a copy to the wardrobe thumbnail a Social post shows; the pixels are the same, so a person or a perceptual hash can still recognise the
+photo (accepted, `docs/privacy-notes.md` 6b; consent version `2026-11-v2` tells the player: "Parçalarını tanıyan biri kombinin sana ait olduğunu
+anlayabilir."). Account deletion finds those copies through the user's entries (`AccountPurger`).
 
 ## 3. Findings
 

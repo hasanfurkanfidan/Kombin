@@ -13,7 +13,9 @@ internal sealed record LeagueConsentVersion(string Version, string Text)
 /// <summary>
 /// The consent asked once, on the first visit to Kombin Ligi ("Lige katıl"): the outfit is shown to strangers. Its last sentence is the 18+
 /// declaration (rules, section 1). Versions are append-only like <c>PostingConsent</c>: to change the text, add a version at the end; every
-/// player then accepts again. Counsel has not reviewed version 1 yet (<c>docs/privacy-notes.md</c>, open questions). Pure.
+/// player then accepts again. Version 2 (task L3-fix) adds the plain truth about the image copies: someone who knows the pieces can tell whose
+/// outfit it is (the copies carry no name, profile or stable identifier, but they are the same pictures). Counsel has reviewed neither version
+/// (<c>docs/privacy-notes.md</c>, open questions). Pure.
 /// </summary>
 internal static class LeagueConsent
 {
@@ -23,6 +25,11 @@ internal static class LeagueConsent
             "2026-11-v1",
             "Katılırsan dolabındaki parçaların fotoğrafları diğer oyunculara gösterilir. Adın ve profilin görünmez. İstediğin gün kombinini çıkarabilir, "
             + "ayarlardan ligden ayrılabilirsin. Katılarak 18 yaşından büyük olduğunu onaylarsın."),
+        Published(
+            "2026-11-v2",
+            "Katılırsan dolabındaki parçaların fotoğrafları diğer oyunculara gösterilir. Adın ve profilin görünmez. Parçalarını tanıyan biri kombinin "
+            + "sana ait olduğunu anlayabilir. İstediğin gün kombinini çıkarabilir, ayarlardan ligden ayrılabilirsin. Katılarak 18 yaşından büyük "
+            + "olduğunu onaylarsın."),
     ];
 
     public static LeagueConsentVersion Current => Versions[^1];

@@ -39,7 +39,9 @@ internal static class VoteEndpoint
     /// <item>answered already: the same choice returns the result again (200), another is 409 <c>League.AlreadyVoted</c>;</item>
     /// <item>counted only when not a skip and both the server's time since serving and the app's <c>decisionMs</c> reach
     /// <c>League:MinDecisionTime</c>; the voter's first <c>League:NewVoterVotes</c> counted votes weigh <c>League:NewVoterWeight</c>;</item>
-    /// <item>a counted vote adds a comparison and the weight to both entries' games and to the chosen one's wins.</item>
+    /// <item>a counted vote adds a comparison and the weight to both entries' games and to the chosen one's wins, in one statement that locks the
+    /// two rows in ID order (as <c>pairs/next</c> does; <c>FOR NO KEY UPDATE</c>, compatible with the key-share locks of new pair rows), so two
+    /// voters judging the same two outfits at once never deadlock.</item>
     /// </list>
     /// </summary>
     private static async Task<IResult> Handle(
@@ -117,14 +119,18 @@ internal static class VoteEndpoint
 
         if (counted)
         {
-            var (chosen, other) = choice == LeaguePairChoice.Left ? (pair.LeftEntryId, pair.RightEntryId) : (pair.RightEntryId, pair.LeftEntryId);
-            await db.LeagueEntries.Where(entry => entry.Id == chosen).ExecuteUpdateAsync(setters => setters
-                .SetProperty(entry => entry.Comparisons, entry => entry.Comparisons + 1)
-                .SetProperty(entry => entry.WeightedGames, entry => entry.WeightedGames + weight)
-                .SetProperty(entry => entry.WeightedWins, entry => entry.WeightedWins + weight), cancellationToken);
-            await db.LeagueEntries.Where(entry => entry.Id == other).ExecuteUpdateAsync(setters => setters
-                .SetProperty(entry => entry.Comparisons, entry => entry.Comparisons + 1)
-                .SetProperty(entry => entry.WeightedGames, entry => entry.WeightedGames + weight), cancellationToken);
+            var chosen = choice == LeaguePairChoice.Left ? pair.LeftEntryId : pair.RightEntryId;
+            await db.Database.ExecuteSqlAsync(
+                $"""
+                WITH ordered AS (
+                    SELECT id FROM league.entries WHERE id IN ({pair.LeftEntryId}, {pair.RightEntryId}) ORDER BY id FOR NO KEY UPDATE)
+                UPDATE league.entries AS entry
+                SET comparisons = entry.comparisons + 1,
+                    weighted_games = entry.weighted_games + {weight},
+                    weighted_wins = entry.weighted_wins + CASE WHEN entry.id = {chosen} THEN {weight} ELSE 0 END
+                FROM ordered WHERE entry.id = ordered.id
+                """,
+                cancellationToken);
         }
 
         var response = await RespondAsync(pair);

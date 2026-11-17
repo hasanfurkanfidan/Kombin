@@ -1743,6 +1743,9 @@ namespace Kombin.Api.Persistence.Migrations
                     b.HasIndex("Day", "Status", "Audience", "Occasion", "Exposures")
                         .HasDatabaseName("ix_entries_day_status_audience_occasion_exposures");
 
+                    b.HasIndex("Day", "Status", "Kind", "Exposures", "Id")
+                        .HasDatabaseName("ix_entries_day_status_kind_exposures_id");
+
                     b.ToTable("entries", "league", t =>
                         {
                             t.HasCheckConstraint("ck_entries_counters", "exposures >= 0 AND comparisons >= 0 AND counting_reports >= 0 AND weighted_wins >= 0 AND weighted_wins <= weighted_games");

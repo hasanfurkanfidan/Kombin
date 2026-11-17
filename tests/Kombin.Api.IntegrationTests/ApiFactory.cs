@@ -44,6 +44,9 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     /// <summary>What was enqueued for Hangfire; the tests run the jobs themselves.</summary>
     internal RecordingJobClient Jobs => Services.GetRequiredService<RecordingJobClient>();
 
+    /// <summary>The shared test database, for tests that hold a lock of their own beside the API's requests.</summary>
+    internal string ConnectionString => _postgres.GetConnectionString();
+
     // One PBKDF2 hash for the whole run: hashing is deliberately slow.
     private static readonly string AdminPasswordHash = AdminHashCommand.Hash(AdminPassword);
 

@@ -562,10 +562,10 @@ consent, joining and leaving); task L3 the entries and the voting. The 21:00 day
 | POST | `/league/pairs/{pairId}/vote` | 200 `{ counted, chosenWinRate, chosenGames, countedToday, servedToday, target, limit }`. Body `{ choice: "left" \| "right" \| "skip", decisionMs }`; the same vote again returns the result | 400; 404 `League.PairNotFound`; 409 `League.AlreadyVoted`, `League.DayClosed` |
 | POST | `/league/pairs/{pairId}/report` | 202 `{ reported: true }`. Body `{ side: "left" \| "right", reason? }` (`Inappropriate`, `NotClothing`, `Other`); an open pair is used up as a skip | 400; 404 `League.PairNotFound`; 409 `League.AlreadyReported` |
 
-- The consent (version `2026-11-v1`) is also the 18+ declaration; its text is pinned by `LeagueConsentTests` and every join stores the text shown.
+- The consent (version `2026-11-v2`; players who joined under `2026-11-v1` are asked again) is also the 18+ declaration and says that someone who knows the pieces can tell whose outfit it is; its text is pinned by `LeagueConsentTests` and every join stores the text shown.
 - **Only a worn outfit enters** ("Bunu giyiyorum" / "Bugün giydim", `POST /me/outfits/{id}/worn`, before 21:00); saving never does. The entry
   follows the latest wear until a voter is first shown it, then it is fixed for the day.
-- **Anonymity:** voters see a random pair ID and per side only `{ slot, imageUrl }`; the images are the league's own copies under random keys
+- **Anonymity** means no name, no profile and no stable identifier in any response (not that an outfit cannot be traced: the pieces are the owner's photos): voters see a random pair ID and per side only `{ slot, imageUrl }`; the images are the league's own copies under random keys
   (`league/{random}/{random}/thumb.*`), new every day, deleted within minutes of a withdrawal or a leave.
 - A vote counts when it is not a skip and both the server and the app measured at least 0.6 s; a player's first 20 counted votes weigh half.
   `chosenWinRate` is the chosen outfit's real weighted win rate today, this vote included, null below 5 games ("İlk oylardan biri seninki").

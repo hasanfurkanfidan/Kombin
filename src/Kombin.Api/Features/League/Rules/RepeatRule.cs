@@ -10,7 +10,9 @@ internal sealed record PastEntry(DateOnly Day, IReadOnlyList<Guid> PieceIds, boo
 /// <summary>
 /// The repeat rule (rules, section 1; design note section 5). Pure.
 /// <list type="bullet">
-/// <item>piece set: the sorted wardrobe item IDs of the non-accessory pieces (accessories never decide an outfit, as in the engine's hash);</item>
+/// <item>piece set: the sorted identities of the non-accessory pieces (accessories never decide an outfit, as in the engine's hash). A piece's
+/// identity is its wardrobe item ID, except for a piece added from the catalog, whose identity is the product ID (<see cref="Identity"/>):
+/// archiving it and adding the same product again makes a new wardrobe item but not a new piece;</item>
 /// <item>exact: blocked if the same piece set competed on a day in [D − (RepeatExactDays − 1), D − 1] (30 days: "30 gün içinde yalnızca bir kez");</item>
 /// <item>near: blocked if a set competed on a day in [D − (RepeatNearDays − 1), D − 1] (7 days) with max(|A \ B|, |B \ A|) ≤ RepeatNearMaxDifference
 /// (1): one piece swapped, added or removed.</item>
@@ -19,6 +21,10 @@ internal sealed record PastEntry(DateOnly Day, IReadOnlyList<Guid> PieceIds, boo
 /// </summary>
 internal static class RepeatRule
 {
+    /// <summary>A piece's identity: the product of a piece added from the catalog (<c>FromCatalog</c> with a product), else the wardrobe item.</summary>
+    public static Guid Identity(Guid wardrobeItemId, Guid? productId, bool fromCatalog) =>
+        fromCatalog && productId is { } product ? product : wardrobeItemId;
+
     /// <summary>The sorted IDs of the pieces that decide the outfit: everything but accessories, each once.</summary>
     public static Guid[] PieceIds(IEnumerable<(OutfitSlot Slot, Guid Id)> pieces) =>
         [.. pieces.Where(piece => piece.Slot != OutfitSlot.Accessory).Select(piece => piece.Id).Distinct().Order()];

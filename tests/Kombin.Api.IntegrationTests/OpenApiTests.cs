@@ -69,6 +69,17 @@ public sealed class OpenApiTests(ApiFactory factory)
         Assert.Contains("Followers is NOT a privacy boundary", operation.GetProperty("description").GetString(), StringComparison.Ordinal);
     }
 
+    // Task L3-fix: an outfit dismissed after it was worn leaves the entry NotCompeting with NotWorn.
+    [Fact]
+    public async Task TheLeagueEntryReasonsAreDocumented()
+    {
+        var schemas = (await DocumentAsync()).GetProperty("components").GetProperty("schemas");
+
+        Assert.Equal(
+            ["RecentlyCompeted", "UnsafePiece", "IncompleteOutfit", "PieceUnavailable", "AgeRestricted", "NotWorn", null],
+            schemas.GetProperty("LeagueEntryReason").GetProperty("enum").EnumerateArray().Select(reason => reason.GetString()));
+    }
+
     [Fact]
     public async Task ThePairingsAreDocumentedWithTheirReasons()
     {
