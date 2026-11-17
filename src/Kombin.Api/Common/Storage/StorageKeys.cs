@@ -51,6 +51,37 @@ internal static class StorageKeys
         return mediaType is not null && Extensions.TryGetValue(mediaType, out var extension) ? extension : null;
     }
 
+    /// <summary>
+    /// What a public image (<c>cutout.*</c>, <c>thumb.*</c>) says to every cache: its key is never written with different bytes once a client can see
+    /// it (a wardrobe item's images are final when it is Ready, a league copy has a random key), so a phone keeps it for a year and never asks again.
+    /// </summary>
+    public const string LongLivedCacheControl = "public, max-age=31536000, immutable";
+
+    /// <summary>
+    /// A league copy is the picture of one day's outfit and is deleted when the outfit is withdrawn or after seven days; a cache must not hold it
+    /// much longer than the day it is voted on, so it is cached for a day only.
+    /// </summary>
+    public const string LeagueCacheControl = "public, max-age=86400, immutable";
+
+    /// <summary>
+    /// Everything that is not public (originals, a post's feed image and preview, a try-on cutout and render): served through presigned GETs, to the
+    /// owner or a signed-in viewer only, so no shared cache may keep it and a device is told not to store it either.
+    /// </summary>
+    public const string PrivateCacheControl = "private, no-store";
+
+    /// <summary>The <c>Cache-Control</c> an object is stored with, decided by its key like <see cref="IsPublic"/> (the league's copies live under <c>league/</c>).</summary>
+    public static string CacheControlFor(string key)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+
+        if (!IsPublic(key))
+        {
+            return PrivateCacheControl;
+        }
+
+        return key.StartsWith("league/", StringComparison.Ordinal) ? LeagueCacheControl : LongLivedCacheControl;
+    }
+
     /// <summary>Whether the bucket policy lets anyone read the key: its file name is <c>cutout.*</c> or <c>thumb.*</c>.</summary>
     public static bool IsPublic(string key)
     {

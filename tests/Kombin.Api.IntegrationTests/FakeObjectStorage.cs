@@ -49,6 +49,9 @@ internal sealed class FakeObjectStorage : IObjectStorage
 
     public StoredObject? Find(string key) => _objects.GetValueOrDefault(key);
 
+    /// <summary>The <c>Cache-Control</c> the S3 store would have written with the object (<see cref="StorageKeys.CacheControlFor"/>), or null when there is no such object.</summary>
+    public string? CacheControlOf(string key) => _objects.ContainsKey(key) ? StorageKeys.CacheControlFor(key) : null;
+
     public Task PutAsync(string key, byte[] content, string contentType, CancellationToken cancellationToken)
     {
         if (_failingPuts.Values.Any(matches => matches(key)))
