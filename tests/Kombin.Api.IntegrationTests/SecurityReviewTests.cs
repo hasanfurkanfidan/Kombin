@@ -190,7 +190,7 @@ public sealed class SecurityReviewTests(ApiFactory factory)
         // An old account that never finished onboarding does not count either.
         using (var dormant = await factory.CreateUserAsync(Ct))
         {
-            await factory.WithDbAsync(db => db.Users.Where(user => user.Id == dormant.Id).ExecuteUpdateAsync(setters => setters.SetProperty(user => user.CreatedAt, DateTimeOffset.UtcNow.AddDays(-30)), Ct));
+            await factory.WithDbAsync(db => db.Users.Where(user => user.Id == dormant.Id).ExecuteUpdateAsync(setters => setters.SetProperty(user => user.CreatedAt, TestClock.UtcNow.AddDays(-30)), Ct));
             using var report = await dormant.Client.ReportAsync(postId, cancellationToken: Ct);
             Assert.Equal(HttpStatusCode.Accepted, report.StatusCode);
         }

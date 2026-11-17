@@ -895,6 +895,7 @@ dotnet format Kombin.slnx --verify-no-changes --no-restore     # drop --verify-n
 dotnet build Kombin.slnx --configuration Release --no-restore
 dotnet test --solution Kombin.slnx --configuration Release --no-build    # integration tests need Docker
 dotnet test --project tests/Kombin.Api.Tests                            # unit tests only, no Docker
+KOMBIN_TEST_ISTANBUL_TIME=21:01 dotnet test --project tests/Kombin.Api.IntegrationTests --configuration Release --no-build    # the tests' clock (TestClock) starts at that Istanbul time: a test that fails at some hour must pin its own (X-Test-Now, client.At)
 KOMBIN_PERF=1 dotnet test --project tests/Kombin.Api.IntegrationTests --configuration Release -- --filter-class "Kombin.Api.IntegrationTests.OutfitPerformanceTests" --filter-class "Kombin.Api.IntegrationTests.FeedPerformanceTests" --filter-class "Kombin.Api.IntegrationTests.LensPerformanceTests" --filter-class "Kombin.Api.IntegrationTests.BudgetAndTripPerformanceTests" --filter-class "Kombin.Api.IntegrationTests.LeaguePerformanceTests"    # latency budgets, on a quiet machine
 
 # Run the API against a local PostgreSQL (docker/.env must define JWT_SIGNING_KEY)

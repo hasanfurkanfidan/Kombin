@@ -94,7 +94,7 @@ public sealed class LeaguePurgeTests(ApiFactory factory)
             factory.Storage.Upload(key, Thumbnail, "image/webp");
         }
 
-        var now = DateTimeOffset.UtcNow;
+        var now = TestClock.UtcNow;
         factory.Storage.Backdate(named, now.AddDays(-3));
         factory.Storage.Backdate(orphan, now.AddDays(-1).AddMinutes(-1));
         factory.Storage.Backdate(elsewhere, now.AddDays(-3));

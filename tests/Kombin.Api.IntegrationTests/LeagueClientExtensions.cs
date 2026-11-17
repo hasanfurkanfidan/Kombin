@@ -197,7 +197,7 @@ internal static class LeagueClientExtensions
     {
         var now = client.DefaultRequestHeaders.TryGetValues(TestHeaderClock.Header, out var values)
             ? DateTimeOffset.Parse(values.Single(), CultureInfo.InvariantCulture)
-            : DateTimeOffset.UtcNow;
+            : TestClock.UtcNow;
 
         return client.At(now + by);
     }
@@ -279,7 +279,7 @@ internal static class LeagueClientExtensions
                     Status = WardrobeItemStatus.Ready,
                     ModerationVerdict = piece.Verdict,
                     IsArchived = piece.Archived,
-                    ConfirmedAt = DateTimeOffset.UtcNow,
+                    ConfirmedAt = TestClock.UtcNow,
                     ProductId = piece.ProductId,
                     FromCatalog = piece.ProductId is not null,
                 };

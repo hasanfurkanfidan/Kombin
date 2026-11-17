@@ -356,7 +356,7 @@ public sealed class LeagueWeekTests(ApiFactory factory)
         using var reporter = await factory.CreateUserAsync(Ct);
         await factory.WithDbAsync(async db =>
         {
-            db.LeagueReports.Add(new LeagueReport { EntryId = entryId, ReporterId = reporter.Id, Reason = LeagueReportReason.NotClothing, Counts = true, CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-5) });
+            db.LeagueReports.Add(new LeagueReport { EntryId = entryId, ReporterId = reporter.Id, Reason = LeagueReportReason.NotClothing, Counts = true, CreatedAt = TestClock.UtcNow.AddMinutes(-5) });
             return await db.SaveChangesAsync(Ct);
         });
 

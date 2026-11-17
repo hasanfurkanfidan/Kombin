@@ -125,7 +125,7 @@ public sealed class LensTests(ApiFactory factory)
         Assert.Equal(ProductEmbeddingStatus.Failed, busyRow.Status);
         Assert.Equal(1, busyRow.Attempts);
         Assert.Equal("image_503", busyRow.FailureReason);
-        Assert.True(busyRow.NextAttemptAt > DateTimeOffset.UtcNow.AddMinutes(50));
+        Assert.True(busyRow.NextAttemptAt > TestClock.UtcNow.AddMinutes(50));
         Assert.Equal(ProductEmbeddingStatus.Unusable, (await RowAsync(refused.ProductId))!.Status);
 
         // Neither is due again before its time.

@@ -323,7 +323,7 @@ public sealed class CatalogReadTests(ApiFactory factory)
         var productId = await client.FindProductIdAsync(Slug(brand), Ct);
 
         // Back-fill the series: 130 ten days ago, and on the day five days ago two observations of which 90 is the cheaper.
-        var today = DateTimeOffset.UtcNow.UtcDateTime.Date;
+        var today = TestClock.UtcNow.UtcDateTime.Date;
         Guid offerId;
         await using (var scope = factory.Services.CreateAsyncScope())
         {
@@ -393,7 +393,7 @@ public sealed class CatalogReadTests(ApiFactory factory)
         {
             var db = scope.ServiceProvider.GetRequiredService<KombinDbContext>();
             var offerId = await db.Offers.Where(offer => offer.ProductId == productId).Select(offer => offer.Id).SingleAsync(Ct);
-            db.PriceSnapshots.Add(Snapshot(offerId, 10m, DateTimeOffset.UtcNow.AddDays(-200)));
+            db.PriceSnapshots.Add(Snapshot(offerId, 10m, TestClock.UtcNow.AddDays(-200)));
             await db.SaveChangesAsync(Ct);
         }
 

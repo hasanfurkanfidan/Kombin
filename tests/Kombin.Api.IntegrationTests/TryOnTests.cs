@@ -30,7 +30,7 @@ public sealed class TryOnTests(ApiFactory factory)
     {
         var user = await factory.CreateUserAsync(Ct);
         var (outfit, top, trousers, shoes) = await factory.SeedWardrobeOutfitAsync(user.Id, marker, topFlavor, topSize, brandId);
-        await factory.RunTryOnAsync(DateTimeOffset.UtcNow, items: [top, trousers, shoes]);
+        await factory.RunTryOnAsync(TestClock.UtcNow, items: [top, trousers, shoes]);
 
         return (user, outfit, top, trousers, shoes);
     }
@@ -72,7 +72,7 @@ public sealed class TryOnTests(ApiFactory factory)
         Assert.Single(factory.Jobs.Jobs, job => job.Method.Name == nameof(TryOnPrepareJob.PrepareRequestedAsync) && ((Guid[])job.Args[0]!).Contains(top));
 
         // The minute run takes the asked-for rows first.
-        var summary = await factory.RunTryOnAsync(DateTimeOffset.UtcNow, items: [top, trousers, shoes]);
+        var summary = await factory.RunTryOnAsync(TestClock.UtcNow, items: [top, trousers, shoes]);
         Assert.Equal(3, summary.WardrobePrepared);
         var row = await RowOfItemAsync(top);
         Assert.Equal((TryOnGarmentStatus.Prepared, "top", true, true, FakeVisionClient.PrepareVersion), (row!.Status, row.Family, row.Reliable, row.MayBeOutermost, row.PrepareVersion));
@@ -179,7 +179,7 @@ public sealed class TryOnTests(ApiFactory factory)
             Assert.True(patch.IsSuccessStatusCode);
         }
 
-        await factory.RunTryOnAsync(DateTimeOffset.UtcNow, items: [top]);
+        await factory.RunTryOnAsync(TestClock.UtcNow, items: [top]);
         Assert.Equal(2, FakeVisionClient.PrepareCalls($"{marker}:top"));
         Assert.Equal(5, await DrawAsync());
         Assert.Equal(5, await DrawAsync());
@@ -228,7 +228,7 @@ public sealed class TryOnTests(ApiFactory factory)
         var coat = await factory.SeedTryOnItemAsync(user.Id, "dis-giyim/kaban", $"{marker}:coat");
         var bag = await factory.SeedTryOnItemAsync(user.Id, "aksesuar/canta", $"{marker}:bag");
         var belt = await factory.SeedTryOnItemAsync(user.Id, "aksesuar/kemer", $"{marker}:belt");
-        await factory.RunTryOnAsync(DateTimeOffset.UtcNow, items: [shirt, folded, worn, unreliable, trousers, coat, bag, belt]);
+        await factory.RunTryOnAsync(TestClock.UtcNow, items: [shirt, folded, worn, unreliable, trousers, coat, bag, belt]);
 
         // Never prepared: a photo with someone in it.
         Assert.Null(await RowOfItemAsync(worn));
@@ -341,7 +341,7 @@ public sealed class TryOnTests(ApiFactory factory)
         using var user = await factory.CreateUserAsync(Ct);
         var busy = await factory.SeedTryOnItemAsync(user.Id, "ust-giyim/gomlek", $"{marker}:busy:tryon-503");
         var refused = await factory.SeedTryOnItemAsync(user.Id, "alt-giyim/jean", $"{marker}:refused:tryon-413");
-        var start = DateTimeOffset.UtcNow;
+        var start = TestClock.UtcNow;
 
         await factory.RunTryOnAsync(start, items: [busy, refused]);
         var waiting = await RowOfItemAsync(busy);
@@ -570,8 +570,8 @@ public sealed class TryOnTests(ApiFactory factory)
         var sql = TryOnMetricSql();
         await using var connection = await factory.OpenConnectionAsync(Ct);
         await using var command = new NpgsqlCommand(sql, connection);
-        command.Parameters.AddWithValue("day_start", DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-2)));
-        command.Parameters.AddWithValue("day_end", DateOnly.FromDateTime(DateTime.UtcNow.AddDays(2)));
+        command.Parameters.AddWithValue("day_start", DateOnly.FromDateTime(TestClock.UtcNow.UtcDateTime.AddDays(-2)));
+        command.Parameters.AddWithValue("day_end", DateOnly.FromDateTime(TestClock.UtcNow.UtcDateTime.AddDays(2)));
         var listed = new Dictionary<Guid, (string Kind, long Reports)>();
         await using (var reader = await command.ExecuteReaderAsync(Ct))
         {

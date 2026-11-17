@@ -258,7 +258,7 @@ public sealed class OutfitPerformanceTests(OutfitPerformanceTests.PerformanceFac
         private async Task<(HttpClient Client, List<Guid> Anchors)> SeedOnceAsync(CancellationToken cancellationToken)
         {
             var random = new Random(20261102);
-            var now = DateTimeOffset.UtcNow;
+            var now = TestClock.UtcNow;
             var colours = Enum.GetValues<ProductColor>();
             var fits = new[] { ProductFit.Slim, ProductFit.Regular, ProductFit.Relaxed, ProductFit.Oversized };
             var patterns = new[] { ProductPattern.Solid, ProductPattern.Solid, ProductPattern.Solid, ProductPattern.Striped, ProductPattern.Checked, ProductPattern.Printed, ProductPattern.Textured };
@@ -383,7 +383,7 @@ public sealed class OutfitPerformanceTests(OutfitPerformanceTests.PerformanceFac
                         break;
                     case 8:
                         item.WearCount = 1 + (index % 5);
-                        item.LastWornAt = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-(index % 40));
+                        item.LastWornAt = DateOnly.FromDateTime(TestClock.UtcNow.UtcDateTime).AddDays(-(index % 40));
                         item.PurchasePrice = 349m;
                         break;
                 }
@@ -396,11 +396,11 @@ public sealed class OutfitPerformanceTests(OutfitPerformanceTests.PerformanceFac
                     UserId = userId,
                     Kind = OutfitKind.Daily,
                     Completeness = OutfitCompleteness.Complete,
-                    ForDate = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-outfitIndex),
+                    ForDate = DateOnly.FromDateTime(TestClock.UtcNow.UtcDateTime).AddDays(-outfitIndex),
                     Rule = "perf",
                     Hash = Guid.NewGuid().ToString("N"),
                     Status = OutfitStatus.Saved,
-                    SavedAt = DateTimeOffset.UtcNow,
+                    SavedAt = TestClock.UtcNow,
                     Narration = "Perf",
                     NarrationInput = "{}",
                 };
@@ -417,7 +417,7 @@ public sealed class OutfitPerformanceTests(OutfitPerformanceTests.PerformanceFac
             await db.SaveChangesAsync(cancellationToken);
 
             // The audit interceptor owns CreatedAt: backdating goes around it.
-            await db.WardrobeItems.Where(item => item.UserId == userId).ExecuteUpdateAsync(set => set.SetProperty(item => item.CreatedAt, DateTimeOffset.UtcNow.AddDays(-60)), cancellationToken);
+            await db.WardrobeItems.Where(item => item.UserId == userId).ExecuteUpdateAsync(set => set.SetProperty(item => item.CreatedAt, TestClock.UtcNow.AddDays(-60)), cancellationToken);
         }
 
         /// <summary>Adds <paramref name="count"/> white tops, added 60 days ago: two pieces of one slot never pair, so each has no companion.</summary>
@@ -437,7 +437,7 @@ public sealed class OutfitPerformanceTests(OutfitPerformanceTests.PerformanceFac
                 Status = WardrobeItemStatus.Ready,
             }));
             await db.SaveChangesAsync(cancellationToken);
-            await db.WardrobeItems.Where(item => item.UserId == userId).ExecuteUpdateAsync(set => set.SetProperty(item => item.CreatedAt, DateTimeOffset.UtcNow.AddDays(-60)), cancellationToken);
+            await db.WardrobeItems.Where(item => item.UserId == userId).ExecuteUpdateAsync(set => set.SetProperty(item => item.CreatedAt, TestClock.UtcNow.AddDays(-60)), cancellationToken);
         }
 
         /// <summary>

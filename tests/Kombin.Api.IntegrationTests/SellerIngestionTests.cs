@@ -262,7 +262,7 @@ public sealed class SellerIngestionTests(ApiFactory factory)
         Assert.Equal(101m, item.GetProperty("currentPrice").GetDecimal());
         Assert.Equal("LowStock", item.GetProperty("stockStatus").GetString());
         Assert.True(item.GetProperty("isActive").GetBoolean());
-        Assert.True(item.GetProperty("lastSeenAt").GetDateTimeOffset() > DateTimeOffset.UtcNow.AddMinutes(-5));
+        Assert.True(item.GetProperty("lastSeenAt").GetDateTimeOffset() > TestClock.UtcNow.AddMinutes(-5));
 
         var offerAndProduct = await factory.WithDbAsync(db => db.Offers
             .Where(offer => offer.Seller.Slug == slug && offer.ExternalId == externalIds[1])
@@ -294,16 +294,16 @@ public sealed class SellerIngestionTests(ApiFactory factory)
     {
         using var client = factory.CreateClient();
         var (slug, externalIds) = await SeedListingAsync(client, 3);
-        var longAgo = DateTimeOffset.UtcNow - TimeSpan.FromDays(10);
+        var longAgo = TestClock.UtcNow - TimeSpan.FromDays(10);
 
         // Bulk update on purpose: it leaves UpdatedAt alone, which the audit interceptor would otherwise move.
         await factory.WithDbAsync(db => db.Offers
             .Where(offer => offer.Seller.Slug == slug && offer.ExternalId != externalIds[2])
             .ExecuteUpdateAsync(setters => setters.SetProperty(offer => offer.UpdatedAt, longAgo), Ct));
 
-        var since = DateTimeOffset.UtcNow - TimeSpan.FromDays(1);
+        var since = TestClock.UtcNow - TimeSpan.FromDays(1);
         var recent = await client.GetSellerOffersOkAsync(slug, $"?updatedAfter={Uri.EscapeDataString(since.ToString("O"))}", Ct);
-        var future = await client.GetSellerOffersOkAsync(slug, $"?updatedAfter={Uri.EscapeDataString(DateTimeOffset.UtcNow.AddDays(1).ToString("O"))}", Ct);
+        var future = await client.GetSellerOffersOkAsync(slug, $"?updatedAfter={Uri.EscapeDataString(TestClock.UtcNow.AddDays(1).ToString("O"))}", Ct);
 
         Assert.Equal(1, recent.GetProperty("totalCount").GetInt32());
         Assert.Equal(externalIds[2], recent.GetProperty("items")[0].GetProperty("externalId").GetString());
@@ -316,7 +316,7 @@ public sealed class SellerIngestionTests(ApiFactory factory)
         using var client = factory.CreateClient();
         var (slug, externalIds) = await SeedListingAsync(client, 2);
         var sellerId = (await factory.WithDbAsync(db => db.Sellers.SingleAsync(seller => seller.Slug == slug, Ct))).Id;
-        var yesterday = DateTimeOffset.UtcNow - TimeSpan.FromDays(1);
+        var yesterday = TestClock.UtcNow - TimeSpan.FromDays(1);
         await factory.WithDbAsync(db => db.Offers.Where(offer => offer.Seller.Slug == slug).ExecuteUpdateAsync(setters => setters.SetProperty(offer => offer.UpdatedAt, yesterday), Ct));
 
         await factory.AgeOfferAsync(slug, externalIds[0], TimeSpan.FromDays(3), Ct);

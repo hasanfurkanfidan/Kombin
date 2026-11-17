@@ -370,7 +370,8 @@ public sealed class WardrobeTests(ApiFactory factory)
     {
         using var user = await factory.CreateUserAsync(Ct);
         var itemId = await factory.InsertItemAsync(user.Id, "ust-giyim/tisort", ProductColor.White, cancellationToken: Ct);
-        var today = Kombin.Api.Features.Wardrobe.WearRules.Today(DateTimeOffset.UtcNow);
+        user.Client.At(TestClock.IstanbulNoon);
+        var today = Kombin.Api.Features.Wardrobe.WearRules.Today(TestClock.IstanbulNoon);
 
         async Task<JsonElement> WearOkAsync(DateOnly? day)
         {
@@ -424,7 +425,8 @@ public sealed class WardrobeTests(ApiFactory factory)
         var forgotten = await factory.InsertItemAsync(user.Id, "ust-giyim/tisort", ProductColor.Black, cancellationToken: Ct);
         var archived = await factory.InsertItemAsync(user.Id, "ayakkabi/sneaker", ProductColor.White, cancellationToken: Ct);
 
-        var today = Kombin.Api.Features.Wardrobe.WearRules.Today(DateTimeOffset.UtcNow);
+        user.Client.At(TestClock.IstanbulNoon);
+        var today = Kombin.Api.Features.Wardrobe.WearRules.Today(TestClock.IstanbulNoon);
         foreach (var day in new[] { today, today.AddDays(-1), today.AddDays(-2) })
         {
             using var wear = await user.Client.WearAsync(favorite, day, Ct);
@@ -437,7 +439,7 @@ public sealed class WardrobeTests(ApiFactory factory)
         }
 
         // Added long ago and never worn.
-        var longAgo = DateTimeOffset.UtcNow.AddDays(-300);
+        var longAgo = TestClock.UtcNow.AddDays(-300);
         await factory.WithDbAsync(db => db.WardrobeItems.Where(item => item.Id == forgotten).ExecuteUpdateAsync(set => set.SetProperty(item => item.CreatedAt, longAgo), Ct));
 
         using (var delete = await user.Client.DeleteAsync($"{WardrobeClientExtensions.Base}/items/{archived}", Ct))
@@ -567,14 +569,14 @@ public sealed class WardrobeTests(ApiFactory factory)
             Assert.Equal(HttpStatusCode.NoContent, delete.StatusCode);
         }
 
-        var archivedLongAgo = DateTimeOffset.UtcNow.AddDays(-31);
+        var archivedLongAgo = TestClock.UtcNow.AddDays(-31);
         await factory.WithDbAsync(db => db.WardrobeItems.Where(item => item.Id == old).ExecuteUpdateAsync(set => set.SetProperty(item => item.ArchivedAt, archivedLongAgo), Ct));
 
         // An upload started two days ago and never processed.
         var abandoned = (await user.Client.CreateUploadUrlAsync(cancellationToken: Ct)).GetProperty("itemId").GetGuid();
         var abandonedKey = await factory.OriginalKeyAsync(abandoned, Ct);
         factory.Storage.Upload(abandonedKey, FakeVisionClient.Photo(), "image/jpeg");
-        var twoDaysAgo = DateTimeOffset.UtcNow.AddDays(-2);
+        var twoDaysAgo = TestClock.UtcNow.AddDays(-2);
         await factory.WithDbAsync(db => db.WardrobeItems.Where(item => item.Id == abandoned).ExecuteUpdateAsync(set => set.SetProperty(item => item.CreatedAt, twoDaysAgo), Ct));
 
         var summary = await factory.CleanupWardrobeAsync(user.Id, Ct);

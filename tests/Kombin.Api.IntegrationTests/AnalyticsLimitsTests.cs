@@ -19,10 +19,11 @@ public sealed class AnalyticsLimitsTests(ApiFactory factory)
     [Fact]
     public async Task AnActorOverItsDailyCapIsDroppedWith202AndOthersInTheBatchAreNot()
     {
-        using var client = factory.CreateAnonymousClient();
+        // Pinned to noon: the cap is per Istanbul day, and the inserted events must fall on the API's day.
+        using var client = factory.CreateAnonymousClient().At(TestClock.IstanbulNoon);
         var capped = AnalyticsClientExtensions.NewAnonymousId();
         var other = AnalyticsClientExtensions.NewAnonymousId();
-        await InsertEventsAsync(capped, Cap - 2, DateTimeOffset.UtcNow);
+        await InsertEventsAsync(capped, Cap - 2, TestClock.IstanbulNoon);
         long counted = 0;
         using var listener = Listen(value => Interlocked.Add(ref counted, value));
 
@@ -48,10 +49,12 @@ public sealed class AnalyticsLimitsTests(ApiFactory factory)
     public async Task ASignedInUserIsCappedByAccountAndYesterdayDoesNotCount()
     {
         using var user = await factory.CreateUserAsync(Ct);
+        var noon = TestClock.IstanbulNoon;
+        user.Client.At(noon);
         await factory.WithDbAsync(db => db.Database.ExecuteSqlInterpolatedAsync(
             $"""
             INSERT INTO analytics.events (user_id, name, properties, session_id, platform, app_version, occurred_at, received_at)
-            SELECT {user.Id}, 'app_open', CAST({EmptyJson} AS jsonb), 'session-cap', 'Ios', '1.0.0', {DateTimeOffset.UtcNow}, {DateTimeOffset.UtcNow}
+            SELECT {user.Id}, 'app_open', CAST({EmptyJson} AS jsonb), 'session-cap', 'Ios', '1.0.0', {noon}, {noon}
             FROM generate_series(1, {Cap})
             """,
             Ct));
@@ -61,9 +64,9 @@ public sealed class AnalyticsLimitsTests(ApiFactory factory)
         Assert.Equal(RejectionReasons.DailyCap, full.GetProperty("rejected")[0].GetProperty("reason").GetString());
 
         // A device whose whole cap was spent yesterday (Istanbul time) starts again today.
-        using var anonymous = factory.CreateAnonymousClient();
+        using var anonymous = factory.CreateAnonymousClient().At(noon);
         var device = AnalyticsClientExtensions.NewAnonymousId();
-        await InsertEventsAsync(device, Cap, EventCap.DayStart(DateTimeOffset.UtcNow, Istanbul.Zone).AddMinutes(-1));
+        await InsertEventsAsync(device, Cap, EventCap.DayStart(noon, Istanbul.Zone).AddMinutes(-1));
         var fresh = await anonymous.PostEventsOkAsync([AnalyticsClientExtensions.Event(anonymousId: device)], Ct);
         Assert.Equal(1, fresh.GetProperty("accepted").GetInt32());
     }
@@ -73,8 +76,8 @@ public sealed class AnalyticsLimitsTests(ApiFactory factory)
     {
         var device = AnalyticsClientExtensions.NewAnonymousId();
         var days = new AnalyticsOptions().RetentionDays;
-        await InsertEventsAsync(device, 3, DateTimeOffset.UtcNow.AddDays(-days - 1));
-        await InsertEventsAsync(device, 2, DateTimeOffset.UtcNow.AddDays(-days + 1));
+        await InsertEventsAsync(device, 3, TestClock.UtcNow.AddDays(-days - 1));
+        await InsertEventsAsync(device, 2, TestClock.UtcNow.AddDays(-days + 1));
 
         var deleted = await factory.RunJobAsync<AnalyticsRetentionJob, int>(job => job.PurgeAsync([device], Ct));
 

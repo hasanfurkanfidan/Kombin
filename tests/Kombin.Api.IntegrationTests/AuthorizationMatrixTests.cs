@@ -467,7 +467,7 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
     /// <summary>A valid trip plan request (two days from the day after tomorrow) naming <paramref name="personaId"/>.</summary>
     private static object TripBody(Guid personaId)
     {
-        var start = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(2);
+        var start = DateOnly.FromDateTime(TestClock.UtcNow.UtcDateTime).AddDays(2);
         return new { city = "Istanbul", startDate = start, endDate = start.AddDays(1), personaId };
     }
 
@@ -522,7 +522,7 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
                 SellerId = await db.Offers.Where(candidate => candidate.Id == product.OfferId).Select(candidate => candidate.SellerId).SingleAsync(cancellation),
                 OfferId = product.OfferId,
                 ClickId = 1,
-                ClickedAt = DateTimeOffset.UtcNow.AddDays(-5),
+                ClickedAt = TestClock.UtcNow.AddDays(-5),
             };
             db.SizePrompts.Add(prompt);
             await db.SaveChangesAsync(cancellation);
@@ -542,13 +542,13 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
                 Status = OutfitStatus.Saved,
                 Narration = "Matrix",
                 NarrationInput = "{}",
-                SavedAt = DateTimeOffset.UtcNow,
+                SavedAt = TestClock.UtcNow,
             };
             db.Outfits.Add(outfit);
             await db.SaveChangesAsync(cancellation);
             return outfit.Id;
         });
-        var notificationId = await factory.InsertNotificationAsync(owner.Id, Kombin.Api.Persistence.Entities.Notification.NotificationStatus.Sent, sentAt: DateTimeOffset.UtcNow, cancellationToken: cancellation);
+        var notificationId = await factory.InsertNotificationAsync(owner.Id, Kombin.Api.Persistence.Entities.Notification.NotificationStatus.Sent, sentAt: TestClock.UtcNow, cancellationToken: cancellation);
         var deviceToken = await owner.Client.RegisterDeviceAsync(cancellationToken: cancellation);
         var privatePost = await factory.CreateLivePostAsync(owner.Client, "Private", cancellationToken: cancellation);
         var followersPost = await factory.CreateLivePostAsync(owner.Client, "Followers", cancellationToken: cancellation);
@@ -565,7 +565,7 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
                 EndDate = new DateOnly(2030, 1, 2),
                 RequestJson = "{}",
                 PlanJson = "{}",
-                PlannedAt = DateTimeOffset.UtcNow,
+                PlannedAt = TestClock.UtcNow,
             };
             db.Trips.Add(trip);
             await db.SaveChangesAsync(cancellation);

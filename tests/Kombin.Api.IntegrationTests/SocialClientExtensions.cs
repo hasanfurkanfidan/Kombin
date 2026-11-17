@@ -20,7 +20,7 @@ internal static class SocialClientExtensions
         var user = await factory.CreateUserAsync(cancellationToken);
         await user.Client.CreatePersonaAsync("Ofis", cancellationToken: cancellationToken);
         await factory.WithDbAsync(db => db.Users.Where(candidate => candidate.Id == user.Id)
-            .ExecuteUpdateAsync(setters => setters.SetProperty(candidate => candidate.CreatedAt, DateTimeOffset.UtcNow.AddDays(-4)), cancellationToken));
+            .ExecuteUpdateAsync(setters => setters.SetProperty(candidate => candidate.CreatedAt, TestClock.UtcNow.AddDays(-4)), cancellationToken));
 
         return user;
     }

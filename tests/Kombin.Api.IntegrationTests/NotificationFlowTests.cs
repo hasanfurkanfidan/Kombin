@@ -32,7 +32,7 @@ public sealed class NotificationFlowTests(ApiFactory factory)
         Assert.Equal($"{product.Brand} Blazer artık 400 ₺ — hedef fiyatının altında.", pending.Body);
         Assert.Equal($"pricedrop:{product.ProductId}", pending.DedupeKey);
         Assert.NotNull(pending.AlertTriggerId);
-        Assert.True(pending.ScheduledFor <= DateTimeOffset.UtcNow);
+        Assert.True(pending.ScheduledFor <= TestClock.UtcNow);
 
         using (var data = JsonDocument.Parse(pending.Data))
         {

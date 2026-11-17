@@ -38,7 +38,7 @@ internal sealed class FakeObjectStorage : IObjectStorage
     public void Upload(string key, byte[] content, string contentType)
     {
         _objects[key] = new StoredObject(content, contentType);
-        _written[key] = DateTimeOffset.UtcNow;
+        _written[key] = TestClock.UtcNow;
     }
 
     /// <summary>Makes an object look as if it had been written at <paramref name="at"/> (what <see cref="ListAsync"/> reports).</summary>
@@ -57,7 +57,7 @@ internal sealed class FakeObjectStorage : IObjectStorage
         }
 
         _objects[key] = new StoredObject(content, contentType);
-        _written[key] = DateTimeOffset.UtcNow;
+        _written[key] = TestClock.UtcNow;
         return Task.CompletedTask;
     }
 
@@ -66,7 +66,7 @@ internal sealed class FakeObjectStorage : IObjectStorage
     public Task<long?> GetSizeAsync(string key, CancellationToken cancellationToken) => Task.FromResult(Find(key)?.Content.LongLength);
 
     public PresignedUpload GetPresignedUploadUrl(string key, string contentType, TimeSpan lifetime) =>
-        new($"https://storage.test/kombin/{key}?X-Amz-Signature=fake", new Dictionary<string, string> { ["Content-Type"] = contentType }, DateTimeOffset.UtcNow.Add(lifetime));
+        new($"https://storage.test/kombin/{key}?X-Amz-Signature=fake", new Dictionary<string, string> { ["Content-Type"] = contentType }, TestClock.UtcNow.Add(lifetime));
 
     public string GetPresignedDownloadUrl(string key, TimeSpan lifetime) => $"https://storage.test/kombin/{key}?X-Amz-Signature=fake-get";
 
@@ -95,7 +95,7 @@ internal sealed class FakeObjectStorage : IObjectStorage
         {
             cancellationToken.ThrowIfCancellationRequested();
             await Task.Yield();
-            yield return new StoredObjectInfo(key, _written.GetValueOrDefault(key, DateTimeOffset.UtcNow));
+            yield return new StoredObjectInfo(key, _written.GetValueOrDefault(key, TestClock.UtcNow));
         }
     }
 }

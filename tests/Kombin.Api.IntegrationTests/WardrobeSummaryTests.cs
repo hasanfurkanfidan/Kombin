@@ -25,7 +25,7 @@ public sealed class WardrobeSummaryTests(ApiFactory factory)
     private Task<int> AgeAsync(IEnumerable<Guid> itemIds, int days)
     {
         var ids = itemIds.ToList();
-        return factory.WithDbAsync(db => db.WardrobeItems.Where(item => ids.Contains(item.Id)).ExecuteUpdateAsync(set => set.SetProperty(item => item.CreatedAt, DateTimeOffset.UtcNow.AddDays(-days)), Ct));
+        return factory.WithDbAsync(db => db.WardrobeItems.Where(item => ids.Contains(item.Id)).ExecuteUpdateAsync(set => set.SetProperty(item => item.CreatedAt, TestClock.UtcNow.AddDays(-days)), Ct));
     }
 
     private static string[] Names(JsonElement section) =>
@@ -51,8 +51,8 @@ public sealed class WardrobeSummaryTests(ApiFactory factory)
                 Status = status,
                 Narration = "Özet",
                 NarrationInput = "{}",
-                SavedAt = status == OutfitStatus.Saved ? DateTimeOffset.UtcNow : null,
-                DismissedAt = status == OutfitStatus.Dismissed ? DateTimeOffset.UtcNow : null,
+                SavedAt = status == OutfitStatus.Saved ? TestClock.UtcNow : null,
+                DismissedAt = status == OutfitStatus.Dismissed ? TestClock.UtcNow : null,
             };
             outfit.Items.AddRange(itemIds.Select((id, position) => new OutfitItem { Slot = OutfitSlot.Top, Role = OutfitItemRole.Wardrobe, WardrobeItemId = id, Position = position }));
             db.Outfits.Add(outfit);
@@ -212,7 +212,7 @@ public sealed class WardrobeSummaryTests(ApiFactory factory)
         await SetPriceAsync(ids["black tee"], 400m);
         await SetPriceAsync(ids["blue jeans"], 1200m);
 
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = DateOnly.FromDateTime(TestClock.UtcNow.UtcDateTime);
         async Task WearTimesAsync(string name, int times)
         {
             for (var day = 1; day <= times; day++)
@@ -243,7 +243,7 @@ public sealed class WardrobeSummaryTests(ApiFactory factory)
         using var added = await user.Client.FromProductAsync(product, cancellationToken: Ct);
         var itemId = (await added.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("id").GetGuid();
         await factory.InsertWardrobeAsync(user.Id, RecommendationClientExtensions.FortyPieces.Take(WardrobeSummaryRules.MinPieces - 1), Ct);
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = DateOnly.FromDateTime(TestClock.UtcNow.UtcDateTime);
         foreach (var day in new[] { 1, 2 })
         {
             using var wear = await user.Client.WearAsync(itemId, today.AddDays(-day), Ct);
@@ -316,9 +316,10 @@ public sealed class WardrobeSummaryTests(ApiFactory factory)
     public async Task TheReasonIsNoPartnerFirstThenOutOfSeasonThenNone()
     {
         using var user = await factory.CreateUserAsync(Ct);
+        user.Client.At(TestClock.IstanbulNoon);
 
         // The season the piece is not made for: whichever one today is not.
-        var current = WeatherRules.SeasonOf(WearRules.Today(DateTimeOffset.UtcNow));
+        var current = WeatherRules.SeasonOf(WearRules.Today(TestClock.IstanbulNoon));
         var other = Enum.GetValues<Season>().First(season => season is not Season.None and not Season.AllYear && season != current);
 
         var ids = await factory.InsertWardrobeAsync(
@@ -365,7 +366,7 @@ public sealed class WardrobeSummaryTests(ApiFactory factory)
                 new("tee 5", "ust-giyim/tisort", ProductColor.White, 3),
             ],
             Ct);
-        var created = DateTimeOffset.UtcNow;
+        var created = TestClock.UtcNow;
         await factory.WithDbAsync(async db =>
         {
             foreach (var (name, index) in ids.Keys.Order(StringComparer.Ordinal).Select((name, index) => (name, index)))

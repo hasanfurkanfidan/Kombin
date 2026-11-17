@@ -129,7 +129,7 @@ internal static class IngestionClientExtensions
                 .Where(offer => offer.Seller.Slug == sellerSlug && offer.ExternalId == externalId)
                 .Select(offer => offer.Id)
                 .SingleAsync(cancellationToken);
-            var lastSeenAt = DateTimeOffset.UtcNow - age;
+            var lastSeenAt = TestClock.UtcNow - age;
 
             return await db.Offers.Where(offer => offer.Id == offerId).ExecuteUpdateAsync(setters => setters.SetProperty(offer => offer.LastSeenAt, lastSeenAt), cancellationToken);
         });

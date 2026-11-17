@@ -500,7 +500,7 @@ public sealed class LeagueVotingTests(ApiFactory factory)
         using var _owner = owner;
         using var leaver = await factory.CreatePlayerAsync(day, Ct);
         var leaverEntry = await factory.InsertEntryAsync(day, leaver.Id, cancellationToken: Ct);
-        await factory.WithDbAsync(db => db.LeaguePlayers.Where(player => player.UserId == leaver.Id).ExecuteUpdateAsync(set => set.SetProperty(player => player.LeftAt, DateTimeOffset.UtcNow), Ct));
+        await factory.WithDbAsync(db => db.LeaguePlayers.Where(player => player.UserId == leaver.Id).ExecuteUpdateAsync(set => set.SetProperty(player => player.LeftAt, TestClock.UtcNow), Ct));
         using var voter = await factory.CreatePlayerAsync(day, Ct);
 
         for (var round = 0; round < 6; round++)

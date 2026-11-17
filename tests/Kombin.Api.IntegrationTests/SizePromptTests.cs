@@ -24,7 +24,7 @@ public sealed class SizePromptTests(ApiFactory factory)
     private Task<int> AgeClicksAsync(Guid userId, Guid productId, double days) =>
         factory.WithDbAsync(db => db.Clicks
             .Where(click => click.UserId == userId && click.ProductId == productId)
-            .ExecuteUpdateAsync(set => set.SetProperty(click => click.ClickedAt, DateTimeOffset.UtcNow.AddDays(-days)), Ct));
+            .ExecuteUpdateAsync(set => set.SetProperty(click => click.ClickedAt, TestClock.UtcNow.AddDays(-days)), Ct));
 
     private static async Task<List<JsonElement>> OpenAsync(HttpClient client) =>
         [.. (await client.GetJsonAsync(Prompts, Ct)).GetProperty("prompts").EnumerateArray()];
@@ -96,7 +96,7 @@ public sealed class SizePromptTests(ApiFactory factory)
 
         // An anonymous click has nobody to ask.
         await GoAsync(anonymous, product.OfferId);
-        await factory.WithDbAsync(db => db.Clicks.Where(click => click.OfferId == product.OfferId).ExecuteUpdateAsync(set => set.SetProperty(click => click.ClickedAt, DateTimeOffset.UtcNow.AddDays(-5)), Ct));
+        await factory.WithDbAsync(db => db.Clicks.Where(click => click.OfferId == product.OfferId).ExecuteUpdateAsync(set => set.SetProperty(click => click.ClickedAt, TestClock.UtcNow.AddDays(-5)), Ct));
 
         Assert.Single(await OpenAsync(user.Client));
         Assert.Empty(await OpenAsync(stranger.Client));
@@ -146,7 +146,7 @@ public sealed class SizePromptTests(ApiFactory factory)
         Assert.Equal(0, await factory.WithDbAsync(db => db.SizePrompts.CountAsync(row => row.UserId == user.Id, Ct)));
 
         var (_, promptId) = await ClickedProductAsync(user, 29);
-        await factory.WithDbAsync(db => db.SizePrompts.Where(row => row.Id == promptId).ExecuteUpdateAsync(set => set.SetProperty(row => row.ClickedAt, DateTimeOffset.UtcNow.AddDays(-31)), Ct));
+        await factory.WithDbAsync(db => db.SizePrompts.Where(row => row.Id == promptId).ExecuteUpdateAsync(set => set.SetProperty(row => row.ClickedAt, TestClock.UtcNow.AddDays(-31)), Ct));
 
         Assert.Empty(await OpenAsync(user.Client));
         using var late = await AnswerAsync(user.Client, promptId, "BoughtFits", "M");
@@ -194,7 +194,7 @@ public sealed class SizePromptTests(ApiFactory factory)
                 Source = "product_detail",
                 CorrelationId = Guid.NewGuid().ToString("N"),
                 RedirectUrl = "https://shop.example.com/bag",
-                ClickedAt = DateTimeOffset.UtcNow.AddDays(-4).AddMinutes(-index),
+                ClickedAt = TestClock.UtcNow.AddDays(-4).AddMinutes(-index),
             }));
             await db.SaveChangesAsync(Ct);
 

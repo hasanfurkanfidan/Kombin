@@ -59,7 +59,7 @@ public sealed class BudgetOfferPriceTests(ApiFactory factory)
     private Task<Answer> BudgetOfMineAsync(HashSet<Guid> mine, decimal cap) =>
         factory.WithDbAsync(async db =>
         {
-            var date = DateOnly.FromDateTime(DateTime.UtcNow);
+            var date = DateOnly.FromDateTime(TestClock.UtcNow.UtcDateTime);
             var ask = new BudgetAsk(3000, null, date, UseWardrobe: false, Seed: 0, Count: 5);
             var caller = BudgetCaller.Anonymous(Audience.Unisex);
             var context = OutfitContext.Create(ask.Occasion, caller.Persona.Taste, WeatherRules.FromSeason(date), date);
@@ -78,7 +78,7 @@ public sealed class BudgetOfferPriceTests(ApiFactory factory)
                 [], shortlist, context, null, BudgetSearch.MaxGaps, caller.Dismissed, BudgetSearch.CatalogPerSlot, BudgetSearch.Reach(ask.Budget)));
             var pick = BudgetSearch.Pick(acceptable, ask.Budget, ask.Count, ask.Seed);
             var result = new BudgetResult(context, [.. pick.Outfits.Select(outfit => outfit.Candidate)], false, false, false, catalog);
-            var narrations = await BudgetOutfits.NarrateAsync(db, result.Outfits, context, DateTimeOffset.UtcNow, Ct);
+            var narrations = await BudgetOutfits.NarrateAsync(db, result.Outfits, context, TestClock.UtcNow, Ct);
 
             return new Answer(catalog, await BudgetOutfits.RespondAsync(db, factory.Storage, ask, caller, result, null, narrations, Ct));
         });

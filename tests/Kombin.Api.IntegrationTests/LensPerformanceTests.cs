@@ -309,7 +309,7 @@ public sealed class LensPerformanceTests(LensPerformanceTests.LensPerformanceFac
         private async Task<(HttpClient Viewer, HttpClient Anonymous)> SeedOnceAsync(CancellationToken cancellationToken)
         {
             var random = new Random(20261108);
-            var now = DateTimeOffset.UtcNow;
+            var now = TestClock.UtcNow;
             var audiences = new[] { Audience.Women, Audience.Men, Audience.Unisex };
 
             Dictionary<string, Guid> categories;

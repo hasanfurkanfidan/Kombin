@@ -90,7 +90,7 @@ internal static class RecommendationClientExtensions
                 Formality = seed.Formality,
                 Seasons = seed.Seasons,
                 Status = WardrobeItemStatus.Ready,
-                ConfirmedAt = DateTimeOffset.UtcNow,
+                ConfirmedAt = TestClock.UtcNow,
             })).ToList();
 
             db.WardrobeItems.AddRange(items.Select(item => item.Item));

@@ -121,7 +121,7 @@ internal static class TryOnClientExtensions
                 UserId = userId,
                 Kind = OutfitKind.Daily,
                 Completeness = pieces.All(piece => piece.WardrobeItemId is not null) ? OutfitCompleteness.Complete : OutfitCompleteness.NeedsOne,
-                ForDate = DateOnly.FromDateTime(DateTime.UtcNow),
+                ForDate = DateOnly.FromDateTime(TestClock.UtcNow.UtcDateTime),
                 Score = 80,
                 Rule = "Neutral",
                 Hash = Guid.NewGuid().ToString("N"),

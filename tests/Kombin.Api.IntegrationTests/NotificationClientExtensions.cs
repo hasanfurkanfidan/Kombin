@@ -100,7 +100,7 @@ internal static class NotificationClientExtensions
         CancellationToken cancellationToken = default) =>
         factory.WithDbAsync(async db =>
         {
-            var now = DateTimeOffset.UtcNow;
+            var now = TestClock.UtcNow;
             var notification = new NotificationEntity
             {
                 UserId = userId,

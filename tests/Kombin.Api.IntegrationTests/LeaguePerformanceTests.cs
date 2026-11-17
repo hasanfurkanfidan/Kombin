@@ -261,7 +261,7 @@ public sealed class LeaguePerformanceTests(LeaguePerformanceTests.LeaguePerforma
         public async Task<(int Entries, int Pairs)> SeedCloseDayAsync(DateOnly day, int players, CancellationToken cancellationToken)
         {
             var random = new Random(players);
-            var now = DateTimeOffset.UtcNow;
+            var now = TestClock.UtcNow;
             var served = Time(day, 12);
             var playerIds = Enumerable.Range(0, players).Select(_ => Guid.CreateVersion7()).ToArray();
             var humans = (int)(players * 0.6);
@@ -417,7 +417,7 @@ public sealed class LeaguePerformanceTests(LeaguePerformanceTests.LeaguePerforma
         public async Task SeedWeekAsync(DateOnly monday, int players, int closedDays, IReadOnlyList<Guid> placeFirst, CancellationToken cancellationToken)
         {
             var random = new Random(players + closedDays);
-            var now = DateTimeOffset.UtcNow;
+            var now = TestClock.UtcNow;
             var playerIds = Enumerable.Range(0, players).Select(_ => Guid.CreateVersion7()).ToArray();
 
             await using var connection = new NpgsqlConnection(_postgres.GetConnectionString());
@@ -552,7 +552,7 @@ public sealed class LeaguePerformanceTests(LeaguePerformanceTests.LeaguePerforma
         {
             var random = new Random(20261116);
             var day = new DateOnly(2041, 3, 14);
-            var now = DateTimeOffset.UtcNow;
+            var now = TestClock.UtcNow;
             string[] audiences = ["Women", "Men", "Unisex"];
             string?[] occasions = [null, "Office", "Weekend", "Evening", "Sport", "Event"];
             string[] slots = ["Top", "Bottom", "Shoes"];

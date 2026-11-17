@@ -27,7 +27,7 @@ internal sealed class FakeWeatherProvider : IWeatherProvider
 
     public async Task<IReadOnlyList<DayWeather>> GetDaysAsync(string city, DateOnly start, DateOnly end, CancellationToken cancellationToken)
     {
-        var lastForecastDay = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(15);
+        var lastForecastDay = DateOnly.FromDateTime(TestClock.UtcNow.UtcDateTime).AddDays(15);
         var days = new List<DayWeather>();
 
         for (var day = start; day <= end; day = day.AddDays(1))

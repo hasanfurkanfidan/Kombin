@@ -24,7 +24,7 @@ internal static class AnalyticsClientExtensions
             sessionId = sessionId ?? $"session-{Guid.NewGuid():N}",
             platform,
             appVersion = "1.0.0",
-            occurredAt = occurredAt ?? DateTimeOffset.UtcNow,
+            occurredAt = occurredAt ?? TestClock.UtcNow,
             anonymousId,
         };
 

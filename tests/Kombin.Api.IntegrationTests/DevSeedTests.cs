@@ -198,7 +198,7 @@ public sealed class DevSeedTests(SeededApiFactory factory) : IClassFixture<Seede
         Assert.True(summary.GetProperty("highestLast90Days").GetDecimal() > summary.GetProperty("lowestLast90Days").GetDecimal());
 
         var history = await client.GetJsonAsync($"/api/v1/catalog/products/{id}/price-history?days=90", Ct);
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = DateOnly.FromDateTime(TestClock.UtcNow.UtcDateTime);
 
         foreach (var series in history.EnumerateArray())
         {

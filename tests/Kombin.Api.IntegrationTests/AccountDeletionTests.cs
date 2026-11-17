@@ -50,7 +50,7 @@ public sealed class AccountDeletionTests(ApiFactory factory)
 
     private Task<int> BackdateAsync(Guid userId, int days) =>
         factory.WithDbAsync(db => db.Users.Where(user => user.Id == userId).ExecuteUpdateAsync(
-            setters => setters.SetProperty(user => user.DeletionRequestedAt, DateTimeOffset.UtcNow.AddDays(-days)), Ct));
+            setters => setters.SetProperty(user => user.DeletionRequestedAt, TestClock.UtcNow.AddDays(-days)), Ct));
 
     private Task<AccountDeletionSummary> RunJobAsync(params Guid[] userIds) =>
         factory.RunJobAsync<AccountDeletionJob, AccountDeletionSummary>(job => job.DeleteDueAsync(userIds, Ct));
@@ -110,7 +110,7 @@ public sealed class AccountDeletionTests(ApiFactory factory)
         var requestedAt = body.GetProperty("deletionRequestedAt").GetDateTimeOffset();
         var scheduledFor = body.GetProperty("deletionScheduledFor").GetDateTimeOffset();
         Assert.Equal(TimeSpan.FromDays(7), scheduledFor - requestedAt);
-        Assert.InRange(DateTimeOffset.UtcNow - requestedAt, TimeSpan.FromSeconds(-5), TimeSpan.FromSeconds(30));
+        Assert.InRange(TestClock.UtcNow - requestedAt, TimeSpan.FromSeconds(-5), TimeSpan.FromSeconds(30));
     }
 
     [Fact]
@@ -460,7 +460,7 @@ public sealed class AccountDeletionTests(ApiFactory factory)
         await ClickAsync(subject.Client, await GoPathAsync(anonymous, bystanderPost));
 
         // The subject's click earned a size question five days later ("Aldın mı? Beden uydu mu?").
-        await factory.WithDbAsync(db => db.Clicks.Where(click => click.UserId == ownerId).ExecuteUpdateAsync(set => set.SetProperty(click => click.ClickedAt, DateTimeOffset.UtcNow.AddDays(-5)), Ct));
+        await factory.WithDbAsync(db => db.Clicks.Where(click => click.UserId == ownerId).ExecuteUpdateAsync(set => set.SetProperty(click => click.ClickedAt, TestClock.UtcNow.AddDays(-5)), Ct));
         Assert.Single((await subject.Client.GetJsonAsync("/api/v1/me/size-prompts", Ct)).GetProperty("prompts").EnumerateArray());
         var anonymousId = AnalyticsClientExtensions.NewAnonymousId();
         await subject.Client.PostEventsOkAsync([AnalyticsClientExtensions.Event("app_open", anonymousId: anonymousId)], Ct);
@@ -705,7 +705,7 @@ public sealed class AccountDeletionTests(ApiFactory factory)
     /// <summary>The subject's try-on rows and their two stored objects (the prepared cutout and the drawing); returns the object keys.</summary>
     private Task<string[]> SeedTryOnAsync(Guid userId, Guid itemId, Guid outfitId) => factory.WithDbAsync(async db =>
     {
-        var now = DateTimeOffset.UtcNow;
+        var now = TestClock.UtcNow;
         var garment = new TryOnGarment
         {
             WardrobeItemId = itemId,
@@ -775,7 +775,7 @@ public sealed class AccountDeletionTests(ApiFactory factory)
         var theirs = Entry(bystanderId);
         theirs.Pieces.Add(new LeagueEntryPiece { Position = 0, Slot = OutfitSlot.Top, ImageUrl = "https://images.example.test/top.jpg" });
         var (low, high) = mine.Id.CompareTo(theirs.Id) < 0 ? (mine.Id, theirs.Id) : (theirs.Id, mine.Id);
-        var served = DateTimeOffset.UtcNow.AddMinutes(-5);
+        var served = TestClock.UtcNow.AddMinutes(-5);
         var group = new LeagueGroup { WeekStart = day, Tiers = [LeagueTier.Bronze], Capacity = 30 };
         var preference = new LeagueEnginePreference { Day = day, Audience = Audience.Women, WinnerProducts = [Guid.NewGuid()], Weight = 1 };
 
