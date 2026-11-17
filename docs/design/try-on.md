@@ -128,8 +128,18 @@ the caller's own pieces only; `withWardrobe=false` is the product alone, so `Una
   "imageUrl": "https://…",      // Ready only: a presigned GET, 1 h
   "garments": [ { "id": "…", "fitLevel": "TrueToSize" } ],   // Ready only; id = the piece's ID as the outfit carries it (wardrobe item or product)
   "defaultedMeasurements": ["chest", "hip"],                 // Ready only: what the mannequin guessed
-  "reason": null }              // Unavailable only: why (for the app team and support; the app hides the action whatever it says)
+  "reason": null,               // Unavailable only: why (for the app team and support; the app hides the action whatever it says)
+  "renderer": "mannequin-v5" }  // Ready with an image only: the renderer that drew it; the app sends it back as `renderer` of a report
 ```
+
+**`check=true`** (task B8) asks "would this be available?" without drawing: the same record, status and reason only (`Ready` carries no
+`imageUrl`, `garments` or `renderer`). It runs the readiness rule, asks for what is not prepared yet exactly as a real request does (otherwise
+`Preparing` could never change), and then looks the exact inputs up in the render cache for a remembered refusal (`Unavailable`,
+`RendererRefused`); it never calls the renderer, never touches `TryOnRenderGate`, never writes a render and leaves `last_used_at` alone. One shape
+instead of a second route or record: the app already parses it, and the answers are the three statuses it already handles. `renderer` is on the
+Ready answer, not looked up by the report endpoint, because a report names a subject (an outfit or a product) and a user can hold several
+renders of it over time (another body, another garment version): only the answer that was drawn knows which renderer drew it, and the app
+reports what it saw.
 
 Render request: `body` from `UserProfile` (`women` / `men` / `unisex`, height, weight, chest, waist, hip; no shoulder measurement exists),
 per garment `family, landmarks, reliable, source, flags` from the row, `cut` = the piece's `ProductFit` (none when `Unknown`), `size` = the
