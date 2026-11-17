@@ -412,6 +412,7 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
             .Distinct()
             .ToList();
         Assert.Contains("admin/users", pages);
+        Assert.Contains("admin/league", pages);
 
         foreach (var page in pages)
         {
