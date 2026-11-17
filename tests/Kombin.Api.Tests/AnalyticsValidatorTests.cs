@@ -29,6 +29,18 @@ public class AnalyticsValidatorTests
     private static RecordEventsRequest Batch(params EventItem[] events) => new([.. events]);
 
     [Fact]
+    public void TheLeagueResultStatusesAreTheEnumsNames()
+    {
+        // The catalog spells the statuses out (Analytics does not name the league's types); this keeps the two lists equal.
+        foreach (var status in Enum.GetNames<Kombin.Api.Features.League.GetResults.LeagueResultStatus>())
+        {
+            Assert.Null(Reject("league_results_view", $$"""{"status":"{{status}}"}"""));
+        }
+
+        Assert.Equal(3, Enum.GetNames<Kombin.Api.Features.League.GetResults.LeagueResultStatus>().Length);
+    }
+
+    [Fact]
     public void AValidBatchPasses()
     {
         var request = Batch(
@@ -94,6 +106,12 @@ public class AnalyticsValidatorTests
             ["lens_search"] = """{"regionCount":2,"resultCount":17,"durationMs":2140,"source":"camera"}""",
             ["lens_result_tap"] = $$"""{"productId":"{{ProductId}}","position":0,"similarity":"close"}""",
             ["lens_add_to_wardrobe"] = """{"family":"Outerwear"}""",
+            ["league_join"] = null,
+            ["league_leave"] = null,
+            ["league_vote"] = """{"choice":"left","counted":true}""",
+            ["league_report"] = null,
+            ["league_results_view"] = """{"status":"UnderReview"}""",
+            ["league_table_view"] = null,
         };
 
         Assert.Equal(samples.Keys.Order(), AnalyticsEventCatalog.Names.Order());
@@ -213,6 +231,16 @@ public class AnalyticsValidatorTests
     [InlineData("lens_result_tap", """{"productId":"3f2c8f0e-8f3e-4c1b-9a53-5d7b0b3a1c11","position":0,"similarity":0.93}""", "similarity")]
     [InlineData("lens_add_to_wardrobe", """{"family":"Hat"}""", "family")]
     [InlineData("lens_open", """{"entry":"explore","imageUrl":"x"}""", "imageUrl")]
+    [InlineData("league_vote", """{"choice":"both","counted":true}""", "choice")]
+    [InlineData("league_vote", """{"choice":"left"}""", "counted")]
+    [InlineData("league_vote", """{"choice":"right","counted":"yes"}""", "counted")]
+    [InlineData("league_vote", """{"choice":"skip","counted":false,"pairId":"3f2c8f0e-8f3e-4c1b-9a53-5d7b0b3a1c11"}""", "pairId")]
+    [InlineData("league_vote", """{"choice":"left","counted":true,"entryId":"3f2c8f0e-8f3e-4c1b-9a53-5d7b0b3a1c11"}""", "entryId")]
+    [InlineData("league_report", """{"entryId":"3f2c8f0e-8f3e-4c1b-9a53-5d7b0b3a1c11"}""", "entryId")]
+    [InlineData("league_join", """{"alias":"Mavi Ceket"}""", "alias")]
+    [InlineData("league_results_view", """{"status":"Pending"}""", "status")]
+    [InlineData("league_results_view", """{"status":"Final","imageUrl":"x"}""", "imageUrl")]
+    [InlineData("league_table_view", """{"rank":3}""", "rank")]
     [InlineData("wardrobe_unlock_click", """{"productId":"3f2c8f0e-8f3e-4c1b-9a53-5d7b0b3a1c11"}""", "productId")]
     [InlineData("product_list_view", """{"sort":"cheapest","filters":""}""", "sort")]
     [InlineData("product_list_view", """{"sort":"newest","filters":"a b"}""", "filters")]

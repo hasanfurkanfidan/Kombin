@@ -120,6 +120,15 @@ internal static partial class AnalyticsEventCatalog
         ],
         ["lens_result_tap"] = [Required("productId", Id), Required("position", Integer(0, 11)), Required("similarity", OneOf("close", "similar"))],
         ["lens_add_to_wardrobe"] = [Optional("family", OneOf<CategoryFamily>())],
+
+        // Kombin Ligi (first-month measurement): never a pair, entry, image or player identifier. A vote says which side the player chose (or that
+        // they skipped) and whether the server counted it (`counted` comes from the vote's response); the results screen says which state it showed (the league's `LeagueResultStatus` names, spelled out here: a feature does not name another one's types; `AnalyticsValidatorTests` pins them).
+        ["league_join"] = [],
+        ["league_leave"] = [],
+        ["league_vote"] = [Required("choice", OneOf("left", "right", "skip")), Required("counted", Boolean)],
+        ["league_report"] = [],
+        ["league_results_view"] = [Required("status", OneOf("Final", "UnderReview", "Removed"))],
+        ["league_table_view"] = [],
     };
 
     public static IEnumerable<string> Names => Events.Keys;
