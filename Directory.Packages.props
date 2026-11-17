@@ -23,6 +23,10 @@
     <PackageVersion Include="AWSSDK.S3" Version="4.0.104.8" />
     <!-- The vector type for wardrobe embeddings (pgvector). -->
     <PackageVersion Include="Pgvector.EntityFrameworkCore" Version="0.3.0" />
+    <!-- Try-on scales retailer photos over the vision service's 8 MB limit (docs/design/try-on.md). MIT (Skia: BSD-3-Clause); the NoDependencies
+         native assets include linux-musl-x64 for the Alpine runtime image. -->
+    <PackageVersion Include="SkiaSharp" Version="4.154.0" />
+    <PackageVersion Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.154.0" />
   </ItemGroup>
 
   <ItemGroup Label="Tests">

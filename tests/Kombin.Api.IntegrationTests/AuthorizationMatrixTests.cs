@@ -179,6 +179,16 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
             [HttpStatusCode.NotFound],
             async (w, f) => Assert.Equal("{}", await f.WithDbAsync(db => db.Trips.Where(trip => trip.Id == w.TripId).Select(trip => trip.PlanJson).SingleAsync(Ct)))),
 
+        // Try-on: A's outfit is not B's to draw or to report (the product route takes a public ID and B's own wardrobe only).
+        ["GET /api/v1/me/tryon"] = Probe(
+            w => new HttpRequestMessage(HttpMethod.Get, $"/api/v1/me/tryon?outfitId={w.OutfitId}"),
+            [HttpStatusCode.NotFound],
+            async (w, f) => Assert.False(await f.WithDbAsync(db => db.TryOnGarments.AnyAsync(row => row.WardrobeItemId == w.ItemId, Ct)))),
+        ["POST /api/v1/me/tryon/reports"] = Probe(
+            w => Json(HttpMethod.Post, "/api/v1/me/tryon/reports", new { outfitId = w.OutfitId, garmentIds = new[] { w.ItemId }, renderer = "mannequin-v5" }),
+            [HttpStatusCode.NotFound],
+            async (w, f) => Assert.False(await f.WithDbAsync(db => db.TryOnReports.AnyAsync(report => report.OutfitId == w.OutfitId, Ct)))),
+
         // League
         ["GET /api/v1/league/me"] = ScopedRead("/api/v1/league/me"),
         ["POST /api/v1/league/join"] = Exempt("Joins the caller; it takes no ID."),
@@ -198,6 +208,17 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
             w => AtLeagueNoon(Json(HttpMethod.Post, $"/api/v1/league/pairs/{w.LeaguePairId}/report", new { side = "left" }), w),
             [HttpStatusCode.NotFound],
             async (w, f) => Assert.False(await f.WithDbAsync(db => db.LeagueReports.AnyAsync(report => report.ReporterId == w.Intruder.Id, Ct)))),
+
+        // A has a result on a closed day of the world's own; B asks for that day and for B's latest: only the caller's own row is ever read, so
+        // both are 404 League.ResultsNotReady and carry none of A's identifiers.
+        ["GET /api/v1/league/results"] = Probe(
+            w => new HttpRequestMessage(HttpMethod.Get, $"/api/v1/league/results?day={w.LeagueResultsDay.Iso()}"),
+            [HttpStatusCode.NotFound]),
+        // B's own group table this week (B is a player): rows carry only rank, points, isMe and the weekly alias, never A's identifiers.
+        ["GET /api/v1/league/table"] = ScopedRead("/api/v1/league/table"),
+        ["GET /api/v1/league/results/latest"] = Probe(
+            w => new HttpRequestMessage(HttpMethod.Get, "/api/v1/league/results/latest"),
+            [HttpStatusCode.NotFound]),
 
         // Social
         ["GET /api/v1/social/consent"] = ScopedRead("/api/v1/social/consent"),
@@ -446,7 +467,7 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
     /// <summary>A valid trip plan request (two days from the day after tomorrow) naming <paramref name="personaId"/>.</summary>
     private static object TripBody(Guid personaId)
     {
-        var start = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(2);
+        var start = DateOnly.FromDateTime(TestClock.UtcNow.UtcDateTime).AddDays(2);
         return new { city = "Istanbul", startDate = start, endDate = start.AddDays(1), personaId };
     }
 
@@ -501,7 +522,7 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
                 SellerId = await db.Offers.Where(candidate => candidate.Id == product.OfferId).Select(candidate => candidate.SellerId).SingleAsync(cancellation),
                 OfferId = product.OfferId,
                 ClickId = 1,
-                ClickedAt = DateTimeOffset.UtcNow.AddDays(-5),
+                ClickedAt = TestClock.UtcNow.AddDays(-5),
             };
             db.SizePrompts.Add(prompt);
             await db.SaveChangesAsync(cancellation);
@@ -521,13 +542,13 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
                 Status = OutfitStatus.Saved,
                 Narration = "Matrix",
                 NarrationInput = "{}",
-                SavedAt = DateTimeOffset.UtcNow,
+                SavedAt = TestClock.UtcNow,
             };
             db.Outfits.Add(outfit);
             await db.SaveChangesAsync(cancellation);
             return outfit.Id;
         });
-        var notificationId = await factory.InsertNotificationAsync(owner.Id, Kombin.Api.Persistence.Entities.Notification.NotificationStatus.Sent, sentAt: DateTimeOffset.UtcNow, cancellationToken: cancellation);
+        var notificationId = await factory.InsertNotificationAsync(owner.Id, Kombin.Api.Persistence.Entities.Notification.NotificationStatus.Sent, sentAt: TestClock.UtcNow, cancellationToken: cancellation);
         var deviceToken = await owner.Client.RegisterDeviceAsync(cancellationToken: cancellation);
         var privatePost = await factory.CreateLivePostAsync(owner.Client, "Private", cancellationToken: cancellation);
         var followersPost = await factory.CreateLivePostAsync(owner.Client, "Followers", cancellationToken: cancellation);
@@ -544,7 +565,7 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
                 EndDate = new DateOnly(2030, 1, 2),
                 RequestJson = "{}",
                 PlanJson = "{}",
-                PlannedAt = DateTimeOffset.UtcNow,
+                PlannedAt = TestClock.UtcNow,
             };
             db.Trips.Add(trip);
             await db.SaveChangesAsync(cancellation);
@@ -580,13 +601,36 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
             return pair.Id;
         });
 
+        // A's result on a closed league day (written as the close writes it), with A's entry of that day.
+        var resultsDay = LeagueClientExtensions.NewDay();
+        var resultsEntryId = await factory.InsertEntryAsync(resultsDay, owner.Id, cancellationToken: cancellation);
+        await factory.WithDbAsync(async db =>
+        {
+            db.LeagueDays.Add(new Kombin.Api.Persistence.Entities.League.LeagueDay { Day = resultsDay, ClosesAt = LeagueClientExtensions.Time(resultsDay, 21), ClosedAt = LeagueClientExtensions.Time(resultsDay, 21, 1) });
+            db.LeagueDailyScores.Add(new Kombin.Api.Persistence.Entities.League.LeagueDailyScore
+            {
+                UserId = owner.Id,
+                Day = resultsDay,
+                EntryId = resultsEntryId,
+                Competed = true,
+                Ranked = true,
+                Rank = 1,
+                RankedCount = 1,
+                Comparisons = 8,
+                Percentile = 0.5,
+                VotePoints = 35,
+                Total = 35,
+            });
+            return await db.SaveChangesAsync(cancellation);
+        });
+
         // A second session of the owner, whose refresh token the intruder tries to log out.
         using var login = await anonymous.LoginAsync(ownerEmail, ApiClientExtensions.DefaultPassword, cancellationToken: cancellation);
         var ownerRefresh = (await login.ReadTokensAsync(cancellation)).RefreshToken;
 
         return new World(
             owner.Id, ownerEmail, intruder, ownerPersona, itemId, product.ProductId, alertId, sizeId, sizePromptId, outfitId, notificationId, deviceToken,
-            privatePost, followersPost, draftPost, ownerRefresh, tripId, leagueDay, leagueEntryId, leaguePairId);
+            privatePost, followersPost, draftPost, ownerRefresh, tripId, leagueDay, leagueEntryId, leaguePairId, resultsDay, resultsEntryId);
     }
 
     internal sealed record World(
@@ -609,14 +653,16 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
         Guid TripId,
         DateOnly LeagueDay,
         Guid LeagueEntryId,
-        Guid LeaguePairId)
+        Guid LeaguePairId,
+        DateOnly LeagueResultsDay,
+        Guid LeagueResultsEntryId)
     {
         /// <summary>What must never appear in an answer to user B. The product is public and the notification ID numeric, so neither is listed.</summary>
         public IReadOnlyList<string> OwnerSecrets =>
         [
             OwnerId.ToString(), OwnerEmail, OwnerPersonaId.ToString(), ItemId.ToString(), AlertId.ToString(), SizeId.ToString(), SizePromptId.ToString(), OutfitId.ToString(),
             OwnerDeviceToken, PrivatePostId.ToString(), FollowersPostId.ToString(), DraftPostId.ToString(), TripId.ToString(),
-            LeagueEntryId.ToString(), LeaguePairId.ToString(),
+            LeagueEntryId.ToString(), LeaguePairId.ToString(), LeagueResultsEntryId.ToString(),
         ];
     }
 

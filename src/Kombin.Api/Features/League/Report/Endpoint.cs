@@ -32,7 +32,8 @@ internal static class ReportEntryEndpoint
     /// outfit again, and a pair still open is used up as a skip (never counted), so asking for the next pair does not show it again. The report
     /// counts toward the hide only from a trusted reporter (account at least <c>League:Reports:MinAccountAge</c> old and at least
     /// <c>League:Reports:MinCountedVotes</c> counted votes); <c>League:Reports:HideAt</c> counting reports take the outfit out of every pool until
-    /// a review. The reporter learns nothing about either.
+    /// a review. The reporter learns nothing about either. The skip is written only while the pair is still open (a vote that answers it at the
+    /// same moment wins and is never overwritten).
     /// </summary>
     private static async Task<IResult> Handle(
         Guid pairId,
@@ -45,7 +46,10 @@ internal static class ReportEntryEndpoint
     {
         var rules = options.Value.Reports;
         var reporterId = currentUser.UserId;
-        var pair = await db.LeaguePairs.SingleOrDefaultAsync(row => row.Id == pairId && row.VoterId == reporterId, cancellationToken);
+        var pair = await db.LeaguePairs.AsNoTracking()
+            .Where(row => row.Id == pairId && row.VoterId == reporterId)
+            .Select(row => new { row.LeftEntryId, row.RightEntryId })
+            .SingleOrDefaultAsync(cancellationToken);
         if (pair is null)
         {
             return LeagueErrors.PairNotFound.ToHttpResult();
@@ -67,14 +71,6 @@ internal static class ReportEntryEndpoint
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         db.LeagueReports.Add(new LeagueReport { EntryId = entryId, ReporterId = reporterId, Reason = reason, Counts = counts, CreatedAt = now });
 
-        if (pair.AnsweredAt is null)
-        {
-            pair.AnsweredAt = now;
-            pair.Choice = LeaguePairChoice.Skip;
-            pair.Counted = false;
-            pair.Weight = 0;
-        }
-
         try
         {
             await db.SaveChangesAsync(cancellationToken);
@@ -83,6 +79,14 @@ internal static class ReportEntryEndpoint
         {
             return LeagueErrors.AlreadyReported.ToHttpResult();
         }
+
+        // An open pair is used up as a skip; the condition is evaluated on the row as it is when its lock is free, so a vote committed in
+        // between keeps its choice and count.
+        await db.LeaguePairs.Where(row => row.Id == pairId && row.AnsweredAt == null).ExecuteUpdateAsync(setters => setters
+            .SetProperty(row => row.AnsweredAt, now)
+            .SetProperty(row => row.Choice, LeaguePairChoice.Skip)
+            .SetProperty(row => row.Counted, false)
+            .SetProperty(row => row.Weight, 0f), cancellationToken);
 
         if (counts)
         {

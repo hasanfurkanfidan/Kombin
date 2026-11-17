@@ -8,6 +8,7 @@ using Kombin.Api.Persistence.Entities.Notification;
 using Kombin.Api.Persistence.Entities.Profile;
 using Kombin.Api.Persistence.Entities.Recommendation;
 using Kombin.Api.Persistence.Entities.Social;
+using Kombin.Api.Persistence.Entities.TryOn;
 using Kombin.Api.Persistence.Entities.Wardrobe;
 
 namespace Kombin.Api.Persistence;
@@ -116,6 +117,8 @@ internal sealed class KombinDbContext(DbContextOptions<KombinDbContext> options)
 
     public DbSet<LeagueReport> LeagueReports => Set<LeagueReport>();
 
+    public DbSet<LeagueVoterDay> LeagueVoterDays => Set<LeagueVoterDay>();
+
     public DbSet<LeagueDailyScore> LeagueDailyScores => Set<LeagueDailyScore>();
 
     public DbSet<LeagueWeek> LeagueWeeks => Set<LeagueWeek>();
@@ -129,6 +132,12 @@ internal sealed class KombinDbContext(DbContextOptions<KombinDbContext> options)
     public DbSet<LeagueEnginePreference> LeagueEnginePreferences => Set<LeagueEnginePreference>();
 
     public DbSet<LeagueState> LeagueState => Set<LeagueState>();
+
+    public DbSet<TryOnGarment> TryOnGarments => Set<TryOnGarment>();
+
+    public DbSet<TryOnRender> TryOnRenders => Set<TryOnRender>();
+
+    public DbSet<TryOnReport> TryOnReports => Set<TryOnReport>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

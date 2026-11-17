@@ -48,7 +48,11 @@ What happens to every table that holds data about a user:
 | `league.players`, `league.consents` (joins and leaves with the consent text shown), `league.daily_scores`, `league.group_members` (with the weekly alias), `league.style_scores` | deleted (cascade) |
 | `league.entries`, `league.entry_pieces` | deleted (cascade); the league's copies of the outfit thumbnails are deleted from storage first (their keys carry no user ID: `AccountPurger` finds them through the entries) |
 | `league.pairs` (the user's votes, and pairs that showed the user's outfits), `league.reports` (made by the user, or on the user's outfits) | deleted (cascade); other players' closed days keep their stored scores |
+| `league.voter_days` (the user's served pairs and counted votes per day) | deleted (cascade); other voters' counters are their own rows, so their voting points of an open day do not change when the user's outfit (and the pairs that showed it) goes |
 | `league.engine_preferences` | not personal data (engine products and a weight, no user ID); untouched |
+| `tryon.renders` (mannequin drawings: they **reveal body proportions**; the cache key and a hash of the body values) | deleted (cascade); the images are deleted from storage first |
+| `tryon.garments` of the user's wardrobe items (what the vision service read from the photo: outline points, flags) | deleted (cascade with the wardrobe items); the prepared cutouts are deleted from storage first. Catalogue garments are catalogue data, untouched |
+| `tryon.reports` ("Yanlış görünüyor": which outfit or product, which garments, which renderer) | deleted (cascade) |
 | `engagement.clicks` | **anonymised**: `user_id`, `persona_id` and (as a creator) `creator_id` become null; the rest stays (offer, product, seller, source, post ID, user agent, salted IP hash) as the revenue record |
 | `analytics.events` | **anonymised**: `user_id` becomes null; `anonymous_id` (a random install ID) stays (open question 12) |
 | `social.referral_events` | **kept** as the financial record: `creator_id` and `viewer_user_id` become null, the amounts stay |
@@ -196,23 +200,59 @@ restart forgets everything. The address is the real client's when the reverse pr
 (client address, path, status) to its container log, rotated by size; the API's own log has correlation IDs and paths, not addresses, e-mail
 addresses or tokens. Neither is searched per user.
 
-## 6b. Kombin Ligi (League, tasks L2 and L3; design `docs/design/league.md`)
+## 6b. Kombin Ligi (League, tasks L2, L3 and L4; design `docs/design/league.md`)
 
 Off until the app screens ship (`League:Enabled` false). Task L2 built joining and leaving, task L3 the entries, the image copies, voting and
-reports; the rows below marked *later* are designed, not built.
+reports, task L4 the day close, the daily points, the results and the purge, task L5 the weekly groups, the table, the style score, the review
+queue and the result push.
 
 | What | Why | Where | Who sees it | How long |
 |---|---|---|---|---|
-| Join and leave records, with the exact consent text shown and its version | proof of the consent and of the 18+ declaration | `league.consents`, `league.players` | the operator | until the account is deleted |
+| Join and leave records, with the exact consent text shown and its version (current `2026-11-v2`, which says that someone who knows the pieces can tell whose outfit it is) | proof of the consent and of the 18+ declaration | `league.consents`, `league.players` | the operator | until the account is deleted |
 | Birth year (read, not stored again) | a known year joins (and enters an outfit) only when it makes the player certainly 18 | `profile.user_profiles` | nobody new | as the profile |
-| The day's worn outfit (its pieces, which outfit, the occasion, the profile's audience) and copies of the pieces' thumbnails | the outfit competes | `league.entries`, `entry_pieces`, object storage `league/{random}/{random}/thumb.*` | **other players**, anonymously: only the piece images (slot and URL), under keys that hold no user ID and differ every day; only when every piece passed the safety filter (`IsShareable`); a saved outfit never enters, only a worn one | copies: deleted within minutes of withdrawing or leaving (`league-entries`), otherwise *later* 7 days after the day (`league-purge`, PR 3); entries *later* 90 days |
-| Votes (which of two outfits or a skip, the server's and the app's decision time, the weight) | the day's ranking | `league.pairs` | the operator; nobody sees who voted; the voter sees the chosen outfit's win rate of the day | *later* 30 days (`league-purge`); until then, until the account is deleted |
-| Reports on an outfit (optional reason) | taking unsafe outfits out of the pool | `league.reports` | the operator (review queue *later*) | until the outfit or either account is deleted |
-| *later*: daily points, week groups with a generated alias ("Yeşil Trençkot"), the style score | the tables; creator eligibility (no screen) | `league.daily_scores`, `group_members`, `style_scores` | the group sees the alias and points, never a name, e-mail or ID; the style score nobody but the operator | until the account is deleted |
-| *later*: engine preference rows | the engine learns which catalog outfits win | `league.engine_preferences` | the operator | no user ID at all |
+| The day's worn outfit (its pieces, which outfit, the occasion, the profile's audience) and copies of the pieces' thumbnails | the outfit competes | `league.entries`, `entry_pieces`, object storage `league/{random}/{random}/thumb.*` | **other players**, without a name, a profile or any stable identifier: only the piece images (slot and URL), under keys that hold no user ID and differ every day, as files that differ in bytes from the wardrobe thumbnail and from every other copy (see below); only when every piece passed the safety filter (`IsShareable`); a saved outfit never enters, only a worn one | copies: deleted within minutes of withdrawing or leaving (`league-entries`), otherwise 7 days after the day (`league-purge`, daily 04:15); a copy no entry names (a crash, a failed delete) a day after it was written; entries 90 days after a closed day |
+| Votes (which of two outfits or a skip, the server's and the app's decision time, the weight) | the day's ranking | `league.pairs` | the operator; nobody sees who voted; the voter sees the chosen outfit's win rate of the day | 30 days after a closed day (`league-purge`); until then, until the account is deleted |
+| The voter's counters of the day (pairs served, votes that counted) | the 30-pair cap and the voting points, which must not shrink when another player's account (and the pairs that showed their outfit) is deleted | `league.voter_days` | the voter (`servedPairs`, `countedVotes`); the operator | 30 days after a closed day (`league-purge`); until the account is deleted |
+| Daily points: whether the outfit competed and was ranked, its rank among N, comparisons, percentile, the four point parts, whether it is under review or was removed by a review | the evening result (`GET /league/results`, the result push) and the weekly table | `league.daily_scores` (one row per player and closed day with an entry or a point) | the player only (their own row and entry; the results never read another player's row); the operator | until the account is deleted (closed days never change; the entry link becomes empty when the entry is purged after 90 days) |
+| Engine preference rows | the engine learns which catalog outfits win | `league.engine_preferences` (written by the close for every counted vote between an engine outfit and a player's) | the operator | no user ID at all; the player's pieces are never stored there, only the engine outfit's products |
+| Reports on an outfit (optional reason) | taking unsafe outfits out of the pool | `league.reports` | the operator (`GET /internal/league/review-queue`; a decision is written to `admin.audit_log` with the entry ID and no personal data) | until the outfit or either account is deleted |
+| Week groups with a generated alias ("Yeşil Trençkot": a random colour and garment, new every week, unique in the group, never derived from the name, e-mail or ID), week points, final place, promotion or relegation | the weekly table (`GET /league/table`) | `league.group_members`, `league.groups`, `league.weeks` | the group sees `{ rank, points, isMe, alias }` per row, never a name, e-mail, ID or anything about an outfit; leaving takes the player off the current week's table | until the account is deleted (cascade; the others' ranks are renumbered on read) |
+| The style score (mean and deviation of the percentiles of 90 days) and the league part of creator eligibility | the founder decides creators (no screen, no endpoint) | `league.style_scores` | the operator only | until the account is deleted |
+| The evening result push (rank or "yeterli oy toplanamadı", the day's total) | the result | `notification.notifications` (kind `LeagueResult`), `league.daily_scores.notified_at` | the player | as every notification (section on notifications); off with the `leagueResults` preference |
+
+**What the image copies hide, and what they do not** (task L3-fix). A copy is the wardrobe thumbnail with a block of 16 to 271 random bytes added
+where every decoder skips it (`ImageMarker`: a JPEG comment, a private PNG chunk, an unknown WEBP chunk). So a machine comparing files finds
+nothing in common: the SHA-256, the store's ETag (the MD5 of the file) and the exact size differ between two copies of the same piece, and
+between a copy and the thumbnail a Social post shows for that piece (which carries the author's name and ID). What remains, stated plainly:
+- **a person can still recognise the same photo by eye**: the same garment photographed once looks the same in the league, on another day and
+  on a post that tags it;
+- the compressed image data inside the file is byte-for-byte the source's, so someone who downloads both files and strips the container (or
+  compares them with a perceptual hash) can still match them; only re-encoding the pixels would change that, and there is no image library in
+  the API (the vision service could re-encode, at one call per piece per day; not done in v1);
+- the size differs by at most a few hundred bytes from the source, so it narrows a search without deciding it.
+Catalog pieces are catalog images (the same for everyone who owns the product) and link to no one.
+
+So the league's promise is **no name, no profile and no stable identifier in any response**, not that an outfit cannot be traced to its owner.
+Consent version `2026-11-v2` tells the player exactly that: "Parçalarını tanıyan biri kombinin sana ait olduğunu anlayabilir." Players who joined
+under version 1 are asked again and enter no outfit until they accept.
 
 The league schema is **not** readable by Metabase (`metabase_ro`); its first-month metrics are SQL run by hand. Leaving stops every future entry and
 withdraws the day's outfit; deleting the account removes everything above (section 1a).
+
+## 6c. "Manken üstünde gör" (TryOn, task P3; design `docs/design/try-on.md`)
+
+Off until the app screens ship (`TryOn:Enabled` false). The feature draws an outfit on a mannequin **proportioned from the user's measurements**:
+the drawing is a catalogue figure, not a photo of the user, but its proportions are the user's, so it is treated like the measurements themselves.
+
+| What | Why | Where | Who sees it | How long |
+|---|---|---|---|---|
+| Prepared garments of the user's wardrobe items: a cutout of the garment alone, outline points, the service's flags (no photo of a person: an item whose photo had someone in it is never prepared) | the drawing | `tryon.garments`, object storage `tryon/{user}/{garment}/prepared.png` (private by name; read by the server only, never given out) | nobody; the server sends it to `kombin-vision` when drawing | as the wardrobe item (cascade); deleted with the account |
+| The drawing (a WEBP of the figure wearing the outfit) and a hash of the body values it was made for | "Manken üstünde gör" | `tryon.renders`, object storage `tryon/{user}/{render}/render.webp` (private by name) | **the user only**: a presigned GET valid for one hour, given only in the answer to the user's own request; another user's outfit is 404 | deleted when the user's measurements or audience change (at the next drawing at once, otherwise within a minute by `tryon-prepare`), 30 days after it was last shown, and with the account |
+| Reports ("Yanlış görünüyor"): which outfit or product, which garments, the renderer | finding garments drawn wrong (a top shown from the back) | `tryon.reports` | the operator (`docs/metrics.sql`, `tryon_reported_garments`, which shows a wardrobe garment without anything of its owner) | until the account is deleted |
+
+The measurements (height, weight, chest, waist, hip, audience) go to `kombin-vision` with each new drawing; it stores nothing. They are never written to a log line or an
+analytics event: the vision client logs only the path and the service's error code, the job and the renderer log IDs and codes. No analytics event was
+added. Catalogue garments (products) are catalogue data and hold nothing about users.
 
 ## 7. Processors and transfers
 
@@ -220,7 +260,7 @@ withdraws the day's outfit; deleting the account removes everything above (secti
 |---|---|---|
 | Object storage (MinIO on the server; R2 possible) | photos and renditions | the hosting provider's EU region (the plan: one EU VPS) |
 | Backup bucket (S3-compatible, e.g. Cloudflare R2) | the encrypted nightly database dump (age or AES-256; the key is not on the server), kept 7 days | the provider's EU or default jurisdiction: **to be chosen** (open question 6) |
-| `kombin-vision` | photos for analysis, moderation and detection, visual-search query photos; stores nothing | our own service, same deployment |
+| `kombin-vision` | photos for analysis, moderation and detection, visual-search query photos, garment cutouts and **body measurements** for "Manken üstünde gör"; stores nothing | our own service, same deployment |
 | Let's Encrypt | the domain names, for the TLS certificates (no user data) | Let's Encrypt |
 | Expo Push Service | push tokens and notification text | Expo (US) |
 | Open-Meteo | the profile's city, and a trip's destination with its dates (forecast and archive APIs; no user ID) | Open-Meteo (EU) |
@@ -254,8 +294,12 @@ Photos of posts and visual-search photos are never sent to a third party.
     log addresses at all?
 15. Backups keep deleted data for up to 7 days after the removal. Is "within 7 days of the removal" an acceptable statement, and should the legal pages say so as precisely?
 16. The public legal pages are drafts written from this document; `docs/legal-review.md` lists every sentence flagged for a lawyer.
-17. **Kombin Ligi consent, version `2026-11-v1` (section 6b): not reviewed by counsel.** The owner's text: "Katılırsan dolabındaki parçaların
-    fotoğrafları diğer oyunculara gösterilir. Adın ve profilin görünmez. İstediğin gün kombinini çıkarabilir, ayarlardan ligden ayrılabilirsin.
-    Katılarak 18 yaşından büyük olduğunu onaylarsın." Its last sentence is the only age declaration (an unknown birth year may join; a known birth year
+17. **Kombin Ligi consent, versions `2026-11-v1` and `2026-11-v2` (section 6b): not reviewed by counsel.** The owner's current text (v2):
+    "Katılırsan dolabındaki parçaların fotoğrafları diğer oyunculara gösterilir. Adın ve profilin görünmez. Parçalarını tanıyan biri kombinin
+    sana ait olduğunu anlayabilir. İstediğin gün kombinini çıkarabilir, ayarlardan ligden ayrılabilirsin. Katılarak 18 yaşından büyük olduğunu
+    onaylarsın." (v1 was the same without the third sentence.) Its last sentence is the only age declaration (an unknown birth year may join; a known birth year
     joins only when it makes the player certainly 18, so a player born in 2008 waits until 2027). Is it enough as consent for showing wardrobe photos to strangers and as an 18+ declaration? A changed
-    text becomes version 2 and every player accepts again.
+    text becomes the next version and every player accepts again.
+18. **"Manken üstünde gör" (section 6c).** A drawing shows the user's body proportions (from their own measurements). It is private, served for an hour at a
+    time, deleted when the measurements change and 30 days after it was last shown. Is that retention right, and does entering measurements need a notice
+    that they also shape this drawing (the measurements screen does not say so today)?

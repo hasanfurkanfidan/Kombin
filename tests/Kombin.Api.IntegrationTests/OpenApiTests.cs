@@ -59,6 +59,51 @@ public sealed class OpenApiTests(ApiFactory factory)
         Assert.Equal(["chosenGames", "chosenWinRate", "counted", "countedToday", "limit", "servedToday", "target"], Properties("VoteResponse"));
     }
 
+    // Task L4 (league PR 3): the results of a closed day, and the operators' close.
+    [Fact]
+    public async Task TheLeagueResultsAndTheCloseAreDocumented()
+    {
+        var document = await DocumentAsync();
+        var paths = document.GetProperty("paths");
+        var schemas = document.GetProperty("components").GetProperty("schemas");
+        string[] Properties(string schema) => [.. schemas.GetProperty(schema).GetProperty("properties").EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal)];
+
+        var results = paths.GetProperty("/api/v1/league/results").GetProperty("get");
+        Assert.Contains("LeagueResultsResponse", results.GetProperty("responses").GetProperty("200").GetRawText(), StringComparison.Ordinal);
+        Assert.Contains(results.GetProperty("parameters").EnumerateArray(), parameter => parameter.GetProperty("name").GetString() == "day");
+        Assert.Contains("LeagueResultsResponse", paths.GetProperty("/api/v1/league/results/latest").GetProperty("get").GetProperty("responses").GetProperty("200").GetRawText(), StringComparison.Ordinal);
+        Assert.Contains("CloseDayResponse", paths.GetProperty("/api/v1/internal/league/days/{date}/close").GetProperty("post").GetProperty("responses").GetProperty("200").GetRawText(), StringComparison.Ordinal);
+
+        Assert.Equal(["comparisons", "competed", "day", "entry", "message", "piecePointsAvailable", "points", "rank", "ranked", "rankedCount", "status", "week"], Properties("LeagueResultsResponse"));
+        Assert.Equal(["pieces", "total", "votes", "voting", "worn"], Properties("LeaguePointsResponse"));
+        Assert.Equal(["pieces"], Properties("LeagueResultEntryResponse"));
+        Assert.Equal(["endsAt", "groupRank", "pointsToPromotion", "tier"], Properties("LeagueResultsWeekResponse"));
+        Assert.Equal(["btConverged", "btIterations", "closeMs", "closedAt", "closedNow", "day", "engineCount", "pairCount", "rankedCount"], Properties("CloseDayResponse"));
+        Assert.Equal(["Final", "UnderReview", "Removed"], schemas.GetProperty("LeagueResultStatus").GetProperty("enum").EnumerateArray().Select(value => value.GetString()));
+    }
+
+    // Task L5 (league PR 4): the weekly table, the review queue and the result push's preference; this completes the league contract.
+    [Fact]
+    public async Task TheLeagueTableAndTheReviewRoutesAreDocumented()
+    {
+        var document = await DocumentAsync();
+        var paths = document.GetProperty("paths");
+        var schemas = document.GetProperty("components").GetProperty("schemas");
+        string[] Properties(string schema) => [.. schemas.GetProperty(schema).GetProperty("properties").EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal)];
+
+        Assert.Contains("LeagueTableResponse", paths.GetProperty("/api/v1/league/table").GetProperty("get").GetProperty("responses").GetProperty("200").GetRawText(), StringComparison.Ordinal);
+        Assert.Contains("LeagueReviewItem", paths.GetProperty("/api/v1/internal/league/review-queue").GetProperty("get").GetProperty("responses").GetProperty("200").GetRawText(), StringComparison.Ordinal);
+        Assert.Contains("ReviewEntryResponse", paths.GetProperty("/api/v1/internal/league/entries/{entryId}/review").GetProperty("post").GetProperty("responses").GetProperty("200").GetRawText(), StringComparison.Ordinal);
+
+        Assert.Equal(["endsAt", "promoteCount", "relegateCount", "rows", "size", "tier", "tierDown", "tierUp", "todayIsFinal", "todayPoints", "weekStart"], Properties("LeagueTableResponse"));
+        Assert.Equal(["alias", "isMe", "points", "rank"], Properties("LeagueTableRow"));
+        Assert.Equal(["endsAt", "groupRank", "groupSize", "points", "pointsToPromotion"], Properties("LeagueWeekResponse"));
+        Assert.Equal(["countingReports", "day", "entryId", "pieces", "reports", "status", "underReview"], Properties("LeagueReviewItem"));
+        Assert.Equal(["entryId", "resultChanged", "status"], Properties("ReviewEntryResponse"));
+        Assert.Contains("leagueResults", Properties("PreferencesResponse"));
+        Assert.Contains("leagueResults", Properties("UpdatePreferencesRequest"));
+    }
+
     // Security review M5: the API documentation must say that "Followers" is not private (anyone can follow without approval).
     [Fact]
     public async Task PublishingSaysFollowersIsNotPrivate()
@@ -67,6 +112,17 @@ public sealed class OpenApiTests(ApiFactory factory)
         var operation = document.GetProperty("paths").GetProperty("/api/v1/posts/{id}/publish").GetProperty("put");
 
         Assert.Contains("Followers is NOT a privacy boundary", operation.GetProperty("description").GetString(), StringComparison.Ordinal);
+    }
+
+    // Task L3-fix: an outfit dismissed after it was worn leaves the entry NotCompeting with NotWorn.
+    [Fact]
+    public async Task TheLeagueEntryReasonsAreDocumented()
+    {
+        var schemas = (await DocumentAsync()).GetProperty("components").GetProperty("schemas");
+
+        Assert.Equal(
+            ["RecentlyCompeted", "UnsafePiece", "IncompleteOutfit", "PieceUnavailable", "AgeRestricted", "NotWorn", null],
+            schemas.GetProperty("LeagueEntryReason").GetProperty("enum").EnumerateArray().Select(reason => reason.GetString()));
     }
 
     [Fact]
@@ -90,6 +146,37 @@ public sealed class OpenApiTests(ApiFactory factory)
 
         Assert.True(properties.TryGetProperty("city", out _));
         Assert.False(properties.TryGetProperty("citySet", out _));
+    }
+
+    // Task P3: "Manken üstünde gör" is off by default, but its routes are mapped and documented so the app can be built against them.
+    [Fact]
+    public async Task TheTryOnRoutesAreDocumentedWithTheirShapes()
+    {
+        var document = await DocumentAsync();
+        var paths = document.GetProperty("paths");
+
+        var get = paths.GetProperty("/api/v1/me/tryon").GetProperty("get");
+        // [AsParameters] records are documented by property name (OutfitId), like the other query records; binding ignores the case.
+        Assert.Equal(
+            ["outfitid", "productid", "withwardrobe"],
+            get.GetProperty("parameters").EnumerateArray().Select(parameter => parameter.GetProperty("name").GetString()!.ToLowerInvariant()).Order(StringComparer.Ordinal));
+        Assert.Contains("TryOnResponse", get.GetProperty("responses").GetProperty("200").GetRawText(), StringComparison.Ordinal);
+        Assert.All(["400", "404", "429", "503"], status => Assert.True(get.GetProperty("responses").TryGetProperty(status, out _), status));
+        Assert.True(paths.GetProperty("/api/v1/me/tryon/reports").GetProperty("post").GetProperty("responses").TryGetProperty("204", out _));
+
+        var schemas = document.GetProperty("components").GetProperty("schemas");
+        string[] Properties(string schema) => [.. schemas.GetProperty(schema).GetProperty("properties").EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal)];
+        string?[] Values(string schema) => [.. schemas.GetProperty(schema).GetProperty("enum").EnumerateArray().Select(value => value.GetString())];
+
+        Assert.Equal(["defaultedMeasurements", "garments", "imageUrl", "reason", "status"], Properties("TryOnResponse"));
+        Assert.Equal(["fitLevel", "id"], Properties("TryOnGarmentResponse"));
+        Assert.Equal(["garmentIds", "outfitId", "productId", "renderer"], Properties("ReportTryOnRequest"));
+        Assert.Equal(["Ready", "Preparing", "Unavailable"], Values("TryOnStatus"));
+        Assert.Contains("Tight", Values("TryOnFitLevel"));
+        Assert.Contains("TrueToSize", Values("TryOnFitLevel"));
+        Assert.Contains("Loose", Values("TryOnFitLevel"));
+        Assert.Contains("BodyOutOfRange", Values("TryOnUnavailableReason"));
+        Assert.Contains("RendererRefused", Values("TryOnUnavailableReason"));
     }
 
     [Fact]

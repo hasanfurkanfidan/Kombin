@@ -13,6 +13,7 @@ public class LeagueOptionsTests
 
         Assert.False(options.Enabled);
         Assert.Equal(new TimeOnly(21, 0), options.DayClosesAt);
+        Assert.Equal(7, options.CloseCatchUpDays);
         Assert.Equal(18, options.MinAge);
         Assert.Equal((30, 10), (options.MaxPairsPerDay, options.VotesForPoints));
         Assert.Equal(TimeSpan.FromMilliseconds(600), options.MinDecisionTime);
@@ -26,7 +27,7 @@ public class LeagueOptionsTests
         Assert.Equal((30, 20), (options.EngineFill.MinPool, options.EngineFill.MaxPerRun));
         Assert.Equal((3, TimeSpan.FromHours(72), 20), (options.Reports.HideAt, options.Reports.MinAccountAge, options.Reports.MinCountedVotes));
         Assert.Equal((90, 30, 30, 75.0, 4), (options.StyleScore.WindowDays, options.StyleScore.MinRankedPerDay, options.StyleScore.MinDays, options.StyleScore.Threshold, options.StyleScore.ConsecutiveWeeks));
-        Assert.Equal((7, 30, 90), (options.Retention.ImageDays, options.Retention.PairDays, options.Retention.EntryDays));
+        Assert.Equal((7, 30, 90, TimeSpan.FromDays(1)), (options.Retention.ImageDays, options.Retention.PairDays, options.Retention.EntryDays, options.Retention.OrphanGrace));
     }
 
     [Fact]
@@ -73,6 +74,7 @@ public class LeagueConsentTests
     private static readonly Dictionary<string, string> PublishedHashes = new()
     {
         ["2026-11-v1"] = "dc1036cdda6e78db603b6634fed7e62d2dd4f3086ab7b167ece4bfe8cd979ba6",
+        ["2026-11-v2"] = "32ad0b6162e2df0e91b56ce69ee8664d6d953e5452cb96aaf6c76ffdf3e0d969",
     };
 
     [Fact]
@@ -86,14 +88,28 @@ public class LeagueConsentTests
     }
 
     [Fact]
-    public void VersionOneIsTheOwnersTextWithTheAgeDeclaration()
+    public void VersionOneIsTheOwnersFirstTextWithTheAgeDeclaration()
     {
-        Assert.Same(LeagueConsent.Versions[^1], LeagueConsent.Current);
-        Assert.Equal("2026-11-v1", LeagueConsent.Current.Version);
+        Assert.Equal("2026-11-v1", LeagueConsent.Versions[0].Version);
         Assert.Equal(
             "Katılırsan dolabındaki parçaların fotoğrafları diğer oyunculara gösterilir. Adın ve profilin görünmez. İstediğin gün kombinini çıkarabilir, ayarlardan ligden ayrılabilirsin. Katılarak 18 yaşından büyük olduğunu onaylarsın.",
-            LeagueConsent.Current.Text);
+            LeagueConsent.Versions[0].Text);
         Assert.Equal(LeagueConsent.Versions.Count, LeagueConsent.Versions.Select(version => version.Version).Distinct().Count());
+    }
+
+    /// <summary>
+    /// Version 2 is current: the copies are the same pictures, so it says that someone who knows the pieces can tell whose outfit it is, instead
+    /// of letting "Adın ve profilin görünmez" read as "nobody can link it to you".
+    /// </summary>
+    [Fact]
+    public void VersionTwoIsCurrentAndSaysThePiecesCanBeRecognised()
+    {
+        Assert.Same(LeagueConsent.Versions[^1], LeagueConsent.Current);
+        Assert.Equal("2026-11-v2", LeagueConsent.Current.Version);
+        Assert.Equal(
+            "Katılırsan dolabındaki parçaların fotoğrafları diğer oyunculara gösterilir. Adın ve profilin görünmez. Parçalarını tanıyan biri kombinin sana ait olduğunu anlayabilir. İstediğin gün kombinini çıkarabilir, ayarlardan ligden ayrılabilirsin. Katılarak 18 yaşından büyük olduğunu onaylarsın.",
+            LeagueConsent.Current.Text);
+        Assert.EndsWith("Katılarak 18 yaşından büyük olduğunu onaylarsın.", LeagueConsent.Current.Text, StringComparison.Ordinal);
     }
 
     [Fact]

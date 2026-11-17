@@ -34,6 +34,7 @@ internal static class NotificationModule
         services.AddScoped<PushSenderJob>();
         services.AddScoped<PushReceiptsJob>();
         services.AddScoped<WeeklyMatchesJob>();
+        services.AddScoped<LeagueResultsJob>();
 
         // Registering is lazy: the storage (and its schema) is only created when something first asks for it, which
         // UseNotificationJobs does after the EF migrations ran.
@@ -123,6 +124,7 @@ internal static class NotificationModule
             job => job.RunAsync(CancellationToken.None),
             WeeklyMatchesJob.Cron,
             new RecurringJobOptions { TimeZone = Istanbul.Zone });
+        recurring.AddOrUpdate<LeagueResultsJob>(LeagueResultsJob.JobId, job => job.RunAsync(CancellationToken.None), LeagueResultsJob.Cron);
     }
 
     /// <summary>

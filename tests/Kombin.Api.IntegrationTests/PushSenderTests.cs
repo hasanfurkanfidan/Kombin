@@ -127,7 +127,7 @@ public sealed class PushSenderTests(ApiFactory factory)
 
         await factory.WithDbAsync(async db =>
         {
-            var now = DateTimeOffset.UtcNow;
+            var now = TestClock.UtcNow;
 
             for (var index = 0; index < 230; index++)
             {
@@ -162,8 +162,8 @@ public sealed class PushSenderTests(ApiFactory factory)
     {
         using var user = await factory.CreateUserAsync(Ct);
         var token = await user.Client.RegisterDeviceAsync(cancellationToken: Ct);
-        await factory.InsertNotificationAsync(user.Id, scheduledFor: DateTimeOffset.UtcNow.AddHours(2), cancellationToken: Ct);
-        await factory.InsertNotificationAsync(user.Id, NotificationStatus.Sent, sentAt: DateTimeOffset.UtcNow.AddMinutes(-1), ticketIds: "ticket-x", cancellationToken: Ct);
+        await factory.InsertNotificationAsync(user.Id, scheduledFor: TestClock.UtcNow.AddHours(2), cancellationToken: Ct);
+        await factory.InsertNotificationAsync(user.Id, NotificationStatus.Sent, sentAt: TestClock.UtcNow.AddMinutes(-1), ticketIds: "ticket-x", cancellationToken: Ct);
 
         var run = await factory.SendPushesAsync(user.Id, Ct);
 

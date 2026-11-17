@@ -3,7 +3,7 @@ using Hangfire;
 using Hangfire.Storage;
 using Kombin.Api.Common.Hosting;
 using Kombin.Api.Common.Time;
-using Kombin.Api.Features.Wardrobe;
+using Kombin.Api.Common.Vision;
 using Kombin.Api.Persistence;
 using Npgsql;
 using NpgsqlTypes;

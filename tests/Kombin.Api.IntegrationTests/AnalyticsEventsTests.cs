@@ -19,7 +19,7 @@ public sealed class AnalyticsEventsTests(ApiFactory factory)
     {
         using var client = factory.CreateClient();
         var anonymousId = NewAnonymousId();
-        var occurredAt = DateTimeOffset.UtcNow.AddMinutes(-2);
+        var occurredAt = TestClock.UtcNow.AddMinutes(-2);
 
         var body = await client.PostEventsOkAsync(
             [
@@ -146,7 +146,7 @@ public sealed class AnalyticsEventsTests(ApiFactory factory)
     {
         using var client = factory.CreateClient();
         var anonymousId = NewAnonymousId();
-        var at = DateTimeOffset.UtcNow.AddMinutes(-1);
+        var at = TestClock.UtcNow.AddMinutes(-1);
         var session = $"session-{Guid.NewGuid():N}";
 
         var body = await client.PostEventsOkAsync(
@@ -197,7 +197,7 @@ public sealed class AnalyticsEventsTests(ApiFactory factory)
     {
         using var client = factory.CreateClient();
         var anonymousId = NewAnonymousId();
-        var now = DateTimeOffset.UtcNow;
+        var now = TestClock.UtcNow;
 
         var sessions = new Dictionary<string, DateTimeOffset>
         {
@@ -232,7 +232,7 @@ public sealed class AnalyticsEventsTests(ApiFactory factory)
     {
         using var client = factory.CreateClient();
         var anonymousId = NewAnonymousId();
-        var at = DateTimeOffset.UtcNow.AddMinutes(-1);
+        var at = TestClock.UtcNow.AddMinutes(-1);
         var session = $"session-{Guid.NewGuid():N}";
         var otherSession = $"session-{Guid.NewGuid():N}";
 

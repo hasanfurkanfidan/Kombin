@@ -68,7 +68,11 @@ internal static partial class MetricSql
         }
     }
 
-    /// <summary>Splits the file at its <c>-- name: x</c> lines and turns the psql-style <c>:param</c> into Npgsql's <c>@param</c> (a <c>::cast</c> is left alone).</summary>
+    /// <summary>
+    /// Splits the file at its <c>-- name: x</c> lines and turns the psql-style <c>:param</c> into Npgsql's <c>@param</c> (a <c>::cast</c> is left
+    /// alone). A line starting <c>-- league:</c> or <c>-- tryon:</c> (Kombin Ligi's metrics and try-on's reported garments, run by hand; each
+    /// section opens with one) closes the current block without opening one, so nothing after it ends up inside the job's last metric.
+    /// </summary>
     internal static IReadOnlyDictionary<string, string> Parse(string file)
     {
         var queries = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -83,6 +87,11 @@ internal static partial class MetricSql
             {
                 Flush();
                 name = header.Groups[1].Value;
+            }
+            else if (HandRunLine().IsMatch(line))
+            {
+                Flush();
+                name = null;
             }
             else if (name is not null)
             {
@@ -116,6 +125,9 @@ internal static partial class MetricSql
 
     [GeneratedRegex(@"^-- name: (\w+)\s*$")]
     private static partial Regex NameLine();
+
+    [GeneratedRegex(@"^-- (?:league|tryon):")]
+    private static partial Regex HandRunLine();
 
     [GeneratedRegex(@"(?<![:\w]):(cohort_start|cohort_end|as_of)\b")]
     private static partial Regex Parameter();

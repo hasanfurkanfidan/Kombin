@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Kombin.Api.Common.Vision;
 using Kombin.Api.Features.Catalog.Jobs;
 using Kombin.Api.Features.Lens;
 using Kombin.Api.Persistence.Entities.Catalog;
@@ -124,7 +125,7 @@ public sealed class LensTests(ApiFactory factory)
         Assert.Equal(ProductEmbeddingStatus.Failed, busyRow.Status);
         Assert.Equal(1, busyRow.Attempts);
         Assert.Equal("image_503", busyRow.FailureReason);
-        Assert.True(busyRow.NextAttemptAt > DateTimeOffset.UtcNow.AddMinutes(50));
+        Assert.True(busyRow.NextAttemptAt > TestClock.UtcNow.AddMinutes(50));
         Assert.Equal(ProductEmbeddingStatus.Unusable, (await RowAsync(refused.ProductId))!.Status);
 
         // Neither is due again before its time.

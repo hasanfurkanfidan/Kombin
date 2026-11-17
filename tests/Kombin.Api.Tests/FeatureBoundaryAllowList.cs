@@ -5,14 +5,14 @@ namespace Kombin.Api.Tests;
 /// <summary>
 /// What one feature may use of another, frozen when <see cref="FeatureBoundaryTests"/> was written (task B7: nothing was moved to produce it, so
 /// 141 references in 37 feature pairs: 90 Seam, 51 Legacy; task L2 moved the Istanbul zone and the Hangfire flag to Common, leaving 129 in 33
-/// pairs: 90 Seam, 39 Legacy; task L3 added the league's two seams: 132 in 36 pairs (the list held 34 pairs before, not 33), 93 Seam, 39 Legacy). <see cref="Kind.Seam"/>: fine as it is. <see cref="Kind.Legacy"/>: accepted for now; the reason says where the
+/// pairs: 90 Seam, 39 Legacy; task L3 added the league's two seams: 132 in 36 pairs (the list held 34 pairs before, not 33), 93 Seam, 39 Legacy; task P3 moved
+/// the vision client to Common/Vision, which removed eight Legacy references and the Admin-Wardrobe pair, and added try-on's three seams: 130 in 38
+/// pairs, 99 Seam, 31 Legacy). <see cref="Kind.Seam"/>: fine as it is. <see cref="Kind.Legacy"/>: accepted for now; the reason says where the
 /// code belongs. The list only shrinks: do not add a line to make the test pass (CLAUDE.md, "Feature boundaries"). Grouped by the using feature.
 /// </summary>
 internal static class FeatureBoundaryAllowList
 {
     private const string UseCases = "The founder's panel calls the same use-case code as the endpoints; it never bypasses a domain rule (Admin rules).";
-
-    private const string VisionClient = "The vision-service client is infrastructure like Common/Storage; it belongs in Common/Vision.";
 
     private const string EnumParsing = "A generic strict enum parser for payloads; it belongs in Common (Common/Validation).";
 
@@ -25,7 +25,6 @@ internal static class FeatureBoundaryAllowList
         new("Admin", "Identity", Kind.Seam, UseCases, "AccountAccess", "AccountDeletion", "AccountDeletionRules", "AccountPurger", "PurgeStatus"),
         new("Admin", "Social", Kind.Seam, UseCases, "Review.PostReviewer", "Review.ReviewEndpoint", "ReviewDecision", "Creators.CreatorInvites", "Creators.PutCreatorRequest"),
         new("Admin", "Social", Kind.Seam, "The panel shows the numbers and limits the feature's own rules use, read from the one place they are defined.", "ReportRules", "SocialLimits", "CreatorEarnings", "CreatorOptions"),
-        new("Admin", "Wardrobe", Kind.Legacy, "The dashboard health strip asks the vision service. " + VisionClient, "IVisionClient", "VisionHealth"),
 
         // -- Analytics --------------------------------------------------------------------------------------------------------------
         new("Analytics", "Catalog", Kind.Legacy, EnumParsing + " ProductSort is an enum whose names the event allow-list should spell out itself.", "EnumNames", "ListProducts.ProductSort"),
@@ -34,7 +33,7 @@ internal static class FeatureBoundaryAllowList
         // -- Catalog ----------------------------------------------------------------------------------------------------------------
         new("Catalog", "Engagement", Kind.Seam, "Documented: alert evaluation lives in the catalog upsert path and the offer sweep (Engagement rules).", "AlertEvaluator", "EvaluationReason"),
         new("Catalog", "Profile", Kind.Seam, "Documented: catalog list and detail take personaId and add matchScore and size hints (Profile rules). Catalog and Profile also depend on each other, which is the part to untangle.", "PersonaScoring", "ProductTraits", "ProfileErrors", "SizeHintResponse", "SizeHints"),
-        new("Catalog", "Wardrobe", Kind.Legacy, "The embedding job uses the vision client and the 8 MB image limit. " + VisionClient, "IVisionClient", "WardrobeLimits"),
+        new("Catalog", "Wardrobe", Kind.Legacy, "The image fetcher uses the 8 MB image limit; it belongs next to the vision limits (Common/Vision).", "WardrobeLimits"),
 
         // -- Engagement -------------------------------------------------------------------------------------------------------------
         new("Engagement", "Catalog", Kind.Seam, "Saved products and alerts repeat the catalog's list item and effective-price rule, and answer its errors (saved items carry every catalog list item field).", "BrandRef", "CategoryRef", "SellerRef", "ProductListItem", "CatalogErrors", "GetProduct.GetProductEndpoint", "ListProducts.ListProductsEndpoint"),
@@ -54,7 +53,7 @@ internal static class FeatureBoundaryAllowList
         new("Lens", "Engagement", Kind.Legacy, "ProductSummaries builds catalog list items; it lives in Engagement by history and belongs in Catalog.", "ProductSummaries"),
         new("Lens", "Recommendation", Kind.Legacy, "OutfitSources.CheapestOffersAsync (cheapest sellable offer by effective price) is offer pricing; it belongs in Catalog.", "OutfitSources"),
         new("Lens", "Wardrobe", Kind.Seam, "Wardrobe matches show the user's own pieces in the wardrobe's response shape (Visual search rules).", "WardrobeItemResponses", "WardrobeItemSummary"),
-        new("Lens", "Wardrobe", Kind.Legacy, VisionClient + " WardrobeLimits is the shared image-size limit; it belongs next to the storage code.", "IVisionClient", "VisionDetection", "WardrobeLimits"),
+        new("Lens", "Wardrobe", Kind.Legacy, "WardrobeLimits is the shared image-size limit; it belongs next to the vision limits (Common/Vision).", "WardrobeLimits"),
 
         // -- Notification -----------------------------------------------------------------------------------------------------------
         new("Notification", "Catalog", Kind.Legacy, EnumParsing, "EnumNames"),
@@ -80,7 +79,11 @@ internal static class FeatureBoundaryAllowList
         new("Social", "Recommendation", Kind.Seam, "Documented: \"Dolabımla dene\" is the how-to-wear engine with a second caller, never a copy (Recommendation rules).", "HowToWear", "HowToWearAnchor", "OutfitResponse", "OutfitResponses", "OutfitSlots", "OutfitStore", "PieceSource"),
         new("Social", "Recommendation", Kind.Legacy, "Offer pricing (OutfitSources) belongs in Catalog; TurkishGrammar is a Turkish text helper for Common/Text; DailyOutfitQueryValidator is reused for its rules and should be shared validation.", "OutfitSources", "Narration.TurkishGrammar", "GetDaily.DailyOutfitQueryValidator"),
         new("Social", "Wardrobe", Kind.Seam, "Outfit posts show wardrobe pieces in the wardrobe's shape and reuse its image safety filter (Wardrobe rules, IsShareable).", "WardrobeItemResponses", "WardrobeModerator"),
-        new("Social", "Wardrobe", Kind.Legacy, "Post processing moderates and detects through the vision client. " + VisionClient, "IVisionClient", "VisionDetection", "VisionModeration"),
+
+        // -- TryOn ------------------------------------------------------------------------------------------------------------------
+        new("TryOn", "Catalog", Kind.Seam, "Documented: retailer photos are downloaded only through the catalogue's polite, guarded fetcher (Visual search rules, Politeness; Try-on rules).", "Embeddings.CatalogImageFetcher", "Embeddings.ImageFetchStatus"),
+        new("TryOn", "Profile", Kind.Seam, "Documented: the render's reference size is the size hint's, the same seam as the product page's (Profile rules; Try-on rules).", "SizeHints"),
+        new("TryOn", "Recommendation", Kind.Seam, "Documented: \"Dolabımla dene\" on a mannequin is the how-to-wear engine with a third caller, never a copy (Recommendation rules; Try-on rules).", "HowToWear", "HowToWearAnchor", "OutfitStore"),
 
         // -- Wardrobe ---------------------------------------------------------------------------------------------------------------
         new("Wardrobe", "Catalog", Kind.Seam, "Pieces added from the catalog and suggested products use the catalog's brand, seller and list item and answer its errors.", "BrandRef", "SellerRef", "ProductListItem", "CatalogErrors"),

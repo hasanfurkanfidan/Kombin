@@ -1,6 +1,7 @@
 using Hangfire;
 using Kombin.Api.Common.Storage;
 using Kombin.Api.Common.Time;
+using Kombin.Api.Common.Vision;
 using Kombin.Api.Persistence;
 using Kombin.Api.Persistence.Entities.Wardrobe;
 using Pgvector;

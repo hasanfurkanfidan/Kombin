@@ -27,6 +27,10 @@ internal static class NotificationData
     public static string ForNewMatches(Guid personaId, IReadOnlyList<Guid> productIds) =>
         JsonSerializer.Serialize(new Payload(null, null, personaId, null, productIds, $"kombin://matches/{personaId}"), Json);
 
+    public static string ForLeagueResult(DateOnly day) =>
+        JsonSerializer.Serialize(
+            new Payload(null, null, null, null, null, $"kombin://league/results?day={day.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)}"), Json);
+
     public static string ForSystem() =>
         JsonSerializer.Serialize(new Payload(null, null, null, null, null, SystemDeepLink), Json);
 
@@ -67,6 +71,7 @@ internal static class NotificationKinds
             NotificationKind.PriceDrop or NotificationKind.AnyChange => preference.PriceAlerts,
             NotificationKind.BackInStock => preference.StockAlerts,
             NotificationKind.NewMatches => preference.Recommendations,
+            NotificationKind.LeagueResult => preference.LeagueResults,
             _ => true,
         };
     }

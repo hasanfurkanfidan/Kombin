@@ -32,8 +32,11 @@ internal sealed class LeagueEntryConfiguration : IEntityTypeConfiguration<League
         // One outfit per player per day.
         builder.HasIndex(entry => new { entry.Day, entry.UserId }).IsUnique().HasFilter("user_id IS NOT NULL");
 
-        // Pairing: the day's competing entries by bucket, least exposed first.
+        // The engine fill: the day's competing entries by bucket.
         builder.HasIndex(entry => new { entry.Day, entry.Status, entry.Audience, entry.Occasion, entry.Exposures });
+
+        // Pairing: the day's competing entries of one kind in candidate order (exposures, id), so each candidate list stops after its rows.
+        builder.HasIndex(entry => new { entry.Day, entry.Status, entry.Kind, entry.Exposures, entry.Id });
 
         // The repeat rule: a player's entries of the last 30 days.
         builder.HasIndex(entry => new { entry.UserId, entry.Day });

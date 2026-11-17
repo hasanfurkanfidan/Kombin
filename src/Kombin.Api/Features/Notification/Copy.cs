@@ -83,6 +83,17 @@ internal static class Copy
             Clip($"\"{personaName}\" için {count} yeni parça: sana uygun %{lowestScore / 10 * 10} ve üzeri", MaxTitleLength),
             Clip(string.Join(", ", productNames), MaxBodyLength));
 
+    public const string LeagueResultTitle = "Kombin Ligi sonuçları";
+
+    /// <summary>
+    /// The evening result of Kombin Ligi (the owner's text, design note section 14): the rank when the outfit was ranked, else "yeterli oy
+    /// toplanamadı"; the day's total either way. Written for the league's result push, which is not sent yet (league PR 4).
+    /// </summary>
+    public static NotificationText ForLeagueResult(int? rank, int total) =>
+        rank is { } place
+            ? new(LeagueResultTitle, $"Bugünkü kombinin {place}. oldu. Puanın {total}.")
+            : new(LeagueResultTitle, $"Bugün yeterli oy toplanamadı. Puanın {total}.");
+
     public static string Clip(string text, int maxLength) =>
         text.Length <= maxLength ? text : string.Concat(text.AsSpan(0, maxLength - 1), "…");
 

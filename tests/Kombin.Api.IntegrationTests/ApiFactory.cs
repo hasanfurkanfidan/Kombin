@@ -2,12 +2,14 @@ using Hangfire;
 using Kombin.Api.Common.Http;
 using Kombin.Api.Common.Storage;
 using Kombin.Api.Common.Time;
+using Kombin.Api.Common.Vision;
 using Kombin.Api.Features.Admin;
 using Kombin.Api.Features.Catalog.Jobs;
 using Kombin.Api.Features.Identity.ExternalTokens;
 using Kombin.Api.Features.Notification;
 using Kombin.Api.Features.Recommendation.Weather;
 using Kombin.Api.Features.Wardrobe;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -43,6 +45,9 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 
     /// <summary>What was enqueued for Hangfire; the tests run the jobs themselves.</summary>
     internal RecordingJobClient Jobs => Services.GetRequiredService<RecordingJobClient>();
+
+    /// <summary>The shared test database, for tests that hold a lock of their own beside the API's requests.</summary>
+    internal string ConnectionString => _postgres.GetConnectionString();
 
     // One PBKDF2 hash for the whole run: hashing is deliberately slow.
     private static readonly string AdminPasswordHash = AdminHashCommand.Hash(AdminPassword);
@@ -104,6 +109,17 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
             services.AddHttpContextAccessor();
             services.RemoveAll<IClock>();
             services.AddSingleton<IClock, TestHeaderClock>();
+
+            // Under a shifted test clock (TestClock), tokens are minted at the shifted time, so their lifetime is checked against it too.
+            if (TestClock.IsShifted)
+            {
+                services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options =>
+                    options.TokenValidationParameters.LifetimeValidator = (notBefore, expires, _, parameters) =>
+                    {
+                        var now = TestClock.UtcNow.UtcDateTime;
+                        return (notBefore is null || notBefore.Value <= now + parameters.ClockSkew) && (expires is null || expires.Value >= now - parameters.ClockSkew);
+                    });
+            }
         });
 
         builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(new Dictionary<string, string?>
@@ -131,6 +147,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
             ["Admin:Users:0:PasswordHash"] = AdminPasswordHash,
             // League:Enabled is false by default (until the app screens ship); the tests switch it on. LeagueTests checks the switched-off host.
             ["League:Enabled"] = "true",
+            // TryOn:Enabled is false by default too; the tests switch it on (TryOnTests checks the switched-off host).
+            ["TryOn:Enabled"] = "true",
         }));
     }
 }
@@ -157,9 +175,9 @@ internal sealed class TestRemoteIpStartupFilter : IStartupFilter
 }
 
 /// <summary>
-/// The system clock, except for a request carrying <c>X-Test-Now</c> (an ISO 8601 instant): its handler, filters and validators all see that
-/// time. Only the league tests send it (a league day closes at 21:00 Istanbul, so the real clock would make them depend on the hour); jobs that
-/// tests call directly take their time as a parameter.
+/// The tests' clock (<see cref="TestClock"/>: the system clock unless a run shifts it), except for a request carrying <c>X-Test-Now</c> (an
+/// ISO 8601 instant): its handler, filters and validators all see that time. A test whose outcome depends on the time of day or the date sends it
+/// (a league day closes at 21:00 Istanbul, a wear's default day is today in Istanbul); jobs that tests call directly take their time as a parameter.
 /// </summary>
 internal sealed class TestHeaderClock(IHttpContextAccessor accessor) : IClock
 {
@@ -169,5 +187,5 @@ internal sealed class TestHeaderClock(IHttpContextAccessor accessor) : IClock
         accessor.HttpContext?.Request.Headers.TryGetValue(Header, out var value) == true
             && DateTimeOffset.TryParse(value.ToString(), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal, out var now)
             ? now.ToUniversalTime()
-            : DateTimeOffset.UtcNow;
+            : TestClock.UtcNow;
 }

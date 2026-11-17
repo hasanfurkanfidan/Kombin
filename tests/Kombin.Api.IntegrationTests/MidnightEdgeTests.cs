@@ -31,7 +31,7 @@ public sealed class MidnightEdgeTests(ApiFactory factory)
             {
                 if (Volatile.Read(ref _reads) < 0)
                 {
-                    return DateTimeOffset.UtcNow;
+                    return TestClock.UtcNow;
                 }
 
                 return Interlocked.Increment(ref _reads) == 1 ? Before : Before.AddMilliseconds(100);
@@ -44,7 +44,7 @@ public sealed class MidnightEdgeTests(ApiFactory factory)
 
         public void Arm()
         {
-            var istanbul = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, Istanbul.Zone);
+            var istanbul = TimeZoneInfo.ConvertTime(TestClock.UtcNow, Istanbul.Zone);
             var midnight = new DateTimeOffset(istanbul.Date.AddDays(1), istanbul.Offset);
             Before = midnight.AddMilliseconds(-50).ToUniversalTime();
             Volatile.Write(ref _reads, 0);

@@ -119,6 +119,30 @@ public class AnalyticsRulesTests
         Assert.Equal("SELECT @cohort_start::timestamptz, @as_of;", queries["first"]);
         Assert.Equal("SELECT 'a:b'::text, @cohort_end", queries["second"]);
     }
+
+    /// <summary>
+    /// Task L5: the league's metric blocks (<c>-- league:</c>, run by hand) close the job's last block, so the job sees the same four metrics as
+    /// before and none of them carries league SQL.
+    /// </summary>
+    [Fact]
+    public void ALeagueLineClosesTheJobsLastBlockAndTheJobSeesTheSameFourMetrics()
+    {
+        var queries = MetricSql.Parse("""
+            -- name: first
+            SELECT 1;
+            -- league: league_x
+            SELECT 2 FROM league.pairs;
+            -- name: second
+            SELECT 3
+            """);
+
+        Assert.Equal(["first", "second"], queries.Keys.Order());
+        Assert.Equal("SELECT 1;", queries["first"]);
+
+        Assert.All(MetricNames.All, metric => Assert.DoesNotContain("league.", MetricSql.Query(metric), StringComparison.Ordinal));
+        Assert.All(MetricNames.All, metric => Assert.DoesNotContain("-- league:", MetricSql.Query(metric), StringComparison.Ordinal));
+        Assert.Equal(4, MetricNames.All.Count);
+    }
 }
 
 public class EventCapTests

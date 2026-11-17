@@ -33,7 +33,7 @@ public sealed class IdentityFlowTests(ApiFactory factory)
         Assert.Equal(email, body.GetProperty("email").GetString());
         Assert.Equal("Ada Lovelace", body.GetProperty("displayName").GetString());
         Assert.True(Guid.TryParse(body.GetProperty("id").GetString(), out _));
-        Assert.True(body.GetProperty("createdAt").GetDateTimeOffset() > DateTimeOffset.UtcNow.AddMinutes(-5));
+        Assert.True(body.GetProperty("createdAt").GetDateTimeOffset() > TestClock.UtcNow.AddMinutes(-5));
         Assert.False(body.TryGetProperty("passwordHash", out _));
     }
 
@@ -165,7 +165,7 @@ public sealed class IdentityFlowTests(ApiFactory factory)
         Assert.NotNull(oldToken.RevokedAt);
         Assert.Equal(newToken.Id, oldToken.ReplacedByTokenId);
         Assert.Null(newToken.RevokedAt);
-        Assert.True(newToken.ExpiresAt > DateTimeOffset.UtcNow.AddDays(29));
+        Assert.True(newToken.ExpiresAt > TestClock.UtcNow.AddDays(29));
     }
 
     [Fact]
@@ -239,7 +239,7 @@ public sealed class IdentityFlowTests(ApiFactory factory)
             var db = scope.ServiceProvider.GetRequiredService<KombinDbContext>();
             await db.RefreshTokens
                 .Where(token => token.TokenHash == hash)
-                .ExecuteUpdateAsync(setters => setters.SetProperty(token => token.ExpiresAt, DateTimeOffset.UtcNow.AddMinutes(-1)), Ct);
+                .ExecuteUpdateAsync(setters => setters.SetProperty(token => token.ExpiresAt, TestClock.UtcNow.AddMinutes(-1)), Ct);
         }
 
         using var response = await client.RefreshAsync(tokens.RefreshToken, Ct);

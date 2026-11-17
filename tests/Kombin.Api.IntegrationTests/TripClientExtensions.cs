@@ -14,11 +14,11 @@ internal static class TripClientExtensions
     public const string AnonymousBudget = "/api/v1/outfits/budget";
 
     /// <summary>The first day of a test trip: the day after tomorrow, safely "from today" in Istanbul whatever the UTC hour.</summary>
-    public static DateOnly FirstDay => DateOnly.FromDateTime(DateTime.UtcNow).AddDays(2);
+    public static DateOnly FirstDay => DateOnly.FromDateTime(TestClock.UtcNow.UtcDateTime).AddDays(2);
 
     public static Dictionary<string, object?> TripRequest(string city, int days, int offsetDays = 2, object? occasions = null, int? maxPieces = null, bool? allowRepeatShoes = null, bool? laundry = null, Guid? personaId = null)
     {
-        var start = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(offsetDays);
+        var start = DateOnly.FromDateTime(TestClock.UtcNow.UtcDateTime).AddDays(offsetDays);
         var body = new Dictionary<string, object?>
         {
             ["city"] = city,

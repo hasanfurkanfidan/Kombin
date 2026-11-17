@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 using Hangfire;
 using Kombin.Api.Common.Storage;
+using Kombin.Api.Common.Vision;
 using Kombin.Api.Features.Wardrobe;
 using Kombin.Api.Persistence;
 using Kombin.Api.Persistence.Entities.Catalog;
@@ -156,6 +157,14 @@ public sealed class LensPerformanceTests(LensPerformanceTests.LensPerformanceFac
             throw new NotSupportedException();
 
         public Task<VisionCall<VisionEmbedding>> EmbedAsync(byte[] image, string contentType, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<VisionCall<VisionPrepared>> PrepareAsync(IReadOnlyList<VisionImage> images, string categorySlug, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<VisionCall<VisionRender>> RenderAsync(string spec, IReadOnlyList<byte[]> garments, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<string?> GetRendererAsync(CancellationToken cancellationToken) => Task.FromResult<string?>(null);
     }
 
     /// <summary>A fourth API host on its own database, configured like <see cref="ApiFactory"/>.</summary>
@@ -300,7 +309,7 @@ public sealed class LensPerformanceTests(LensPerformanceTests.LensPerformanceFac
         private async Task<(HttpClient Viewer, HttpClient Anonymous)> SeedOnceAsync(CancellationToken cancellationToken)
         {
             var random = new Random(20261108);
-            var now = DateTimeOffset.UtcNow;
+            var now = TestClock.UtcNow;
             var audiences = new[] { Audience.Women, Audience.Men, Audience.Unisex };
 
             Dictionary<string, Guid> categories;

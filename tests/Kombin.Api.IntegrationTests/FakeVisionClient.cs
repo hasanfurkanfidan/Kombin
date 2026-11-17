@@ -1,7 +1,9 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using Kombin.Api.Common.Vision;
 using Kombin.Api.Features.Wardrobe;
 
 namespace Kombin.Api.IntegrationTests;
@@ -24,6 +26,10 @@ namespace Kombin.Api.IntegrationTests;
 /// detection of a <see cref="LensPhoto"/> answers the regions that photo spells out, each with that embedding. Texts that share a
 /// <c>look-&lt;key&gt;</c> marker get near vectors (see <see cref="EmbeddingFor"/>), any other two are unrelated.
 /// </para>
+/// <para>
+/// <see cref="HoldModeration"/> parks every moderation of a cutout made with <c>CutoutFor("hold:&lt;marker&gt;")</c> until the test releases it,
+/// so a test can act while a job waits for the safety filter.
+/// </para>
 /// </summary>
 internal sealed partial class FakeVisionClient : IVisionClient
 {
@@ -37,8 +43,16 @@ internal sealed partial class FakeVisionClient : IVisionClient
     /// The cutout of a wardrobe photo carries the photo's safety flavour, so moderating it answers like the photo would: <c>nsfw</c> blocks,
     /// <c>borderline</c> needs review, <c>moderation-down</c> analyses fine but moderation is unreachable. Anything else is <see cref="Cutout"/>.
     /// </summary>
+    private static readonly ConcurrentDictionary<string, ModerationHold> Holds = new(StringComparer.Ordinal);
+
+    /// <summary>Parks moderation calls on cutouts carrying <c>hold:{marker}</c> until <see cref="ModerationHold.Release"/>; they then answer allow.</summary>
+    public static ModerationHold HoldModeration(string marker) => Holds.GetOrAdd($"hold:{marker}", _ => new ModerationHold());
+
     public static byte[] CutoutFor(string photoText) =>
-        photoText.Contains("nsfw", StringComparison.Ordinal) ? Encoding.UTF8.GetBytes("cutout-png-bytes:nsfw")
+        photoText.StartsWith("hold:", StringComparison.Ordinal) ? Encoding.UTF8.GetBytes($"cutout-png-bytes:{photoText}")
+        // Try-on flavours (FakeVisionClient.TryOn.cs) travel with the cutout to /v1/garment/prepare.
+        : photoText.Contains("tryon-", StringComparison.Ordinal) ? Encoding.UTF8.GetBytes($"cutout-png-bytes:{photoText}")
+        : photoText.Contains("nsfw", StringComparison.Ordinal) ? Encoding.UTF8.GetBytes("cutout-png-bytes:nsfw")
         : photoText.Contains("borderline", StringComparison.Ordinal) ? Encoding.UTF8.GetBytes("cutout-png-bytes:borderline")
         : photoText.Contains("moderation-down", StringComparison.Ordinal) ? Encoding.UTF8.GetBytes("cutout-png-bytes:unreachable")
         : Cutout;
@@ -126,7 +140,20 @@ internal sealed partial class FakeVisionClient : IVisionClient
     public Task<VisionCall<VisionModeration>> ModerateAsync(byte[] image, string contentType, bool renditions, CancellationToken cancellationToken)
     {
         var text = Encoding.UTF8.GetString(image);
+        var hold = Holds.FirstOrDefault(pair => text.Contains(pair.Key, StringComparison.Ordinal)).Value;
 
+        return hold is null ? Moderate(text, renditions) : HeldAsync();
+
+        async Task<VisionCall<VisionModeration>> HeldAsync()
+        {
+            hold.Entered.TrySetResult();
+            await hold.Released.Task.WaitAsync(cancellationToken);
+            return await Moderate(text, renditions);
+        }
+    }
+
+    private static Task<VisionCall<VisionModeration>> Moderate(string text, bool renditions)
+    {
         if (text.Contains("unreachable", StringComparison.Ordinal))
         {
             return Task.FromResult(VisionCall<VisionModeration>.Transient("vision_unreachable: connection refused"));
@@ -279,4 +306,14 @@ internal sealed partial class FakeVisionClient : IVisionClient
 
     [GeneratedRegex("look-[a-z0-9]+")]
     private static partial Regex LookMarker();
+}
+
+/// <summary>A parked moderation call: <see cref="Entered"/> completes when the call arrives, <see cref="Release"/> lets it answer.</summary>
+internal sealed class ModerationHold
+{
+    public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public TaskCompletionSource Released { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public void Release() => Released.TrySetResult();
 }

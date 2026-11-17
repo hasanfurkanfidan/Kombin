@@ -15,8 +15,10 @@ internal sealed record LeagueEntriesSummary(int Resolved, int Competing, int Pen
 /// <list type="number">
 /// <item>deletes the image copies of withdrawn and removed entries (leaving withdraws today's entry), so they live minutes after that;</item>
 /// <item>resolves every joined player with a <c>Worn</c> outfit feedback row from the last <see cref="LookBack"/> (idempotent, tolerant of a
-/// missed minute; a watermark on the ID was rejected because IDs are not committed in order) and every player whose entry of today still waits
-/// for the image safety check, asking the safety filter for at most <c>League:ModerationRetriesPerRun</c> pieces per run.</item>
+/// missed minute; a watermark on the ID was rejected because IDs are not committed in order), every player whose entry of today still waits
+/// for the image safety check, asking the safety filter for at most <c>League:ModerationRetriesPerRun</c> pieces per run, and every player whose
+/// entry competes but has not been shown yet, so a birth year set, a piece archived or deleted or the outfit dismissed reaches the entry before
+/// the first voter does (once shown it is fixed for the day).</item>
 /// </list>
 /// Plain class like the other jobs; does nothing while <c>League:Enabled</c> is false. Tests call <see cref="ProcessAsync"/> with their own time
 /// and players. One player's failure is logged and does not stop the others.
@@ -59,7 +61,8 @@ internal sealed partial class LeagueEntriesJob(
             .Where(feedback => db.LeaguePlayers.Any(player => player.UserId == feedback.UserId && player.LeftAt == null))
             .Select(feedback => feedback.UserId);
         var waiting = db.LeagueEntries.AsNoTracking()
-            .Where(entry => entry.Day == day && entry.Status == LeagueEntryStatus.Pending && entry.UserId != null)
+            .Where(entry => entry.Day == day && entry.UserId != null
+                && (entry.Status == LeagueEntryStatus.Pending || (entry.Status == LeagueEntryStatus.Competing && entry.LockedAt == null)))
             .Select(entry => entry.UserId!.Value);
 
         if (userIds is not null)

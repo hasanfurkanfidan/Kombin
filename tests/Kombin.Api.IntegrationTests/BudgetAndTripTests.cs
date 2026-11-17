@@ -495,7 +495,7 @@ public sealed class BudgetAndTripTests(ApiFactory factory)
     public async Task ATripPlanIsValidated()
     {
         using var user = await factory.CreateUserAsync(Ct);
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = DateOnly.FromDateTime(TestClock.UtcNow.UtcDateTime);
 
         object[] invalid =
         [
@@ -594,7 +594,7 @@ public sealed class BudgetAndTripTests(ApiFactory factory)
                 EndDate = new DateOnly(2025, 1, 3),
                 RequestJson = """{"city":"Istanbul","startDate":"2025-01-01","endDate":"2025-01-03"}""",
                 PlanJson = """{"city":"Istanbul","startDate":"2025-01-01","endDate":"2025-01-03","days":[],"gaps":[],"message":null}""",
-                PlannedAt = DateTimeOffset.UtcNow,
+                PlannedAt = TestClock.UtcNow,
             }).ToList();
             db.Trips.AddRange(trips);
             await db.SaveChangesAsync(Ct);

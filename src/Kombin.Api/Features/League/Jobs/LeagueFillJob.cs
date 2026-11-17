@@ -16,11 +16,13 @@ internal sealed record LeagueFillSummary(int Buckets, int Added);
 
 /// <summary>
 /// <c>league-fill</c>, every 15 minutes from 00:00 to 20:45 Istanbul (design note section 6): "az oyunculu günlerde havuzu öneri motorunun
-/// kombinleri doldurur". For each audience (Women, Men) and occasion bucket that had human entries today or yesterday, while the bucket's
+/// kombinleri doldurur". For each audience (Women, Men) and occasion bucket that has a competing human entry today, while the bucket's
 /// competing human entries are fewer than <c>League:EngineFill:MinPool</c>, engine outfits top the pool up to that size, at most
 /// <c>League:EngineFill:MaxPerRun</c> per bucket per run, from Recommendation's <see cref="CatalogOutfitSampler"/> (seed = day number + bucket, so
 /// every run of a day draws the same list and adds the outfits not in the pool yet). Engine entries pair like any other and are never ranked or
-/// listed; their pieces are catalog products with the product image. Does nothing while <c>League:Enabled</c> is false; tests call
+/// listed; their pieces are catalog products with the product image. A bucket without a human entry today gets nothing: every pair needs a human
+/// outfit, so engine outfits there would only crowd the candidate lists (yesterday's buckets are not filled ahead: a new bucket is filled by
+/// the next run, at most 15 minutes after its first entry). Does nothing while <c>League:Enabled</c> is false; tests call
 /// <see cref="FillAsync"/> with their own day.
 /// </summary>
 internal sealed partial class LeagueFillJob(KombinDbContext db, IClock clock, IOptions<LeagueOptions> options, ILogger<LeagueFillJob> logger)
@@ -56,9 +58,8 @@ internal sealed partial class LeagueFillJob(KombinDbContext db, IClock clock, IO
             return new LeagueFillSummary(0, 0);
         }
 
-        var yesterday = day.AddDays(-1);
         var buckets = await db.LeagueEntries.AsNoTracking()
-            .Where(entry => entry.Kind == LeagueEntryKind.Human && (entry.Day == day || entry.Day == yesterday) && Audiences.Contains(entry.Audience))
+            .Where(entry => entry.Kind == LeagueEntryKind.Human && entry.Day == day && entry.Status == LeagueEntryStatus.Competing && Audiences.Contains(entry.Audience))
             .Select(entry => new { entry.Audience, entry.Occasion })
             .Distinct()
             .ToListAsync(cancellationToken);

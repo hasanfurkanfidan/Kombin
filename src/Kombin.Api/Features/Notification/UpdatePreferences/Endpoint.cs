@@ -17,7 +17,8 @@ internal sealed record UpdatePreferencesRequest(
     int? MaxRecommendationsPerWeek,
     string? QuietHoursStart,
     string? QuietHoursEnd,
-    bool? ClearQuietHours);
+    bool? ClearQuietHours,
+    bool? LeagueResults = null);
 
 internal static class UpdatePreferencesEndpoint
 {
@@ -47,6 +48,7 @@ internal static class UpdatePreferencesEndpoint
         preference.StockAlerts = request.StockAlerts ?? preference.StockAlerts;
         preference.Recommendations = request.Recommendations ?? preference.Recommendations;
         preference.MaxRecommendationsPerWeek = request.MaxRecommendationsPerWeek ?? preference.MaxRecommendationsPerWeek;
+        preference.LeagueResults = request.LeagueResults ?? preference.LeagueResults;
 
         if (request.ClearQuietHours == true)
         {

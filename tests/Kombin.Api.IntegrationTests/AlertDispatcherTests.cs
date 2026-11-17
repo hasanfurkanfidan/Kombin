@@ -96,7 +96,7 @@ public sealed class AlertDispatcherTests(ApiFactory factory)
         await user.Client.UpsertOkAsync(product.SellerSlug, [product.Item(400m)], Ct);
         await factory.DispatchAlertsAsync(user.Id, Ct);
         await factory.WithDbAsync(db => db.Notifications.Where(notification => notification.UserId == user.Id)
-            .ExecuteUpdateAsync(setters => setters.SetProperty(notification => notification.CreatedAt, DateTimeOffset.UtcNow.AddHours(-25)), Ct));
+            .ExecuteUpdateAsync(setters => setters.SetProperty(notification => notification.CreatedAt, TestClock.UtcNow.AddHours(-25)), Ct));
 
         await user.Client.UpsertOkAsync(product.SellerSlug, [product.Item(500m)], Ct);
         await user.Client.UpsertOkAsync(product.SellerSlug, [product.Item(380m)], Ct);
@@ -136,7 +136,7 @@ public sealed class AlertDispatcherTests(ApiFactory factory)
         var device = Assert.Single(await factory.WithDbAsync(db => db.Devices.AsNoTracking().Where(candidate => candidate.UserId == user.Id).ToListAsync(Ct)));
 
         // A window around the current Istanbul time, which also works when it wraps past midnight.
-        var local = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, Istanbul.Zone);
+        var local = TimeZoneInfo.ConvertTime(TestClock.UtcNow, Istanbul.Zone);
         (await user.Client.PutPreferencesAsync(new
         {
             quietHoursStart = local.AddHours(-1).ToString("HH:mm", CultureInfo.InvariantCulture),
@@ -148,7 +148,7 @@ public sealed class AlertDispatcherTests(ApiFactory factory)
 
         var notification = Assert.Single(await factory.NotificationsOfAsync(user.Id, Ct));
         Assert.Equal(NotificationStatus.Pending, notification.Status);
-        Assert.InRange(notification.ScheduledFor, DateTimeOffset.UtcNow.AddMinutes(58), DateTimeOffset.UtcNow.AddMinutes(61));
+        Assert.InRange(notification.ScheduledFor, TestClock.UtcNow.AddMinutes(58), TestClock.UtcNow.AddMinutes(61));
 
         // Not due yet: the sender leaves it alone.
         Assert.Empty((await factory.SendPushesAsync(user.Id, Ct)).Deliveries);

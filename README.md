@@ -13,7 +13,8 @@ Hangfire) and **Analytics** (an event intake for the app, the four beta metrics,
 and a rule-based gap analysis with catalog suggestions) and an **Admin panel** (server-rendered pages under `/admin` for the founder: review
 queue, creators, catalog, users, audit log) and **launch readiness**: account deletion with a 7-day cancellation window, rate limits, request body limits,
 the public legal pages (privacy, terms, deleting your account), a Production mode that refuses development defaults, and the deploy kit (compose
-override, Caddy, backups, `docs/deploy.md`). **Kombin Ligi** (the league) has its foundations (schema, settings, consent, joining) and is off by default.
+override, Caddy, backups, `docs/deploy.md`). **Kombin Ligi** (the league) has its foundations, entries and voting, and the 21:00 day close with points and results; it is off by default.
+**"Manken üstünde gör"** (try-on: an outfit drawn on a mannequin proportioned from the user's measurements) is built and off by default.
 
 ## Requirements
 
@@ -210,7 +211,7 @@ goes through the **Expo Push Service**: the app registers Expo push tokens, the 
 |---|---|---|---|
 | PUT | `/me/devices` | 204; body `{ expoPushToken, platform: Ios\|Android, appVersion?, deviceName? }`; upsert, a token moves to the caller if it belonged to someone else | 400 validation, 400 `Notification.InvalidPushToken` |
 | DELETE | `/me/devices/{token}` | 204, idempotent (URL-encode the token); call it on logout | - |
-| GET | `/me/notification-preferences` | 200 `{ priceAlerts, stockAlerts, recommendations, maxRecommendationsPerWeek, quietHoursStart, quietHoursEnd, timeZone, updatedAt }`, created with the defaults on first read | - |
+| GET | `/me/notification-preferences` | 200 `{ priceAlerts, stockAlerts, recommendations, maxRecommendationsPerWeek, leagueResults, quietHoursStart, quietHoursEnd, timeZone, updatedAt }`, created with the defaults on first read | - |
 | PUT | `/me/notification-preferences` | 200 same shape; every field optional (`clearQuietHours: true` removes the quiet hours); times are `HH:mm` in `Europe/Istanbul` | 400 validation (`maxRecommendationsPerWeek` 0-7), 400 `Notification.QuietHoursIncomplete` |
 | GET | `/me/notifications?page=&pageSize=` | 200 paged feed, newest first, everything except `Failed`: `{ id, kind, title, body, data, createdAt, readAt, status }` | - |
 | GET | `/me/notifications/unread-count` | 200 `{ count }` | - |
@@ -233,6 +234,7 @@ The push payload's `data` additionally carries `notificationId` and `kind`, so t
 | `push-sender` | every minute | sends due notifications to Expo in batches of 100, one message per device; a dead device is deactivated; a failed call is retried, the 5th failure fails the notification |
 | `push-receipts` | every 15 min | asks Expo what became of pushes sent 15 min - 24 h ago |
 | `weekly-matches` | Sunday 19:00 `Europe/Istanbul` | top 3 products added in the last 7 days that score at least 70 for the user's active persona, at most `maxRecommendationsPerWeek` per week |
+| `league-results` | every 5 minutes | the Kombin Ligi evening result ("Kombin Ligi sonuçları" / "Bugünkü kombinin {rank}. oldu. Puanın {total}." or "Bugün yeterli oy toplanamadı. Puanın {total}."), once per player and day, within 12 hours of the day's close; `leagueResults` off, a player who left, a result removed by a review → nothing; a result under review waits for the review |
 
 Configuration: `Hangfire__Enabled` (compose: `HANGFIRE_ENABLED`, default true), `Expo__AccessToken` (compose: `EXPO_ACCESS_TOKEN`, optional).
 
@@ -550,7 +552,8 @@ Measured by `LensPerformanceTests` (50k products, one region, `KOMBIN_PERF=1`, v
 
 Design: `docs/design/league.md`. **Off by default**: with `League:Enabled` false (env `League__Enabled`) every route below answers 404
 `League.Disabled`; configuration switches it on when the app screens ship. Task L2 built the foundations (schema `league`, the settings, the
-consent, joining and leaving); task L3 the entries and the voting. The 21:00 day close, the results and the weekly tables come next. Signed in.
+consent, joining and leaving); task L3 the entries and the voting; task L4 the 21:00 day close, the daily points and the results; task L5 the
+weeks, the group table, the review queue and the evening result push. Signed in.
 
 | Method | Route | Success | Errors |
 |---|---|---|---|
@@ -560,12 +563,18 @@ consent, joining and leaving); task L3 the entries and the voting. The 21:00 day
 | DELETE | `/league/me/entry` | 204: today's outfit leaves the pool, final for the day (again: 204) | 403 `League.NotJoined`; 404 `League.NoEntryToday`; 409 `League.DayClosed` |
 | GET | `/league/pairs/next` | 200 `{ pair: { id, left: { pieces: [{ slot, imageUrl }] }, right, sequence } \| null, reason: null \| "DailyLimit" \| "NoPairs", countedToday, servedToday, target, limit, closesAt }`; an unanswered pair is returned again | 403 `League.NotJoined`; 409 `League.DayClosed` |
 | POST | `/league/pairs/{pairId}/vote` | 200 `{ counted, chosenWinRate, chosenGames, countedToday, servedToday, target, limit }`. Body `{ choice: "left" \| "right" \| "skip", decisionMs }`; the same vote again returns the result | 400; 404 `League.PairNotFound`; 409 `League.AlreadyVoted`, `League.DayClosed` |
+| GET | `/league/results?day=yyyy-MM-dd` | 200 `{ day, status, message, entry: { pieces } \| null, competed, ranked, rank, rankedCount, comparisons, points: { votes, voting, worn, pieces, total }, piecePointsAvailable, week }` for the caller's own closed day. `status`: `Final`, `UnderReview` (reported, waiting for a review: `ranked`, `rank`, `points.votes` null, `total` = usage points, `message` "Kombinin inceleniyor. Sonuç inceleme bitince görünecek.") or `Removed` (taken out by a review after the close: no rank, 0 vote points) | 400 `League.InvalidDay`; 404 `League.ResultsNotReady` (not closed, or no entry and no points that day) |
+| GET | `/league/results/latest` | 200 same shape, the caller's latest closed day with a result | 404 `League.ResultsNotReady` |
+| GET | `/league/table` | 200 `{ weekStart, endsAt, tier, todayPoints, todayIsFinal, promoteCount, relegateCount, tierUp, tierDown, size, rows: [{ rank, points, isMe, alias }] }`: the caller's group this week (last week's final table between Sunday's close and Monday 00:00); the rows carry the weekly alias only | 403 `League.NotJoined`; 404 `League.NoGroup` |
+| GET | `/internal/league/review-queue` | 200 `[{ entryId, day, status, countingReports, reports, underReview, pieces }]` (internal key): reported outfits not removed, oldest report first, at most 100 | 401 |
+| POST | `/internal/league/entries/{entryId}/review` | 200 `{ entryId, status, resultChanged }` (internal key). Body `{ decision: "Restore" \| "Remove" }`; written to `admin.audit_log` (actor `internal-key`) | 400; 401; 404 `League.EntryNotFound`; 409 `League.NotReviewable` |
+| POST | `/internal/league/days/{date}/close` | 200 `{ day, closedNow, closedAt, rankedCount, engineCount, pairCount, btIterations, btConverged, closeMs }` (internal key); closing a closed day changes nothing (`closedNow: false`) | 400 `League.InvalidDay`; 401; 409 `League.DayNotOver`, `League.CloseInProgress` |
 | POST | `/league/pairs/{pairId}/report` | 202 `{ reported: true }`. Body `{ side: "left" \| "right", reason? }` (`Inappropriate`, `NotClothing`, `Other`); an open pair is used up as a skip | 400; 404 `League.PairNotFound`; 409 `League.AlreadyReported` |
 
-- The consent (version `2026-11-v1`) is also the 18+ declaration; its text is pinned by `LeagueConsentTests` and every join stores the text shown.
+- The consent (version `2026-11-v2`; players who joined under `2026-11-v1` are asked again) is also the 18+ declaration and says that someone who knows the pieces can tell whose outfit it is; its text is pinned by `LeagueConsentTests` and every join stores the text shown.
 - **Only a worn outfit enters** ("Bunu giyiyorum" / "Bugün giydim", `POST /me/outfits/{id}/worn`, before 21:00); saving never does. The entry
   follows the latest wear until a voter is first shown it, then it is fixed for the day.
-- **Anonymity:** voters see a random pair ID and per side only `{ slot, imageUrl }`; the images are the league's own copies under random keys
+- **Anonymity** means no name, no profile and no stable identifier in any response (not that an outfit cannot be traced: the pieces are the owner's photos): voters see a random pair ID and per side only `{ slot, imageUrl }`; the images are the league's own copies under random keys
   (`league/{random}/{random}/thumb.*`), new every day, deleted within minutes of a withdrawal or a leave.
 - A vote counts when it is not a skip and both the server and the app measured at least 0.6 s; a player's first 20 counted votes weigh half.
   `chosenWinRate` is the chosen outfit's real weighted win rate today, this vote included, null below 5 games ("İlk oylardan biri seninki").
@@ -576,9 +585,45 @@ consent, joining and leaving); task L3 the entries and the voting. The 21:00 day
 |---|---|---|
 | `league-entries` | every minute | resolves the players who wore an outfit in the last 10 minutes and those whose entry waits for the image safety check (asking it for at most 50 pieces a run); copies the thumbnails of a competing entry; deletes the copies of withdrawn and removed entries |
 | `league-fill` | every 15 minutes, 00:00-20:45 Istanbul | tops a small pool (fewer than 30 competing players' outfits per audience and occasion) up with catalog-only engine outfits, at most 20 per bucket a run |
+| `league-close` | hourly at :00 Istanbul | closes, oldest first, every day of the last 7 whose 21:00 has passed and that is not closed: Bradley–Terry over the day's counted votes, rank and percentile of the outfits with at least 8 of them, every player's daily points (votes up to 70, voting on 10 pairs 15, worn 10, a piece 5 on at most 3 days a week); one transaction under an advisory lock |
+| `league-close` (weeks) | after Sunday's day close, in the same run | the week's final tables (best 5 of 7 days), promotion and relegation (`min(5, floor(competed / 3))`, Bronze does not go down, Diamond does not go up), two idle weeks cost a tier, next week's groups of about 30 (tiers under 15 players merged, labels kept, new aliases), the style scores |
+| `league-purge` | daily 04:15 Istanbul | deletes the image copies 7 days after their day, votes and the voters' day counters 30 days and entries 90 days after a closed day, and copies under `league/` no entry names once a day old |
 
-Both jobs are registered only when `League:Enabled` is true. Measured by `LeaguePerformanceTests` (6,000 entries, 12 voters serving their 30
-pairs, `KOMBIN_PERF=1`): `pairs/next` p95 23.7 ms (budget 100 ms).
+The jobs are registered only when `League:Enabled` is true. Measured by `LeaguePerformanceTests` (`KOMBIN_PERF=1`): `pairs/next` p95 23.7 ms at
+6,000 entries (task L3; 34-44 ms in task L4 on a machine under another load, where the L3 code measured 40-41 ms; budget 100 ms); the day close
+0.71 s at 1,000 players and 2.24 s at 10,000 (budget 30 s).
+
+### Try-on ("Manken üstünde gör")
+
+Design: `docs/design/try-on.md`; the specification is the vision team's brief (`kombin-vision/docs/design/try-on-briefs.md`). **Off by default**:
+with `TryOn:Enabled` false (env `TryOn__Enabled`) both routes answer 404 `TryOn.Disabled` and `tryon-prepare` does nothing. It is a catalogue
+drawing on a mannequin proportioned from the user's measurements, never a picture of the user ("sanal deneme" is never the name).
+
+| Method | Path | Success | Errors |
+|---|---|---|---|
+| GET | `/me/tryon?outfitId=…` or `/me/tryon?productId=…&withWardrobe=true` | 200 `{ status, imageUrl, garments: [{ id, fitLevel }], defaultedMeasurements, reason }`. `status`: `Ready` (`imageUrl` a presigned GET valid for one hour; `garments` the drawn pieces by the ID the outfit gives them, `fitLevel` `Tight` / `TrueToSize` / `Loose` / null; `defaultedMeasurements` e.g. `["chest", "hip", "shoulder"]`), `Preparing` (a garment is being prepared, or a drawing of the caller is running: ask again), `Unavailable` (hide the action; `reason`: `BodyOutOfRange`, `UnknownCategory`, `NoTop`, `NoBottom`, `PersonInPhoto`, `PieceNotReady`, `FoldedSleeves`, `RendererRefused`) | 400 (`outfitId` xor `productId`; `withWardrobe` with `productId` only); 404 `TryOn.OutfitNotFound` (also another user's outfit), `TryOn.ProductNotFound`, `TryOn.Disabled`; 429 `RateLimited` (`retryAfterSeconds`, `Retry-After`); 503 `TryOn.RendererUnavailable` |
+| POST | `/me/tryon/reports` | 204 ("Yanlış görünüyor"). Body `{ outfitId \| productId, garmentIds, renderer }`: the `garments[].id` of the answer (1-10) and the renderer (`mannequin-v5`); the same report again stores nothing | 400 (validation, `TryOn.UnknownGarment`: not a drawn piece of that outfit or product); 404 `TryOn.OutfitNotFound`, `TryOn.ProductNotFound`, `TryOn.Disabled` |
+
+- **When it is shown** (`TryOnReadiness`): a top (or outerwear) and a bottom, every core piece (top, outerwear, trousers, skirt, shoes) prepared
+  with `reliable = true`, the outermost upper garment allowed to be outermost (no sleeves folded across the front), and a BMI of at most 36 (no
+  weight: the audience's default). Bags and belts never block. A wardrobe photo of someone wearing the garment is never prepared.
+- `withWardrobe=true` ("Dolabımla dene") draws the product with the first how-to-wear outfit made of the caller's own pieces only; with none (a
+  shirt and no trousers) it is the product alone, so `Unavailable`. Without `withWardrobe` it is the product alone.
+- A drawing is cached per user under a key of the renderer, the body, every garment (row, version, preparation time, size, the size hint's size,
+  cut) and the width: any change of the measurements, a size entry, an item's size or a product's photos draws again. 30 new drawings per user per
+  hour, one at a time; cache hits are free. A renderer refusal (`422`) is remembered for the same inputs.
+- A drawing reveals body proportions: private, served only to its user, deleted when the measurements change, 30 days after it was last shown, and
+  with the account.
+
+| Job | Schedule | Does |
+|---|---|---|
+| `tryon-prepare` | every minute | deletes drawings of old measurements and unused ones; prepares due wardrobe items (up to 20 a run) and, one at a time under an advisory lock, due products (5 a run by day, 40 at night, 01:00-07:00 Istanbul): new, asked for by a request, photos changed, the one retry after a transient failure, then rows of an older service version |
+
+Settings (`TryOn:*`, defaults): `Enabled` false, `MaxBmi` 36, `RendersPerHour` 30, `RenderWidth` 600, `RenderUrlLifetime` 1 h, `RenderRetention`
+30 days, `RetryAfter` 10 min, `FailedRetryAfter` 24 h, `Lease` 5 min, `RequestInterval` 1 min, `WardrobeBatch` 20, `DayCatalogueBatch` 5,
+`NightCatalogueBatch` 40, `NightStartsAt` 01:00, `NightEndsAt` 07:00, `RunBudget` 50 s, `MaxSourceImageBytes` 50 MB, `MaxSourcePixels` 60,000,000.
+Retailer photos over 8 MB are scaled to 1600 px with SkiaSharp (MIT) before they go to the vision service. Reported garments:
+`docs/metrics.sql`, block `tryon_reported_garments` (run by hand).
 
 ### Admin panel
 

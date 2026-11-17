@@ -182,7 +182,7 @@ public sealed class OfferSweepTests(ApiFactory factory)
 
         await factory.WithDbAsync(db => db.Offers
             .Where(offer => offer.Seller.Slug == sellerSlug)
-            .ExecuteUpdateAsync(setters => setters.SetProperty(offer => offer.LastSeenAt, DateTimeOffset.UtcNow - TimeSpan.FromDays(3)), Ct));
+            .ExecuteUpdateAsync(setters => setters.SetProperty(offer => offer.LastSeenAt, TestClock.UtcNow - TimeSpan.FromDays(3)), Ct));
 
         var summary = await factory.SweepSellerAsync(sellerId, Ct);
 

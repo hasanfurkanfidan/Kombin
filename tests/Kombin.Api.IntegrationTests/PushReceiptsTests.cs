@@ -19,7 +19,7 @@ public sealed class PushReceiptsTests(ApiFactory factory)
         await factory.InsertNotificationAsync(
             user.Id,
             NotificationStatus.Sent,
-            sentAt: DateTimeOffset.UtcNow.AddMinutes(-minutesAgo),
+            sentAt: TestClock.UtcNow.AddMinutes(-minutesAgo),
             ticketIds: FakeExpoPushClient.TicketIdFor(token),
             cancellationToken: Ct);
 
@@ -28,7 +28,7 @@ public sealed class PushReceiptsTests(ApiFactory factory)
 
     private Task<int> BackdateDevicesAsync(Guid userId) =>
         factory.WithDbAsync(db => db.Devices.Where(device => device.UserId == userId)
-            .ExecuteUpdateAsync(setters => setters.SetProperty(device => device.CreatedAt, DateTimeOffset.UtcNow.AddDays(-1)), Ct));
+            .ExecuteUpdateAsync(setters => setters.SetProperty(device => device.CreatedAt, TestClock.UtcNow.AddDays(-1)), Ct));
 
     [Fact]
     public async Task AnOkReceiptMarksTheNotificationAsChecked()
@@ -113,7 +113,7 @@ public sealed class PushReceiptsTests(ApiFactory factory)
         var tablet = await user.Client.RegisterDeviceAsync(cancellationToken: Ct);
         await BackdateDevicesAsync(user.Id);
         var tickets = $"{FakeExpoPushClient.TicketIdFor(phone)},{FakeExpoPushClient.TicketIdFor(NotificationClientExtensions.NewToken("receipt-gone"))}";
-        await factory.InsertNotificationAsync(user.Id, NotificationStatus.Sent, sentAt: DateTimeOffset.UtcNow.AddMinutes(-20), ticketIds: tickets, cancellationToken: Ct);
+        await factory.InsertNotificationAsync(user.Id, NotificationStatus.Sent, sentAt: TestClock.UtcNow.AddMinutes(-20), ticketIds: tickets, cancellationToken: Ct);
 
         await factory.CheckReceiptsAsync(user.Id, Ct);
 

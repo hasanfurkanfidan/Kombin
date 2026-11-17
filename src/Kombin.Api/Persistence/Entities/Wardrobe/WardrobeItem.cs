@@ -64,6 +64,9 @@ internal sealed class WardrobeItem : BaseEntity
 
     public string? FailureReason { get; set; }
 
+    /// <summary>The stored warning of a photo that is not of clothing (the vision service's <c>isGarment = false</c>).</summary>
+    public const string NotGarmentWarning = "not_garment";
+
     /// <summary>Quality flags from the analysis (<c>not_garment</c>, <c>person_wearing</c>, <c>blurry</c>, ...); they never block the item.</summary>
     public string[] Warnings { get; set; } = [];
 

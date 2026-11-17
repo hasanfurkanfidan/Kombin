@@ -19,6 +19,9 @@ internal sealed class LeagueDailyScoreConfiguration : IEntityTypeConfiguration<L
         builder.HasKey(score => new { score.UserId, score.Day });
         builder.HasIndex(score => score.Day);
 
+        // The result push reads the results not handled yet (task L5).
+        builder.HasIndex(score => score.Day, "ix_daily_scores_day_unnotified").HasFilter("notified_at IS NULL").HasDatabaseName("ix_daily_scores_day_unnotified");
+
         builder.HasOne<User>().WithMany().HasForeignKey(score => score.UserId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne<LeagueEntry>().WithMany().HasForeignKey(score => score.EntryId).OnDelete(DeleteBehavior.SetNull);
     }

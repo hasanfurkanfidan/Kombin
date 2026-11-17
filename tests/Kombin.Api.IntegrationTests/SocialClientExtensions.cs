@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Kombin.Api.Common.Vision;
 using Kombin.Api.Features.Social;
 using Kombin.Api.Features.Social.Jobs;
 using Kombin.Api.Persistence.Entities.Social;
@@ -19,7 +20,7 @@ internal static class SocialClientExtensions
         var user = await factory.CreateUserAsync(cancellationToken);
         await user.Client.CreatePersonaAsync("Ofis", cancellationToken: cancellationToken);
         await factory.WithDbAsync(db => db.Users.Where(candidate => candidate.Id == user.Id)
-            .ExecuteUpdateAsync(setters => setters.SetProperty(candidate => candidate.CreatedAt, DateTimeOffset.UtcNow.AddDays(-4)), cancellationToken));
+            .ExecuteUpdateAsync(setters => setters.SetProperty(candidate => candidate.CreatedAt, TestClock.UtcNow.AddDays(-4)), cancellationToken));
 
         return user;
     }

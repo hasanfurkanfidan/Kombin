@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using Kombin.Api.Common.Storage;
+using Kombin.Api.Common.Vision;
 using Kombin.Api.Features.League;
 using Kombin.Api.Features.League.Jobs;
 using Kombin.Api.Features.Recommendation;
@@ -13,11 +14,15 @@ using Kombin.Api.Persistence.Entities.Recommendation;
 using Kombin.Api.Persistence.Entities.Social;
 using Kombin.Api.Persistence.Entities.Wardrobe;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace Kombin.Api.IntegrationTests;
 
-/// <summary>A wardrobe piece of a seeded outfit: its category, the safety filter's verdict (null: not answered yet) and the cutout's flavour.</summary>
-internal sealed record LeaguePiece(string CategorySlug, ModerationVerdict? Verdict = ModerationVerdict.Allow, string Cutout = "ok", bool Archived = false);
+/// <summary>
+/// A wardrobe piece of a seeded outfit: its category, the safety filter's verdict (null: not answered yet), the cutout's flavour, and
+/// <c>ProductId</c> for a piece added from the catalog (<c>FromCatalog</c>).
+/// </summary>
+internal sealed record LeaguePiece(string CategorySlug, ModerationVerdict? Verdict = ModerationVerdict.Allow, string Cutout = "ok", bool Archived = false, Guid? ProductId = null);
 
 /// <summary>A seeded outfit: its ID, its wardrobe items and their stored thumbnails (the owner's keys).</summary>
 internal sealed record SeededOutfit(Guid OutfitId, IReadOnlyList<Guid> ItemIds, IReadOnlyList<string> ThumbKeys);
@@ -37,8 +42,142 @@ internal static class LeagueClientExtensions
 
     public static readonly string[] Outfit3 = ["ust-giyim/gomlek", "alt-giyim/pantolon", "ayakkabi/sneaker"];
 
+    /// <summary>A real 4 × 3 lossy WEBP (Pillow), the format the vision service stores thumbnails in: the league copies only images it can mark.</summary>
+    public static readonly byte[] Thumbnail = Convert.FromBase64String("UklGRjoAAABXRUJQVlA4IC4AAACQAQCdASoEAAMAAUAmJaACdLoAA5gA/vi1F/94z/+4z/+4z/37f1qoVO/pAAAA");
+
+    /// <summary>The marked copy without its random block: the WEBP chunks of the source, which a copy must carry unchanged.</summary>
+    public static byte[] ImageData(byte[] webp)
+    {
+        var chunks = new List<byte>();
+        for (var position = 12; position < webp.Length;)
+        {
+            var size = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(webp.AsSpan(position + 4));
+            var type = Encoding.ASCII.GetString(webp, position, 4);
+            if (type is "VP8 " or "VP8L" or "ALPH")
+            {
+                chunks.AddRange(webp.AsSpan(position, 8 + size).ToArray());
+            }
+
+            position += 8 + size + (size & 1);
+        }
+
+        return [.. chunks];
+    }
+
     /// <summary>A day of the test's own.</summary>
     public static DateOnly NewDay() => new DateOnly(2040, 1, 1).AddDays(Interlocked.Increment(ref NextDayIndex) * 3);
+
+    /// <summary>
+    /// The first of at least <paramref name="days"/> consecutive days of the test's own (the hourly close looks at a whole window of days, so
+    /// a test of it needs every day in that window to itself). <see cref="NewDay"/>'s days are three apart; this takes a run of them.
+    /// </summary>
+    public static DateOnly NewBlock(int days)
+    {
+        var steps = (days / 3) + 2;
+        var last = Interlocked.Add(ref NextDayIndex, steps);
+
+        return new DateOnly(2040, 1, 1).AddDays((last - steps + 1) * 3);
+    }
+
+    /// <summary>The first Monday of a run of three weeks of the test's own.</summary>
+    public static DateOnly NewMonday()
+    {
+        var first = NewBlock(21);
+        return first.AddDays(((int)DayOfWeek.Monday - (int)first.DayOfWeek + 7) % 7);
+    }
+
+    /// <summary>Marks <paramref name="days"/> days from <paramref name="from"/> closed, as the day close would (no results are computed).</summary>
+    public static Task<int> CloseDaysDirectlyAsync(this ApiFactory factory, DateOnly from, int days = 7, CancellationToken cancellationToken = default) => factory.WithDbAsync(async db =>
+    {
+        foreach (var day in Enumerable.Range(0, days).Select(from.AddDays))
+        {
+            await db.Database.ExecuteSqlAsync(
+                $"INSERT INTO league.days (day, closes_at, closed_at, ranked_count, engine_count, pair_count, bt_iterations, bt_converged, close_ms) VALUES ({day}, {Time(day, 21)}, {Time(day, 21, 1)}, 30, 0, 0, 0, true, 0) ON CONFLICT (day) DO UPDATE SET closed_at = excluded.closed_at",
+                cancellationToken);
+        }
+
+        return 0;
+    });
+
+    /// <summary>Result rows as a day close stores them, one per given total from <paramref name="from"/> on: 10 worn points plus vote points, competed when above zero.</summary>
+    public static Task<int> InsertWeekScoresAsync(this ApiFactory factory, Guid userId, DateOnly from, params int[] totals) => factory.WithDbAsync(async db =>
+    {
+        db.LeagueDailyScores.AddRange(totals.Select((total, offset) => new LeagueDailyScore
+        {
+            UserId = userId,
+            Day = from.AddDays(offset),
+            Competed = total > 0,
+            WornPoints = total > 0 ? 10 : 0,
+            VotePoints = Math.Max(0, Math.Min(70, total - 10)),
+            Total = total > 0 ? 10 + Math.Max(0, Math.Min(70, total - 10)) : 0,
+        }));
+        return await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+    });
+
+    /// <summary>The caller's <c>GET /league/table</c>, asserting a 200.</summary>
+    public static async Task<JsonElement> TableOkAsync(this HttpClient client, CancellationToken cancellationToken)
+    {
+        using var response = await client.GetAsync("/api/v1/league/table", cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        Assert.True(response.StatusCode == HttpStatusCode.OK, body);
+
+        return JsonDocument.Parse(body).RootElement.Clone();
+    }
+
+    /// <summary>Closes <paramref name="day"/> with the close the job and the internal endpoint use, at <paramref name="now"/>.</summary>
+    public static Task<DayCloseResult> CloseDayAsync(this ApiFactory factory, DateOnly day, DateTimeOffset now, CancellationToken cancellationToken) =>
+        factory.RunJobAsync<DayCloser, DayCloseResult>(closer => closer.CloseAsync(day, now, cancellationToken));
+
+    /// <summary><c>POST /internal/league/days/{date}/close</c> with the internal key, at <paramref name="now"/>.</summary>
+    public static async Task<HttpResponseMessage> InternalCloseAsync(this ApiFactory factory, string date, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        using var client = factory.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/internal/league/days/{date}/close");
+        request.Headers.Add("X-Internal-Key", ApiFactory.InternalApiKey);
+        request.Headers.Add(TestHeaderClock.Header, now.ToString("O", CultureInfo.InvariantCulture));
+
+        return await client.SendAsync(request, cancellationToken);
+    }
+
+    public static string Iso(this DateOnly day) => day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+    /// <summary><c>GET /league/results?day=</c>.</summary>
+    public static Task<HttpResponseMessage> ResultsAsync(this HttpClient client, DateOnly day, CancellationToken cancellationToken) =>
+        client.GetAsync($"/api/v1/league/results?day={day.Iso()}", cancellationToken);
+
+    /// <summary>
+    /// Answered pairs inserted directly for one voter (sequence 1, 2, ...), served at noon and answered three seconds later: votes the API would
+    /// have stored, including ones it never makes (a skip marked counted), for the close to read.
+    /// </summary>
+    public static Task InsertVotesAsync(
+        this ApiFactory factory, DateOnly day, Guid voterId, IReadOnlyList<(Guid Left, Guid Right, LeaguePairChoice Choice, bool Counted)> votes, CancellationToken cancellationToken) =>
+        factory.WithDbAsync(async db =>
+        {
+            var served = Time(day, 12);
+            db.LeaguePairs.AddRange(votes.Select((vote, index) =>
+            {
+                var (low, high) = vote.Left.CompareTo(vote.Right) < 0 ? (vote.Left, vote.Right) : (vote.Right, vote.Left);
+                return new LeaguePair
+                {
+                    Day = day,
+                    VoterId = voterId,
+                    LeftEntryId = vote.Left,
+                    RightEntryId = vote.Right,
+                    LowEntryId = low,
+                    HighEntryId = high,
+                    MatchLevel = LeaguePairMatch.Strict,
+                    Sequence = (short)(index + 1),
+                    ServedAt = served,
+                    AnsweredAt = served.AddSeconds(3),
+                    Choice = vote.Choice,
+                    ClientDecisionMilliseconds = 3000,
+                    Counted = vote.Counted,
+                    Weight = vote.Counted ? 1 : 0,
+                };
+            }));
+
+            return await db.SaveChangesAsync(cancellationToken);
+        });
 
     /// <summary>An instant of <paramref name="day"/> at the given Istanbul time.</summary>
     public static DateTimeOffset Time(DateOnly day, int hour, int minute = 0, int second = 0, int millisecond = 0) =>
@@ -58,7 +197,7 @@ internal static class LeagueClientExtensions
     {
         var now = client.DefaultRequestHeaders.TryGetValues(TestHeaderClock.Header, out var values)
             ? DateTimeOffset.Parse(values.Single(), CultureInfo.InvariantCulture)
-            : DateTimeOffset.UtcNow;
+            : TestClock.UtcNow;
 
         return client.At(now + by);
     }
@@ -140,11 +279,13 @@ internal static class LeagueClientExtensions
                     Status = WardrobeItemStatus.Ready,
                     ModerationVerdict = piece.Verdict,
                     IsArchived = piece.Archived,
-                    ConfirmedAt = DateTimeOffset.UtcNow,
+                    ConfirmedAt = TestClock.UtcNow,
+                    ProductId = piece.ProductId,
+                    FromCatalog = piece.ProductId is not null,
                 };
                 item.ImageThumbKey = StorageKeys.Build("wardrobe", userId, item.Id, ImageVariant.Thumb, "webp");
                 item.ImageCutoutKey = StorageKeys.Build("wardrobe", userId, item.Id, ImageVariant.Cutout, "png");
-                factory.Storage.Upload(item.ImageThumbKey, Encoding.UTF8.GetBytes($"thumb:{item.Id:N}"), "image/webp");
+                factory.Storage.Upload(item.ImageThumbKey, Thumbnail, "image/webp");
                 factory.Storage.Upload(item.ImageCutoutKey, FakeVisionClient.CutoutFor(piece.Cutout), "image/png");
                 items.Add(item);
                 keys.Add(item.ImageThumbKey);
@@ -213,31 +354,84 @@ internal static class LeagueClientExtensions
         CancellationToken cancellationToken = default) =>
         factory.WithDbAsync(async db =>
         {
-            var pieceIds = new[] { Guid.NewGuid(), Guid.NewGuid() }.Order().ToArray();
-            var entry = new LeagueEntry
-            {
-                Day = day,
-                UserId = userId,
-                Kind = userId is null ? LeagueEntryKind.Engine : LeagueEntryKind.Human,
-                Audience = audience,
-                Occasion = occasion,
-                PieceIds = pieceIds,
-                PieceSetHash = Guid.NewGuid().ToString("N"),
-                Status = LeagueEntryStatus.Competing,
-                Exposures = exposures,
-            };
-            entry.Pieces.AddRange(new[] { OutfitSlot.Top, OutfitSlot.Bottom }.Select((slot, position) => new LeagueEntryPiece
-            {
-                Position = (short)position,
-                Slot = slot,
-                ImageKey = userId is null ? null : $"league/{Guid.NewGuid():D}/{Guid.NewGuid():D}/thumb.webp",
-                ImageUrl = userId is null ? $"https://img.example.com/engine/{Guid.NewGuid():N}.jpg" : null,
-            }));
+            var entry = NewEntry(day, userId, audience, occasion, exposures);
             db.LeagueEntries.Add(entry);
             await db.SaveChangesAsync(cancellationToken);
 
             return entry.Id;
         });
+
+    /// <summary>Engine entries in the given buckets (one per element), inserted in one go.</summary>
+    public static Task<int> InsertEngineEntriesAsync(
+        this ApiFactory factory, DateOnly day, IReadOnlyList<(Audience Audience, Occasion? Occasion)> buckets, CancellationToken cancellationToken) =>
+        factory.WithDbAsync(async db =>
+        {
+            db.LeagueEntries.AddRange(buckets.Select(bucket => NewEntry(day, null, bucket.Audience, bucket.Occasion, 0)));
+            return await db.SaveChangesAsync(cancellationToken);
+        });
+
+    private static LeagueEntry NewEntry(DateOnly day, Guid? userId, Audience audience, Occasion? occasion, int exposures)
+    {
+        var entry = new LeagueEntry
+        {
+            Day = day,
+            UserId = userId,
+            Kind = userId is null ? LeagueEntryKind.Engine : LeagueEntryKind.Human,
+            Audience = audience,
+            Occasion = occasion,
+            PieceIds = [.. new[] { Guid.NewGuid(), Guid.NewGuid() }.Order()],
+            PieceSetHash = Guid.NewGuid().ToString("N"),
+            Status = LeagueEntryStatus.Competing,
+            Exposures = exposures,
+        };
+        entry.Pieces.AddRange(new[] { OutfitSlot.Top, OutfitSlot.Bottom }.Select((slot, position) => new LeagueEntryPiece
+        {
+            Position = (short)position,
+            Slot = slot,
+            ImageKey = userId is null ? null : $"league/{Guid.NewGuid():D}/{Guid.NewGuid():D}/thumb.webp",
+            ImageUrl = userId is null ? $"https://img.example.com/engine/{Guid.NewGuid():N}.jpg" : null,
+        }));
+
+        return entry;
+    }
+
+    /// <summary>A connection of the test's own to the shared database (another transaction beside the API's).</summary>
+    public static async Task<NpgsqlConnection> OpenConnectionAsync(this ApiFactory factory, CancellationToken cancellationToken)
+    {
+        var connection = new NpgsqlConnection(factory.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        return connection;
+    }
+
+    public static async Task<int> ExecuteAsync(this NpgsqlConnection connection, string sql, Guid id, CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("id", id);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    /// <summary>Waits until another session waits for a row lock in a statement naming <paramref name="table"/> (an API request blocked by the test).</summary>
+    public static async Task WaitForLockWaitAsync(this ApiFactory factory, string table, CancellationToken cancellationToken)
+    {
+        await using var connection = await factory.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(
+            "SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND pid <> pg_backend_pid() AND query ILIKE '%' || @table || '%'", connection);
+        command.Parameters.AddWithValue("table", table);
+
+        for (var waited = TimeSpan.Zero; waited < TimeSpan.FromSeconds(15); waited += TimeSpan.FromMilliseconds(20))
+        {
+            if ((long)(await command.ExecuteScalarAsync(cancellationToken))! > 0)
+            {
+                return;
+            }
+
+            await Task.Delay(20, cancellationToken);
+        }
+
+        throw new TimeoutException($"No request waited for a lock on {table}.");
+    }
 
     public static Task<int> InsertEngineEntriesAsync(this ApiFactory factory, DateOnly day, int count, CancellationToken cancellationToken) =>
         Enumerable.Range(0, count).Aggregate(Task.FromResult(0), async (previous, _) =>

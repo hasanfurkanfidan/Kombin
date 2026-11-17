@@ -140,3 +140,101 @@ FROM (
     JOIN steps s ON s.actor = c.actor
     GROUP BY c.actor
 ) AS members;
+
+-- league: the blocks below are the Kombin Ligi first-month metrics, run by hand and never by the weekly-metrics job.
+-- ============================================================================================================================================
+-- Kombin Ligi, first-month metrics (rules, section 8; docs/design/league.md, section 13). NOT run by the weekly-metrics job: a "-- league:"
+-- line closes the job's last block (MetricSql.Parse) and these blocks are run by hand. Each returns one row of named counts, not a
+-- (numerator, denominator) pair. Parameters, Istanbul calendar days, end exclusive:
+--   psql "$DATABASE_URL" -v day_start="'2026-12-01'" -v day_end="'2027-01-01'" -f docs/metrics.sql
+-- The league schema is never granted to metabase_ro: run these as the operator.
+-- ============================================================================================================================================
+
+-- league: league_comparisons
+-- Counted comparisons per competing outfit (target: average 20, minimum 8) and the outfits that were not ranked (target: under 5 %).
+SELECT avg(s.comparisons)::numeric(10, 2)       AS average_comparisons,
+       min(s.comparisons)                      AS minimum_comparisons,
+       count(*) FILTER (WHERE NOT s.ranked)    AS not_ranked,
+       count(*)                                AS competed
+FROM league.daily_scores s
+WHERE s.competed AND s.day >= :day_start::date AND s.day < :day_end::date;
+
+-- league: league_join_rate
+-- Players among the signed-in users who opened the app in the window, and the wardrobe pieces they added in the 7 days after joining.
+WITH active AS (
+    SELECT DISTINCT e.user_id
+    FROM analytics.events e
+    WHERE e.name = 'app_open' AND e.user_id IS NOT NULL
+      AND e.occurred_at >= :day_start::date::timestamp AT TIME ZONE 'Europe/Istanbul'
+      AND e.occurred_at < :day_end::date::timestamp AT TIME ZONE 'Europe/Istanbul'
+), joined AS (
+    SELECT p.user_id, p.joined_at FROM league.players p JOIN active a ON a.user_id = p.user_id
+)
+SELECT (SELECT count(*) FROM joined) AS joined_players,
+       (SELECT count(*) FROM active) AS active_users,
+       (SELECT count(*) FROM joined j JOIN wardrobe.items i ON i.user_id = j.user_id
+         AND i.created_at >= j.joined_at AND i.created_at < j.joined_at + interval '7 days') AS pieces_added_within_7_days;
+
+-- league: league_usage_effect
+-- How much the usage points move the day's order: the average distance between the rank by vote points only and the rank by total.
+WITH ranked AS (
+    SELECT rank() OVER (PARTITION BY s.day ORDER BY s.vote_points DESC) AS by_votes,
+           rank() OVER (PARTITION BY s.day ORDER BY s.total DESC)       AS by_total
+    FROM league.daily_scores s
+    WHERE s.ranked AND s.day >= :day_start::date AND s.day < :day_end::date
+)
+SELECT avg(abs(by_votes - by_total))::numeric(10, 2) AS average_rank_difference,
+       count(*)                                      AS ranked_results
+FROM ranked;
+
+-- league: league_unmatched_pairs
+-- Served pairs that could not keep the same occasion and audience.
+SELECT count(*) FILTER (WHERE p.match_level <> 'Strict') AS unmatched,
+       count(*)                                          AS served
+FROM league.pairs p
+WHERE p.day >= :day_start::date AND p.day < :day_end::date;
+
+-- league: league_style_threshold
+-- Players whose style score is at or above 75 (at the latest week close), among those with a score.
+SELECT count(*) FILTER (WHERE s.score >= 75) AS at_or_above_75,
+       count(*) FILTER (WHERE s.score IS NOT NULL) AS scored
+FROM league.style_scores s;
+
+-- league: league_engine_win_rate
+-- The weighted win rate of engine outfits in counted votes against a player's outfit (do voters treat packshots differently?).
+WITH votes AS (
+    SELECT p.weight, p.choice, l.kind AS left_kind, r.kind AS right_kind
+    FROM league.pairs p
+    JOIN league.entries l ON l.id = p.left_entry_id
+    JOIN league.entries r ON r.id = p.right_entry_id
+    WHERE p.counted AND p.choice <> 'Skip' AND p.day >= :day_start::date AND p.day < :day_end::date
+      AND (l.kind = 'Engine') <> (r.kind = 'Engine')
+)
+SELECT coalesce(sum(weight) FILTER (WHERE (choice = 'Left' AND left_kind = 'Engine') OR (choice = 'Right' AND right_kind = 'Engine')), 0) AS engine_wins,
+       coalesce(sum(weight), 0) AS games
+FROM votes;
+
+-- tryon: the block below is try-on's list of reported garments, run by hand and never by the weekly-metrics job.
+-- ============================================================================================================================================
+-- "Manken üstünde gör", reported garments ("Yanlış görünüyor"; docs/design/try-on.md). NOT run by the weekly-metrics job: a "-- tryon:" line
+-- closes the job's last block (MetricSql.Parse). There is no review screen yet: this lists the garments users said look wrong, the most reported
+-- first (a top shown from the back, most often). A catalogue garment carries its product and brand; a wardrobe garment is counted and shown
+-- without anything of its owner. One row per reported garment. Parameters, Istanbul calendar days, end exclusive:
+--   psql "$DATABASE_URL" -v day_start="'2026-12-01'" -v day_end="'2027-01-01'" -f docs/metrics.sql
+-- The tryon schema is never granted to metabase_ro: run it as the operator.
+-- ============================================================================================================================================
+
+-- tryon: tryon_reported_garments
+SELECT g.id AS garment_id,
+       CASE WHEN g.product_id IS NOT NULL THEN 'catalogue' ELSE 'wardrobe' END AS kind,
+       g.product_id, p.name AS product_name, b.name AS brand, g.family, g.prepare_version, g.image_index,
+       count(*) AS reports, count(DISTINCT r.user_id) AS reporters, max(r.created_at) AS last_reported_at
+FROM tryon.reports r
+CROSS JOIN LATERAL unnest(r.garment_ids) AS reported(garment_id)
+JOIN tryon.garments g ON g.id = reported.garment_id
+LEFT JOIN catalog.products p ON p.id = g.product_id
+LEFT JOIN catalog.brands b ON b.id = p.brand_id
+WHERE r.created_at >= (:day_start::date)::timestamp AT TIME ZONE 'Europe/Istanbul'
+  AND r.created_at < (:day_end::date)::timestamp AT TIME ZONE 'Europe/Istanbul'
+GROUP BY g.id, g.product_id, p.name, b.name, g.family, g.prepare_version, g.image_index
+ORDER BY reports DESC, last_reported_at DESC, g.id;

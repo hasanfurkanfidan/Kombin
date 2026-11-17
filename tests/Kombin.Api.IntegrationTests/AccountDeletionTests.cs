@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Kombin.Api.Common.Storage;
 using Kombin.Api.Features.Identity;
 using Kombin.Api.Features.Identity.Jobs;
 using Kombin.Api.Persistence;
@@ -12,6 +13,7 @@ using Kombin.Api.Persistence.Entities.Notification;
 using Kombin.Api.Persistence.Entities.Profile;
 using Kombin.Api.Persistence.Entities.Recommendation;
 using Kombin.Api.Persistence.Entities.Social;
+using Kombin.Api.Persistence.Entities.TryOn;
 using Microsoft.EntityFrameworkCore;
 
 namespace Kombin.Api.IntegrationTests;
@@ -26,7 +28,7 @@ public sealed class AccountDeletionTests(ApiFactory factory)
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     /// <summary>The league tables a player who entered, voted and was reported has rows in.</summary>
-    private static readonly string[] PlayedLeagueTables = ["league.players", "league.consents", "league.entries", "league.entry_pieces", "league.pairs", "league.reports"];
+    private static readonly string[] PlayedLeagueTables = ["league.players", "league.consents", "league.entries", "league.entry_pieces", "league.pairs", "league.reports", "league.voter_days", "league.group_members"];
 
     private static string Wrong => "Wrong-password-1";
 
@@ -48,7 +50,7 @@ public sealed class AccountDeletionTests(ApiFactory factory)
 
     private Task<int> BackdateAsync(Guid userId, int days) =>
         factory.WithDbAsync(db => db.Users.Where(user => user.Id == userId).ExecuteUpdateAsync(
-            setters => setters.SetProperty(user => user.DeletionRequestedAt, DateTimeOffset.UtcNow.AddDays(-days)), Ct));
+            setters => setters.SetProperty(user => user.DeletionRequestedAt, TestClock.UtcNow.AddDays(-days)), Ct));
 
     private Task<AccountDeletionSummary> RunJobAsync(params Guid[] userIds) =>
         factory.RunJobAsync<AccountDeletionJob, AccountDeletionSummary>(job => job.DeleteDueAsync(userIds, Ct));
@@ -108,7 +110,7 @@ public sealed class AccountDeletionTests(ApiFactory factory)
         var requestedAt = body.GetProperty("deletionRequestedAt").GetDateTimeOffset();
         var scheduledFor = body.GetProperty("deletionScheduledFor").GetDateTimeOffset();
         Assert.Equal(TimeSpan.FromDays(7), scheduledFor - requestedAt);
-        Assert.InRange(DateTimeOffset.UtcNow - requestedAt, TimeSpan.FromSeconds(-5), TimeSpan.FromSeconds(30));
+        Assert.InRange(TestClock.UtcNow - requestedAt, TimeSpan.FromSeconds(-5), TimeSpan.FromSeconds(30));
     }
 
     [Fact]
@@ -458,7 +460,7 @@ public sealed class AccountDeletionTests(ApiFactory factory)
         await ClickAsync(subject.Client, await GoPathAsync(anonymous, bystanderPost));
 
         // The subject's click earned a size question five days later ("Aldın mı? Beden uydu mu?").
-        await factory.WithDbAsync(db => db.Clicks.Where(click => click.UserId == ownerId).ExecuteUpdateAsync(set => set.SetProperty(click => click.ClickedAt, DateTimeOffset.UtcNow.AddDays(-5)), Ct));
+        await factory.WithDbAsync(db => db.Clicks.Where(click => click.UserId == ownerId).ExecuteUpdateAsync(set => set.SetProperty(click => click.ClickedAt, TestClock.UtcNow.AddDays(-5)), Ct));
         Assert.Single((await subject.Client.GetJsonAsync("/api/v1/me/size-prompts", Ct)).GetProperty("prompts").EnumerateArray());
         var anonymousId = AnalyticsClientExtensions.NewAnonymousId();
         await subject.Client.PostEventsOkAsync([AnalyticsClientExtensions.Event("app_open", anonymousId: anonymousId)], Ct);
@@ -466,6 +468,9 @@ public sealed class AccountDeletionTests(ApiFactory factory)
         // Kombin Ligi: the subject joined (through the API) and played a day in 2020 against the bystander (rows set up directly: no job yet).
         await subject.Client.JoinLeagueOkAsync(Ct);
         var league = await SeedLeagueDayAsync(ownerId, bystander.Id);
+
+        // "Manken üstünde gör": a prepared garment of the subject's photo item, a drawing (it reveals body proportions) and a report, set up directly.
+        var tryOnKeys = await SeedTryOnAsync(ownerId, itemId, outfitId);
 
         // --- Before: the subject has rows everywhere. ---
         var before = await CountsAsync(ownerId);
@@ -483,14 +488,15 @@ public sealed class AccountDeletionTests(ApiFactory factory)
 
         // --- After: nothing of the subject is left, in any table. ---
         Assert.Equal(1, summary.AccountsDeleted);
-        Assert.Equal(itemKeys.Length + postKeys.Length + 1, summary.ObjectsDeleted);
+        Assert.Equal(itemKeys.Length + postKeys.Length + 1 + tryOnKeys.Length, summary.ObjectsDeleted);
         Assert.All(await CountsAsync(ownerId), entry => Assert.True(entry.Value == 0, $"{entry.Key} still has {entry.Value} row(s) of the deleted user."));
-        Assert.All(itemKeys.Concat(postKeys).Append(league.ImageKey), key => Assert.Null(factory.Storage.Find(key)));
-        Assert.All(itemKeys.Concat(postKeys).Append(league.ImageKey), key => Assert.Contains(key, factory.Storage.Deleted));
+        Assert.All(itemKeys.Concat(postKeys).Append(league.ImageKey).Concat(tryOnKeys), key => Assert.Null(factory.Storage.Find(key)));
+        Assert.All(itemKeys.Concat(postKeys).Append(league.ImageKey).Concat(tryOnKeys), key => Assert.Contains(key, factory.Storage.Deleted));
 
         // The league of the others: the bystander's closed day and entry stay as they were; the engine's preference row has no user to lose.
         var bystanderScore = await factory.WithDbAsync(db => db.LeagueDailyScores.AsNoTracking().SingleAsync(row => row.UserId == bystander.Id && row.Day == league.Day, Ct));
         Assert.Equal((league.BystanderTotal, league.BystanderEntryId), (bystanderScore.Total, bystanderScore.EntryId));
+        Assert.True(await factory.WithDbAsync(db => db.LeagueVoterDays.AnyAsync(row => row.UserId == bystander.Id && row.Day == league.Day, Ct)));
         Assert.True(await factory.WithDbAsync(db => db.LeagueEntries.AnyAsync(row => row.Id == league.BystanderEntryId, Ct)));
         Assert.True(await factory.WithDbAsync(db => db.LeagueEnginePreferences.AnyAsync(row => row.Id == league.EnginePreferenceId, Ct)));
 
@@ -688,8 +694,53 @@ public sealed class AccountDeletionTests(ApiFactory factory)
         ["league.pairs"] = await db.LeaguePairs.CountAsync(row => row.VoterId == userId || db.LeagueEntries.Any(entry => (entry.Id == row.LeftEntryId || entry.Id == row.RightEntryId) && entry.UserId == userId), Ct),
         ["league.reports"] = await db.LeagueReports.CountAsync(row => row.ReporterId == userId || db.LeagueEntries.Any(entry => entry.Id == row.EntryId && entry.UserId == userId), Ct),
         ["league.daily_scores"] = await db.LeagueDailyScores.CountAsync(row => row.UserId == userId, Ct),
+        ["league.voter_days"] = await db.LeagueVoterDays.CountAsync(row => row.UserId == userId, Ct),
         ["league.group_members"] = await db.LeagueGroupMembers.CountAsync(row => row.UserId == userId, Ct),
         ["league.style_scores"] = await db.LeagueStyleScores.CountAsync(row => row.UserId == userId, Ct),
+        ["tryon.garments"] = await db.TryOnGarments.CountAsync(row => db.WardrobeItems.Any(item => item.Id == row.WardrobeItemId && item.UserId == userId), Ct),
+        ["tryon.renders"] = await db.TryOnRenders.CountAsync(row => row.UserId == userId, Ct),
+        ["tryon.reports"] = await db.TryOnReports.CountAsync(row => row.UserId == userId, Ct),
+    });
+
+    /// <summary>The subject's try-on rows and their two stored objects (the prepared cutout and the drawing); returns the object keys.</summary>
+    private Task<string[]> SeedTryOnAsync(Guid userId, Guid itemId, Guid outfitId) => factory.WithDbAsync(async db =>
+    {
+        var now = TestClock.UtcNow;
+        var garment = new TryOnGarment
+        {
+            WardrobeItemId = itemId,
+            Status = TryOnGarmentStatus.Prepared,
+            SourceHash = new string('a', TryOnGarment.HashLength),
+            PreparedHash = new string('a', TryOnGarment.HashLength),
+            PrepareVersion = "prepare-v6",
+            Family = "top",
+            Source = "cutout",
+            Reliable = true,
+            LandmarksJson = "{}",
+            PreparedAt = now,
+        };
+        garment.CutoutKey = StorageKeys.Build("tryon", userId, garment.Id, ImageVariant.Prepared, "png");
+        var render = new TryOnRender
+        {
+            UserId = userId,
+            CacheKey = new string('c', TryOnRender.HashLength),
+            BodyHash = new string('b', TryOnRender.HashLength),
+            Renderer = "mannequin-v5",
+            Width = 600,
+            Height = 1200,
+            CreatedAt = now,
+            LastUsedAt = now,
+        };
+        render.ImageKey = StorageKeys.Build("tryon", userId, render.Id, ImageVariant.Render, "webp");
+        factory.Storage.Upload(garment.CutoutKey, [1, 2, 3], "image/png");
+        factory.Storage.Upload(render.ImageKey, [4, 5, 6], "image/webp");
+
+        db.TryOnGarments.Add(garment);
+        db.TryOnRenders.Add(render);
+        db.TryOnReports.Add(new TryOnReport { UserId = userId, OutfitId = outfitId, GarmentIds = [garment.Id], Renderer = "mannequin-v5", CreatedAt = now });
+        await db.SaveChangesAsync(Ct);
+
+        return new[] { garment.CutoutKey, render.ImageKey };
     });
 
     private sealed record LeagueSeed(DateOnly Day, string ImageKey, Guid BystanderEntryId, int BystanderTotal, long EnginePreferenceId);
@@ -724,7 +775,7 @@ public sealed class AccountDeletionTests(ApiFactory factory)
         var theirs = Entry(bystanderId);
         theirs.Pieces.Add(new LeagueEntryPiece { Position = 0, Slot = OutfitSlot.Top, ImageUrl = "https://images.example.test/top.jpg" });
         var (low, high) = mine.Id.CompareTo(theirs.Id) < 0 ? (mine.Id, theirs.Id) : (theirs.Id, mine.Id);
-        var served = DateTimeOffset.UtcNow.AddMinutes(-5);
+        var served = TestClock.UtcNow.AddMinutes(-5);
         var group = new LeagueGroup { WeekStart = day, Tiers = [LeagueTier.Bronze], Capacity = 30 };
         var preference = new LeagueEnginePreference { Day = day, Audience = Audience.Women, WinnerProducts = [Guid.NewGuid()], Weight = 1 };
 
@@ -755,6 +806,9 @@ public sealed class AccountDeletionTests(ApiFactory factory)
             db.LeagueDailyScores.AddRange(
                 new LeagueDailyScore { UserId = subjectId, Day = day, EntryId = mine.Id, Competed = true, VotingPoints = 15, Total = 15 },
                 new LeagueDailyScore { UserId = bystanderId, Day = day, EntryId = theirs.Id, Competed = true, WornPoints = 10, Total = 10 });
+            db.LeagueVoterDays.AddRange(
+                new LeagueVoterDay { UserId = subjectId, Day = day, Served = 1, Counted = 1 },
+                new LeagueVoterDay { UserId = bystanderId, Day = day, Served = 1, Counted = 1 });
             if (!await db.LeagueWeeks.AnyAsync(week => week.WeekStart == day, Ct))
             {
                 db.LeagueWeeks.Add(new LeagueWeek { WeekStart = day, EndsAt = served });

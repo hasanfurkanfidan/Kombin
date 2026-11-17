@@ -26,8 +26,6 @@ internal static class WardrobeModule
 
     public static IServiceCollection AddWardrobeFeature(this IServiceCollection services)
     {
-        services.AddOptions<VisionOptions>().BindConfiguration(VisionOptions.SectionName);
-        services.AddHttpClient<IVisionClient, VisionClient>(VisionClient.Configure);
         // The image URL comes from a scraped page: public addresses only, at most three redirects (OutboundGuard).
         services.AddHttpClient(CatalogImageClient, client => client.Timeout = TimeSpan.FromSeconds(10)).AddPublicOnlyGuard();
 

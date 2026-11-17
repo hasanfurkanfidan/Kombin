@@ -2,7 +2,6 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
-using Kombin.Api.Common.Time;
 using Kombin.Api.Features.League;
 using Kombin.Api.Persistence.Entities.Catalog;
 using Kombin.Api.Persistence.Entities.League;
@@ -81,6 +80,7 @@ public sealed class LeagueTests(ApiFactory factory)
     [InlineData(null)]
     [InlineData("")]
     [InlineData("2020-01-v0")]
+    [InlineData("2026-11-v1")]
     public async Task OnlyTheCurrentConsentVersionCanBeAccepted(string? version)
     {
         using var user = await factory.CreateUserAsync(Ct);
@@ -100,7 +100,9 @@ public sealed class LeagueTests(ApiFactory factory)
     public async Task ABirthYearThatMayStillBeUnderEighteenCannotJoin(int yearsAgo)
     {
         using var user = await factory.CreateUserAsync(Ct);
-        var thisYear = Istanbul.Today(DateTimeOffset.UtcNow).Year;
+        var day = LeagueClientExtensions.NewDay();
+        user.Client.At(LeagueClientExtensions.Time(day, 12));
+        var thisYear = day.Year;
         await SetBirthYearAsync(user.Client, thisYear - yearsAgo);
 
         using var response = await user.Client.JoinLeagueAsync(LeagueConsent.Current.Version, Ct);
@@ -116,36 +118,45 @@ public sealed class LeagueTests(ApiFactory factory)
     {
         using var adult = await factory.CreateUserAsync(Ct);
         using var unknown = await factory.CreateUserAsync(Ct);
-        await SetBirthYearAsync(adult.Client, Istanbul.Today(DateTimeOffset.UtcNow).Year - 19);
+        var day = LeagueClientExtensions.NewDay();
+        adult.Client.At(LeagueClientExtensions.Time(day, 12));
+        unknown.Client.At(LeagueClientExtensions.Time(day, 12));
+        await SetBirthYearAsync(adult.Client, day.Year - 19);
 
         Assert.True((await adult.Client.JoinLeagueOkAsync(Ct)).GetProperty("joined").GetBoolean());
         Assert.True((await unknown.Client.JoinLeagueOkAsync(Ct)).GetProperty("joined").GetBoolean());
     }
 
+    /// <summary>A competing entry of <paramref name="day"/> for a joined player, who is made Gold.</summary>
+    private Task<Guid> InsertCompetingEntryAsync(Guid userId, DateOnly day) => factory.WithDbAsync(async db =>
+    {
+        var entry = new LeagueEntry
+        {
+            Day = day,
+            UserId = userId,
+            Kind = LeagueEntryKind.Human,
+            Audience = Audience.Unisex,
+            PieceIds = [Guid.NewGuid(), Guid.NewGuid()],
+            PieceSetHash = new string('b', LeagueEntry.PieceSetHashLength),
+            Status = LeagueEntryStatus.Competing,
+        };
+        db.LeagueEntries.Add(entry);
+        await db.LeaguePlayers.Where(row => row.UserId == userId).ExecuteUpdateAsync(set => set.SetProperty(row => row.Tier, LeagueTier.Gold), Ct);
+        await db.SaveChangesAsync(Ct);
+
+        return entry.Id;
+    });
+
+    private Task<LeagueEntryStatus> EntryStatusAsync(Guid entryId) =>
+        factory.WithDbAsync(db => db.LeagueEntries.Where(row => row.Id == entryId).Select(row => row.Status).SingleAsync(Ct));
+
+    // Leaving at noon, before the day's close (21:00 Istanbul): today's outfit leaves the pool.
     [Fact]
     public async Task LeavingRecordsItWithdrawsTodaysOutfitAndAJoinLaterKeepsTheTier()
     {
-        using var user = await factory.CreateUserAsync(Ct);
-        await user.Client.JoinLeagueOkAsync(Ct);
-        var today = Istanbul.Today(DateTimeOffset.UtcNow);
-        var entryId = await factory.WithDbAsync(async db =>
-        {
-            var entry = new LeagueEntry
-            {
-                Day = today,
-                UserId = user.Id,
-                Kind = LeagueEntryKind.Human,
-                Audience = Audience.Unisex,
-                PieceIds = [Guid.NewGuid(), Guid.NewGuid()],
-                PieceSetHash = new string('b', LeagueEntry.PieceSetHashLength),
-                Status = LeagueEntryStatus.Competing,
-            };
-            db.LeagueEntries.Add(entry);
-            await db.LeaguePlayers.Where(row => row.UserId == user.Id).ExecuteUpdateAsync(set => set.SetProperty(row => row.Tier, LeagueTier.Gold), Ct);
-            await db.SaveChangesAsync(Ct);
-
-            return entry.Id;
-        });
+        var day = LeagueClientExtensions.NewDay();
+        using var user = await factory.CreatePlayerAsync(day, Ct);
+        var entryId = await InsertCompetingEntryAsync(user.Id, day);
 
         using var left = await user.Client.LeaveLeagueAsync(Ct);
 
@@ -154,7 +165,7 @@ public sealed class LeagueTests(ApiFactory factory)
         Assert.False(me.GetProperty("joined").GetBoolean());
         Assert.True(me.GetProperty("consentRequired").GetBoolean());
         Assert.Equal("Gold", me.GetProperty("tier").GetString());
-        Assert.Equal(LeagueEntryStatus.Withdrawn, await factory.WithDbAsync(db => db.LeagueEntries.Where(row => row.Id == entryId).Select(row => row.Status).SingleAsync(Ct)));
+        Assert.Equal(LeagueEntryStatus.Withdrawn, await EntryStatusAsync(entryId));
         Assert.Equal([LeagueConsentAction.Join, LeagueConsentAction.Leave], (await ConsentsAsync(user.Id)).Select(row => row.Action));
         Assert.NotNull((await PlayerAsync(user.Id))!.LeftAt);
 
@@ -164,6 +175,58 @@ public sealed class LeagueTests(ApiFactory factory)
         Assert.Equal("Gold", back.GetProperty("tier").GetString());
         Assert.Null((await PlayerAsync(user.Id))!.LeftAt);
         Assert.Equal([LeagueConsentAction.Join, LeagueConsentAction.Leave, LeagueConsentAction.Join], (await ConsentsAsync(user.Id)).Select(row => row.Action));
+    }
+
+    // Leaving at the close (21:00:00 Istanbul is already past the day) or later: the day is over, its entry stays as it is for the close to
+    // score; the leave itself is recorded all the same.
+    [Theory]
+    [InlineData(21, 0)]
+    [InlineData(23, 30)]
+    public async Task LeavingAfterTheDaysCloseLeavesThatDaysOutfitAsItIs(int hour, int minute)
+    {
+        var day = LeagueClientExtensions.NewDay();
+        using var user = await factory.CreatePlayerAsync(day, Ct);
+        var entryId = await InsertCompetingEntryAsync(user.Id, day);
+        user.Client.At(LeagueClientExtensions.Time(day, hour, minute));
+
+        using var left = await user.Client.LeaveLeagueAsync(Ct);
+
+        Assert.Equal(HttpStatusCode.NoContent, left.StatusCode);
+        Assert.Equal(LeagueEntryStatus.Competing, await EntryStatusAsync(entryId));
+        Assert.False((await user.Client.GetJsonAsync(LeagueClientExtensions.Me, Ct)).GetProperty("joined").GetBoolean());
+        Assert.Equal([LeagueConsentAction.Join, LeagueConsentAction.Leave], (await ConsentsAsync(user.Id)).Select(row => row.Action));
+        Assert.Equal(LeagueClientExtensions.Time(day, hour, minute), (await PlayerAsync(user.Id))!.LeftAt!.Value, TimeSpan.FromMilliseconds(1));
+    }
+
+    /// <summary>
+    /// A player who joined under version 1 is asked again (version 2 says the pieces can be recognised): <c>consentRequired</c> is true until they
+    /// accept version 2, which writes a new consent row with the exact new text and keeps their tier.
+    /// </summary>
+    [Fact]
+    public async Task APlayerUnderVersionOneIsAskedAgainAndAcceptsVersionTwo()
+    {
+        using var user = await factory.CreateUserAsync(Ct);
+        await user.Client.JoinLeagueOkAsync(Ct);
+        await factory.WithDbAsync(db => db.LeaguePlayers.Where(row => row.UserId == user.Id)
+            .ExecuteUpdateAsync(set => set.SetProperty(row => row.ConsentVersion, "2026-11-v1").SetProperty(row => row.Tier, LeagueTier.Silver), Ct));
+
+        var asked = await user.Client.GetJsonAsync(LeagueClientExtensions.Me, Ct);
+
+        Assert.True(asked.GetProperty("consentRequired").GetBoolean());
+        Assert.Equal("2026-11-v2", asked.GetProperty("consent").GetProperty("version").GetString());
+        Assert.Contains("Parçalarını tanıyan biri kombinin sana ait olduğunu anlayabilir.", asked.GetProperty("consent").GetProperty("text").GetString(), StringComparison.Ordinal);
+
+        using var old = await user.Client.JoinLeagueAsync("2026-11-v1", Ct);
+        Assert.Equal(HttpStatusCode.BadRequest, old.StatusCode);
+
+        var accepted = await user.Client.JoinLeagueOkAsync(Ct);
+
+        Assert.False(accepted.GetProperty("consentRequired").GetBoolean());
+        Assert.Equal("Silver", accepted.GetProperty("tier").GetString());
+        var consents = await ConsentsAsync(user.Id);
+        Assert.Equal(2, consents.Count);
+        Assert.Equal(("2026-11-v2", LeagueConsent.Current.Text), (consents[^1].Version, consents[^1].Text));
+        Assert.Equal("2026-11-v2", (await PlayerAsync(user.Id))!.ConsentVersion);
     }
 
     [Fact]

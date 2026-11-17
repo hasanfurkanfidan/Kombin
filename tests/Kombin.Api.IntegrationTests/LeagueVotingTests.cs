@@ -3,7 +3,9 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Kombin.Api.Persistence.Entities.Catalog;
 using Kombin.Api.Persistence.Entities.League;
+using Kombin.Api.Persistence.Entities.Recommendation;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using static Kombin.Api.IntegrationTests.LeagueClientExtensions;
 
 namespace Kombin.Api.IntegrationTests;
@@ -393,5 +395,193 @@ public sealed class LeagueVotingTests(ApiFactory factory)
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, badReason.StatusCode);
+    }
+
+    // Night review (task L3-fix), finding 1: engine outfits must never crowd every human outfit out of the candidate list.
+    [Fact]
+    public async Task TwelveBucketsOfThreePlayersAndTheirEngineFillHandOutEveryPair()
+    {
+        var day = NewDay();
+        var buckets = (from audience in new[] { Audience.Women, Audience.Men }
+                       from occasion in Enum.GetValues<Occasion>().Select(occasion => (Occasion?)occasion).Append(null)
+                       select (audience, occasion)).ToList();
+        Assert.Equal(12, buckets.Count);
+
+        var players = new List<(TestUser User, Guid EntryId)>();
+        foreach (var (audience, occasion) in buckets)
+        {
+            for (var index = 0; index < 3; index++)
+            {
+                var player = await factory.CreatePlayerAsync(day, Ct);
+                players.Add((player, await factory.InsertEntryAsync(day, player.Id, audience, occasion, cancellationToken: Ct)));
+            }
+        }
+
+        // What league-fill leaves at League:EngineFill:MinPool 30: 27 engine outfits per bucket, 324 in all, more than League:PairCandidates.
+        await factory.InsertEngineEntriesAsync(day, [.. buckets.SelectMany(bucket => Enumerable.Repeat(bucket, 27))], Ct);
+
+        try
+        {
+            // Every player votes their 30 pairs, six at a time: 36 × 30 = 1,080 pairs.
+            var empty = new System.Collections.Concurrent.ConcurrentBag<string>();
+            await Parallel.ForEachAsync(players, new ParallelOptions { MaxDegreeOfParallelism = 6, CancellationToken = Ct }, async (player, cancellationToken) =>
+            {
+                for (var round = 0; round < 30; round++)
+                {
+                    var next = await player.User.Client.NextPairAsync(cancellationToken);
+                    if (next.GetProperty("pair").ValueKind != JsonValueKind.Object)
+                    {
+                        empty.Add(next.GetRawText());
+                        return;
+                    }
+
+                    await player.User.Client.VoteOkAsync(next.Pair().GetProperty("id").GetGuid(), "skip", cancellationToken: cancellationToken);
+                }
+            });
+
+            Assert.True(empty.IsEmpty, $"{empty.Count} players ran out of pairs, e.g. {empty.FirstOrDefault()}");
+            var served = await factory.WithDbAsync(db => db.LeaguePairs.AsNoTracking()
+                .Where(pair => pair.Day == day)
+                .Select(pair => new
+                {
+                    LeftHuman = db.LeagueEntries.Any(entry => entry.Id == pair.LeftEntryId && entry.Kind == LeagueEntryKind.Human),
+                    RightHuman = db.LeagueEntries.Any(entry => entry.Id == pair.RightEntryId && entry.Kind == LeagueEntryKind.Human),
+                })
+                .ToListAsync(Ct));
+            Assert.Equal(1080, served.Count);
+            Assert.All(served, pair => Assert.True(pair.LeftHuman || pair.RightHuman, "two engine outfits were paired"));
+
+            var humanIds = players.Select(player => player.EntryId).ToList();
+            var exposures = await factory.WithDbAsync(db => db.LeagueEntries.AsNoTracking().Where(entry => humanIds.Contains(entry.Id)).Select(entry => entry.Exposures).ToListAsync(Ct));
+            Assert.Equal(36, exposures.Count);
+            Assert.All(exposures, count => Assert.True(count >= 1, "a player's outfit was never shown"));
+        }
+        finally
+        {
+            players.ForEach(player => player.User.Dispose());
+        }
+    }
+
+    // Finding 3: a pair deleted with an account leaves a gap in the voter's sequence; the next pair must not reuse a number.
+    [Fact]
+    public async Task AfterAnAccountIsDeletedItsViewersStillGetTheirNextPair()
+    {
+        var day = NewDay();
+        var (deleted, deletedEntry) = await PoolAsync(day, 6);
+        using var voter = await factory.CreatePlayerAsync(day, Ct);
+
+        // Pair 1 shows the outfit of the player who will go (the only human one); pair 2 a newer outfit nobody has seen.
+        var first = await voter.Client.ServeAndLookAsync(Ct);
+        await voter.Client.VoteOkAsync(first, "left", cancellationToken: Ct);
+        using var other = await factory.CreatePlayerAsync(day, Ct);
+        await factory.InsertEntryAsync(day, other.Id, cancellationToken: Ct);
+        var second = await voter.Client.ServeAndLookAsync(Ct);
+        var secondRow = await PairRowAsync(second);
+        Assert.DoesNotContain(deletedEntry, new[] { secondRow.LeftEntryId, secondRow.RightEntryId });
+        await voter.Client.VoteOkAsync(second, "left", cancellationToken: Ct);
+
+        // The account is deleted mid-day: its entries cascade, and pair 1 with them.
+        await factory.WithDbAsync(db => db.Users.Where(user => user.Id == deleted.Id).ExecuteDeleteAsync(Ct));
+        deleted.Dispose();
+        Assert.Equal(1, await factory.WithDbAsync(db => db.LeaguePairs.CountAsync(pair => pair.VoterId == voter.Id, Ct)));
+
+        var next = await voter.Client.NextPairAsync(Ct);
+
+        Assert.Equal(3, next.Pair().GetProperty("sequence").GetInt32());
+        Assert.Equal(3, next.GetProperty("servedToday").GetInt32());
+    }
+
+    // Finding 4: an outfit of a player who left is never shown, even before the withdrawal reaches it.
+    [Fact]
+    public async Task AnOutfitOfAPlayerWhoLeftIsNeverShown()
+    {
+        var day = NewDay();
+        var (owner, _) = await PoolAsync(day, 6);
+        using var _owner = owner;
+        using var leaver = await factory.CreatePlayerAsync(day, Ct);
+        var leaverEntry = await factory.InsertEntryAsync(day, leaver.Id, cancellationToken: Ct);
+        await factory.WithDbAsync(db => db.LeaguePlayers.Where(player => player.UserId == leaver.Id).ExecuteUpdateAsync(set => set.SetProperty(player => player.LeftAt, TestClock.UtcNow), Ct));
+        using var voter = await factory.CreatePlayerAsync(day, Ct);
+
+        for (var round = 0; round < 6; round++)
+        {
+            var row = await PairRowAsync((await voter.Client.NextPairAsync(Ct)).Pair().GetProperty("id").GetGuid());
+            Assert.DoesNotContain(leaverEntry, new[] { row.LeftEntryId, row.RightEntryId });
+            await voter.Client.VoteOkAsync(row.Id, "skip", cancellationToken: Ct);
+        }
+    }
+
+    // Finding 6: a report that uses up an open pair must not overwrite a vote that answered it in the meantime.
+    [Fact]
+    public async Task AReportNeverOverwritesAVoteThatAnsweredThePairMeanwhile()
+    {
+        var day = NewDay();
+        var (owner, _) = await PoolAsync(day, 4);
+        using var _owner = owner;
+        using var voter = await factory.CreatePlayerAsync(day, Ct);
+        var pairId = await voter.Client.ServeAndLookAsync(Ct);
+
+        // A vote in flight holds the pair's row; the report arrives, finds the pair open and waits for the row.
+        await using var vote = await factory.OpenConnectionAsync(Ct);
+        await using (var transaction = await vote.BeginTransactionAsync(Ct))
+        {
+            await vote.ExecuteAsync("SELECT 1 FROM league.pairs WHERE id = @id FOR UPDATE", pairId, Ct);
+            var report = voter.Client.ReportOutfitAsync(pairId, "left", cancellationToken: Ct);
+            await factory.WaitForLockWaitAsync("pairs", Ct);
+            await vote.ExecuteAsync("UPDATE league.pairs SET answered_at = now(), choice = 'Left', counted = true, weight = 1 WHERE id = @id", pairId, Ct);
+            await transaction.CommitAsync(Ct);
+
+            using var reported = await report;
+            Assert.Equal(HttpStatusCode.Accepted, reported.StatusCode);
+        }
+
+        var row = await PairRowAsync(pairId);
+        Assert.Equal((LeaguePairChoice.Left, true, 1f), (row.Choice, row.Counted, row.Weight));
+    }
+
+    // Finding 7: two votes on the same two outfits lock them in the same (ID) order, so they wait for each other instead of deadlocking.
+    [Fact]
+    public async Task AVoteLocksBothOutfitsInIdOrderSoTwoVotesOnThemNeverDeadlock()
+    {
+        var day = NewDay();
+        var (owner, _) = await PoolAsync(day, 1);
+        using var _owner = owner;
+        using var voter = await factory.CreatePlayerAsync(day, Ct);
+        var pairId = await voter.Client.ServeAndLookAsync(Ct);
+        var pair = await PairRowAsync(pairId);
+        var ordered = await factory.WithDbAsync(db => db.LeagueEntries.AsNoTracking()
+            .Where(entry => entry.Id == pair.LeftEntryId || entry.Id == pair.RightEntryId)
+            .OrderBy(entry => entry.Id)
+            .Select(entry => entry.Id)
+            .ToListAsync(Ct));
+        var (first, second) = (ordered[0], ordered[1]);
+
+        // Another vote on the same two outfits is in flight: it has locked the first row (ID order) and is about to update the second. This
+        // voter chooses the outfit whose row comes second.
+        Exception? deadlock = null;
+        await using var other = await factory.OpenConnectionAsync(Ct);
+        await using (var transaction = await other.BeginTransactionAsync(Ct))
+        {
+            await other.ExecuteAsync("SELECT 1 FROM league.entries WHERE id = @id FOR UPDATE", first, Ct);
+            var vote = voter.Client.VoteAsync(pairId, pair.LeftEntryId == second ? "left" : "right", cancellationToken: Ct);
+            await factory.WaitForLockWaitAsync("entries", Ct);
+
+            try
+            {
+                await other.ExecuteAsync("UPDATE league.entries SET comparisons = comparisons WHERE id = @id", second, Ct);
+                await transaction.CommitAsync(Ct);
+            }
+            catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.DeadlockDetected)
+            {
+                deadlock = exception;
+            }
+
+            using var response = await vote;
+            Assert.Null(deadlock);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+
+        Assert.Equal((1, 0.5, 0.5), ((await EntryRowAsync(second)).Comparisons, (await EntryRowAsync(second)).WeightedGames, (await EntryRowAsync(second)).WeightedWins));
+        Assert.Equal((1, 0.5, 0.0), ((await EntryRowAsync(first)).Comparisons, (await EntryRowAsync(first)).WeightedGames, (await EntryRowAsync(first)).WeightedWins));
     }
 }

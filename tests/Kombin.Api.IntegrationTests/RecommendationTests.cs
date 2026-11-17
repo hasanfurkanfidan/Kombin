@@ -16,7 +16,8 @@ public sealed class RecommendationTests(ApiFactory factory)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private static DateOnly Tomorrow => Kombin.Api.Features.Wardrobe.WearRules.Today(DateTimeOffset.UtcNow).AddDays(1);
+    // The tests that name "tomorrow" pin their requests to noon (TestClock.IstanbulNoon), so the API's tomorrow is this one.
+    private static DateOnly Tomorrow => Kombin.Api.Features.Wardrobe.WearRules.Today(TestClock.IstanbulNoon).AddDays(1);
 
     private async Task<(TestUser User, Dictionary<Guid, WardrobeSeed> Seeds)> FortyPieceUserAsync()
     {
@@ -33,6 +34,7 @@ public sealed class RecommendationTests(ApiFactory factory)
     {
         var (user, seeds) = await FortyPieceUserAsync();
         using var _ = user;
+        user.Client.At(TestClock.IstanbulNoon);
         await user.Client.SetCityAsync("Rainville", Ct);
 
         var body = await user.Client.DailyAsync("?date=tomorrow", Ct);
@@ -115,6 +117,7 @@ public sealed class RecommendationTests(ApiFactory factory)
     public async Task DailyRejectsBadParameters()
     {
         using var user = await factory.CreateUserAsync(Ct);
+        user.Client.At(TestClock.IstanbulNoon);
 
         foreach (var query in new[] { "?date=yesterday", $"?date={Tomorrow.AddDays(30):yyyy-MM-dd}", "?occasion=party", "?seed=-1" })
         {

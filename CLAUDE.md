@@ -35,7 +35,7 @@ src/Kombin.Api/Persistence/Entities/Identity/User.cs
 src/Kombin.Api/Persistence/Configurations/Identity/UserConfiguration.cs
 ```
 
-Cross-cutting code lives in `src/Kombin.Api/Common/` (Results, Http, Auth, Validation, Pagination, Time, Health, Storage). Development
+Cross-cutting code lives in `src/Kombin.Api/Common/` (Results, Http, Auth, Validation, Pagination, Time, Health, Storage, Vision, Imaging). Development
 seed data lives in `src/Kombin.Api/Persistence/Seed/`.
 
 Internal endpoints (called by workers, not the app) live under `/api/v1/internal/...` and use `.RequireInternalKey()`. The ones that
@@ -43,8 +43,9 @@ exist: `POST /internal/catalog/offers/upsert`, `POST /internal/catalog/offers/sw
 `PUT /internal/catalog/sellers/{slug}` (see Catalog ingestion rules), `POST /internal/catalog/embeddings/run` (see Visual search rules),
 `POST /internal/notifications/test`,
 `GET /internal/analytics/weekly` (see Analytics rules), `PUT` and `DELETE /internal/social/creators/{userId}`, `GET /internal/social/review-queue`
-and `POST /internal/social/posts/{id}/review` (see Social rules), and `POST /internal/identity/users/{userId}/disable` and `/enable` (see
-Identity rules).
+and `POST /internal/social/posts/{id}/review` (see Social rules), `POST /internal/identity/users/{userId}/disable` and `/enable` (see
+Identity rules), and `POST /internal/league/days/{date}/close`, `GET /internal/league/review-queue` and `POST /internal/league/entries/{entryId}/review`
+(see League rules).
 
 ## How to add a new use case
 
@@ -66,7 +67,8 @@ The backend is one project, so nothing in the compiler stops `Features/A` from u
 fully qualified name, `using static`, an alias; also in `.cshtml`) and fails for one that is not on `FeatureBoundaryAllowList`, the frozen
 list of what existed in task B7 (141 references in 37 feature pairs, 90 of them `Seam` = fine as it is and 51 `Legacy` = would be shared code
 today, with a line saying where it belongs; task L2 moved the Istanbul zone and the Hangfire flag to `Common` and left 129 in 34 pairs, 39 `Legacy`; task L3 added the league's two
-`Seam`s: 132 in 36 pairs). It forbids nothing that exists; it stops the list from growing, and `TheAllowListHoldsNoReferenceThatNoLongerExists`
+`Seam`s: 132 in 36 pairs; task P3 moved the vision client to `Common/Vision`, which removed eight `Legacy` references and the Admin-Wardrobe pair, and added
+try-on's three `Seam` lines: 130 in 38 pairs, 99 `Seam`, 31 `Legacy`). It forbids nothing that exists; it stops the list from growing, and `TheAllowListHoldsNoReferenceThatNoLongerExists`
 makes it shrink: remove a reference and the test tells you to delete the line.
 
 **Sharing code between features.**
@@ -276,7 +278,7 @@ External Python workers (a separate repo) push the catalog through the internal 
 ## Notification rules
 
 - **What exists:** devices (Expo push tokens), per-user preferences, the `notification.notifications` table (it is both the push to
-  deliver and the in-app feed), four Hangfire jobs, and the push delivery through the **Expo Push Service**.
+  deliver and the in-app feed), five Hangfire jobs, and the push delivery through the **Expo Push Service**.
 - **Expo is the only push path.** The app registers Expo push tokens; the backend never talks to FCM or APNs. The client is a plain
   `HttpClient` behind `IExpoPushClient` (`Features/Notification/ExpoPushClient.cs`); it never throws on a non-2xx, it returns a
   result the job interprets, and tests replace it with a fake. `Expo:AccessToken` (env `Expo__AccessToken`) is optional and only
@@ -292,6 +294,7 @@ External Python workers (a separate repo) push the catalog through the internal 
   | `push-sender` | every minute | due `Pending` notifications → Expo, batches of 100 messages, one message per active device, one row per notification |
   | `push-receipts` | every 15 min | Expo receipts for `Sent` pushes 15 min - 24 h old, once each (`ReceiptCheckedAt`) |
   | `weekly-matches` | Sunday 19:00 `Europe/Istanbul` | per user with a device: top 3 new products (score ≥ 70) for the active persona → one `NewMatches` notification |
+  | `league-results` | every 5 min | Kombin Ligi's evening result: `league.daily_scores` rows of days closed in the last 12 h, not pushed (`notified_at`), not under review → one `LeagueResult` notification per player and day (`Copy.ForLeagueResult`, dedupe `league:{day}`, `DispatchRules.Decide`: the `LeagueResults` preference, devices, quiet hours); nothing for a player who left, is disabled or pending deletion, or a result removed by a review |
 
 - **Notifications are created by the jobs, never by request handlers** (the one exception is the internal QA endpoint
   `POST /internal/notifications/test`). Rules of the dispatcher, in order (`DispatchRules`, pure): preference for the kind off
@@ -311,7 +314,7 @@ External Python workers (a separate repo) push the catalog through the internal 
 - **Hangfire wiring:** `AddNotificationFeature` registers storage lazily; `UseNotificationJobs` (called in `Program.cs` after the EF
   migrations and the seeds) is what first creates the `hangfire` schema, registers the recurring jobs (`UseCatalogJobs` adds the
   Catalog's `offer-sweep`, `UseAnalyticsJobs` the Analytics' `weekly-metrics` and `analytics-retention`, `UseWardrobeJobs` the Wardrobe's `wardrobe-cleanup` and
-  `UseSocialJobs` the Social's `social-purge`, `UseIdentityJobs` the Identity's `account-deletion` and `UseLeagueJobs` the League's `league-entries` and `league-fill` (also behind `League:Enabled`) right after it, behind the same flag; `UseCatalogJobs` also registers `product-embeddings`; `outfit-narrate` and `post-process` are fire-and-forget,
+  `UseSocialJobs` the Social's `social-purge`, `UseIdentityJobs` the Identity's `account-deletion`, `UseLeagueJobs` the League's `league-entries`, `league-fill`, `league-close` and `league-purge` (also behind `League:Enabled`) and `UseTryOnJobs` the TryOn's `tryon-prepare` (also behind `TryOn:Enabled`) right after it, behind the same flag; `UseCatalogJobs` also registers `product-embeddings`; `outfit-narrate` and `post-process` are fire-and-forget,
   not recurring) and, **in Development only**
   (or wherever `Diagnostics:Expose` is true, then behind the `/admin` sign-in), maps the dashboard at `/hangfire` (open in Development, unmapped otherwise). Nothing happens unless `Hangfire:Enabled` is
   true (compose sets it; tests set it to false; `Development` defaults to true). The storage uses `EnableLongPolling`
@@ -357,7 +360,8 @@ External Python workers (a separate repo) push the catalog through the internal 
 - **Metrics have one source of truth: `docs/metrics.sql`.** It is embedded in the assembly (`MetricSql`; the Dockerfile copies it into the
   build) and each `-- name:` block is run with `:cohort_start`, `:cohort_end` and `:as_of` bound as Npgsql parameters, so what operators run
   by hand is what the job runs. An actor is `COALESCE(user_id::text, anonymous_id)`; a cohort is the actors whose first `app_open` falls in
-  `[cohort_start, cohort_end)`. Each block returns `(numerator, denominator)`. Change a metric there, and update the README table.
+  `[cohort_start, cohort_end)`. Each block returns `(numerator, denominator)`. Change a metric there, and update the README table. A line starting
+  `-- league:` closes the current block without opening one (`MetricSql.Parse`): the Kombin Ligi blocks after it are run by hand, never by the job.
 - **`WeeklyMetricsJob`** (plain class like the other jobs, `[DisableConcurrentExecution(60)]`, `[AutomaticRetry(Attempts = 0)]`, tests call
   `ComputeAsync(asOf, ct)`, registered by `UseAnalyticsJobs` behind `Hangfire:Enabled`, called in `Program.cs` after `UseCatalogJobs`) runs
   Monday 08:00 `Europe/Istanbul` (`weekly-metrics`) for the last 4 cohort weeks (Monday-based in Istanbul, `CohortWeeks`) and overwrites
@@ -377,15 +381,17 @@ External Python workers (a separate repo) push the catalog through the internal 
 - **Flow:** `POST /me/wardrobe/items/upload-url` creates a `Processing` item and a presigned PUT for its original → the app uploads
   straight to storage → `POST /items/{id}/process` checks the object (missing 409, over 8 MB 400) and enqueues `wardrobe-analyze` →
   the app polls `GET /items/{id}`. Items created but never processed are hidden from lists and stats (`VisibleOf`) and deleted after a day.
-- **Vision service contract** (`kombin-vision`, a separate repo; its `README.md` is the source of truth). `POST /v1/garment/analyze`,
+- **Vision service contract** (`kombin-vision`, a separate repo; its `README.md` is the source of truth; the client is shared infrastructure in `Common/Vision`). `POST /v1/garment/analyze`,
   multipart field `image`, header `X-Internal-Key` = `Vision:InternalKey` (env `Vision__InternalKey`, compose `VISION_INTERNAL_KEY`; not our
   own `Internal:ApiKey`). Answer: base64 `cutout` (PNG) and `thumbnail` (WEBP), `category` + `categoryCandidates` (top 3, slugs of our
   leaf categories), `primaryColor`/`secondaryColor` (`ProductColor` names + hex), `pattern` (`ProductPattern` name), a 512-float unit
   `embedding`, `quality { isGarment, confidence, warnings }`. Errors are `{ "detail": "<code>" }`. The typed client is `IVisionClient`
-  (`Features/Wardrobe/VisionClient.cs`, 30 s timeout); like the Expo client it never throws for a failed call: 4xx (except 401/408/429)
+  (`Common/Vision/VisionClient.cs`, registered by `AddVisionClient`, 30 s timeout); like the Expo client it never throws for a failed call: 4xx (except 401/408/429)
   is permanent, the rest transient. It also reads `/health`'s `clipModel` once per process for `EmbeddingModel`. Social posts use two more
   endpoints of the same service through the same client: `POST /v1/moderate?renditions=true` and `POST /v1/detect` (see Social rules), and
-  visual search two: `POST /v1/embed?removeBackground=false` and `POST /v1/detect?embed=true` (see Visual search rules).
+  visual search two: `POST /v1/embed?removeBackground=false` and `POST /v1/detect?embed=true` (see Visual search rules), and try-on two:
+  `POST /v1/garment/prepare` and `POST /v1/tryon/render` (see Try-on rules). A failed call carries the HTTP status and the service's code
+  (`VisionCall.Status`, `.Detail`).
 - **`wardrobe-analyze`** (`Jobs/WardrobeAnalyzeJob.cs`): fire-and-forget per item, `[AutomaticRetry(Attempts = 3)]` with 5/15/30 s delays.
   It only works on a `Processing` item and writes the same keys and fields on every run (idempotent). Category = top candidate when its
   confidence is ≥ 0.35 (`WardrobeAnalysis.CategoryThreshold`), else null and `needsCategory`. `isGarment=false` is still `Ready`, with the
@@ -648,20 +654,23 @@ External Python workers (a separate repo) push the catalog through the internal 
 
 ## League rules
 
-- **What exists (tasks L2 and L3, PRs 1 and 2 of 4):** "Kombin Ligi" in `Features/League` (design and the owner's decisions: `docs/design/league.md`;
+- **What exists (tasks L2 to L5, all four PRs):** "Kombin Ligi" in `Features/League` (design and the owner's decisions: `docs/design/league.md`;
   the rules: `Tasarım/kombin-ligi-aritmetik.md`, a product decision: never change a rule in code, raise it). Schema `league` with all 14 tables
   of the design (players, consents, days, entries, entry_pieces, pairs, reports, daily_scores, weeks, groups, group_members, style_scores,
-  engine_preferences, state), `LeagueOptions`, `LeagueConsent`; `GET /api/v1/league/me` (with the `today` block), `POST /league/join`,
-  `POST /league/leave`, `DELETE /league/me/entry`, `GET /league/pairs/next`, `POST /league/pairs/{pairId}/vote`, `POST /league/pairs/{pairId}/report`;
-  the jobs `league-entries` and `league-fill`. No day close, no Bradley–Terry, points, results, table, weeks, style score, review endpoints or
-  result push yet (PRs 3 and 4); nothing writes `league.days.closed_at` or `daily_scores` yet.
+  engine_preferences, state) plus `voter_days` (task L4), `LeagueOptions`, `LeagueConsent`; `GET /api/v1/league/me` (with the `today` block), `POST /league/join`,
+  `POST /league/leave`, `DELETE /league/me/entry`, `GET /league/pairs/next`, `POST /league/pairs/{pairId}/vote`, `POST /league/pairs/{pairId}/report`,
+  `GET /league/results?day=`, `GET /league/results/latest`, `GET /league/table`, `POST /internal/league/days/{date}/close`,
+  `GET /internal/league/review-queue`, `POST /internal/league/entries/{entryId}/review`; the jobs `league-entries`, `league-fill`, `league-close`
+  (days and weeks) and `league-purge`, Notification's `league-results`, and the `-- league:` first-month metric blocks of `docs/metrics.sql`
+  (run by hand, `LeagueMetricsSqlTests` runs them). Not built: an admin page for the review queue (the note: later work).
 - **Off by default.** `League:Enabled` (env `League__Enabled`) is false until the app screens ship: the routes stay mapped (OpenAPI, the
   authorization matrix) but `LeagueEnabledFilter` answers 404 `League.Disabled` first. `ApiFactory` switches it on; a test that needs it off
   builds its own host.
 - **Every number is a setting** (`League:*`, `LeagueOptions`, validated at start with every problem listed; `LeagueOptionsTests` pins the
   defaults to the note). A new number of the league is a setting there and a row in the note's settings table, never a constant.
 - **Consent:** versioned and append-only like the posting consent (`LeagueConsent.Versions`, hash pinned in `LeagueConsentTests`, glossary-checked).
-  Version `2026-11-v1` is the owner's text, whose last sentence is the 18+ declaration; counsel has not reviewed it (privacy notes, question 17).
+  Version `2026-11-v2` (current) is the owner's text, whose last sentence is the 18+ declaration and whose third says that someone who knows the
+  pieces can tell whose outfit it is; v1 lacked that sentence and its players are asked again. Counsel has reviewed neither (privacy notes, question 17).
   Every join writes a `league.consents` row with the exact text; leaving writes a `Leave` row. Joining again under the current version is a no-op.
 - **Age (strict):** a known birth year blocks unless the caller is certainly of age (`LeagueRules.IsUnderAge`: `year − birthYear <= League:MinAge`,
   in the Istanbul year; born 2008 waits until 2027): 403 `League.AgeRestricted` on join, and entry reason `AgeRestricted` for a player whose year
@@ -670,41 +679,136 @@ External Python workers (a separate repo) push the catalog through the internal 
   `Worn`; saving never enters. `EntryMaterializer` turns it into the player's one entry of the day (joined under the current consent, not disabled,
   no deletion pending, before the close), in the order of the pure `EntryEligibility` (age, `IncompleteOutfit`: a piece not owned or fewer than
   `MinPieces` non-accessory pieces, `PieceUnavailable`: archived, gone or without an image, `RecentlyCompeted`: the pure `RepeatRule` over
-  entries that competed at their close, `UnsafePiece`, `Pending` while a piece has no verdict). The entry follows the latest wear until it is
-  first served (`locked_at`), withdrawn and removed are final, one player's resolutions are serialised by an advisory lock and the row is read
-  `FOR UPDATE`. `league-entries` (every minute, `[DisableConcurrentExecution(60)]`, `[AutomaticRetry(Attempts = 0)]`, tests call
-  `ProcessAsync(now, userIds, ct)`) resolves the players with a `Worn` feedback row of the last 10 minutes (index `outfit_feedback (created_at)`)
-  and those still `Pending`, asking the safety filter for at most `ModerationRetriesPerRun` pieces, and deletes the copies of withdrawn and
-  removed entries; `GET /league/me` resolves the caller at once without asking the filter.
+  entries that competed at their close; a catalog piece's identity there is its product, `RepeatRule.Identity`, `UnsafePiece`, `Pending` while a
+  piece has no verdict). The entry follows the latest wear and every change (a birth year, an archived or deleted piece; a dismissed outfit makes
+  it `NotCompeting`/`NotWorn`) until it is first served (`locked_at`), withdrawn and removed are final; one player's resolutions and `POST /league/leave`
+  share an advisory lock (`EntryMaterializer.LockPlayerDayAsync`), the standing is checked again under it, and the row is read `FOR NO KEY UPDATE`.
+  `league-entries` (every minute, `[DisableConcurrentExecution(60)]`, `[AutomaticRetry(Attempts = 0)]`, tests call
+  `ProcessAsync(now, userIds, ct)`) resolves the players with a `Worn` feedback row of the last 10 minutes (index `outfit_feedback (created_at)`),
+  those still `Pending` and those competing but not shown yet, asking the safety filter for at most `ModerationRetriesPerRun` pieces, and deletes
+  the copies of withdrawn and removed entries; `GET /league/me` resolves the caller at once without asking the filter.
 - **Pairing and voting** (sections 6 and 7 of the note): `Pairing.Choose` is pure (A the least exposed human, B by `Strict` → `SameAudience` → `Any`,
-  never a pair twice, ties by a seeded FNV hash); `pairs/next` returns an open pair again, stops at `MaxPairsPerDay` (`DailyLimit`) and serves in
-  one transaction that also bumps both entries' `exposures` and sets `locked_at` (both must still be `Competing`, else it chooses again). A vote
+  never a pair twice, ties by a seeded FNV hash) over **two candidate lists**, the `PairCandidates` least exposed human entries and as many engine
+  ones (one list let engine entries crowd every human one out; index `(day, status, kind, exposures, id)`), without entries of players who left,
+  are disabled or pending deletion;
+  `pairs/next` returns an open pair again, stops at `MaxPairsPerDay` (`DailyLimit`; the count is the last sequence, never reused after a pair
+  vanished with an account) and serves in one transaction that also bumps both entries' `exposures` and sets `locked_at` (both must still be
+  `Competing`, else it chooses again). Serve and vote lock the two entry rows in ID order with `FOR NO KEY UPDATE` in one statement (never
+  `FOR UPDATE`: it conflicts with the key-share locks of new pair rows); keep that order in anything new that updates two entries. A vote
   locks the day row `FOR SHARE` (created if missing; from `closes_at` or `closed_at` on: 409 `League.DayClosed`) and the pair `FOR UPDATE`; same
   choice again = the stored result, another = 409 `League.AlreadyVoted`; counted only when not a skip and both the server's time since serving
   and `decisionMs` reach `MinDecisionTime`; the first `NewVoterVotes` counted votes weigh `NewVoterWeight` (`players.counted_votes` incremented
   with `RETURNING`). The response's `chosenWinRate`/`chosenGames` are the pure `WinRate` over the chosen entry's counters after the update (no
   "% agree", nothing stored). A report (`ReportEntryEndpoint`) goes through the caller's own pair (404 otherwise), one per player and outfit,
-  uses up an open pair as a skip, and counts toward `Reports:HideAt` only from an account at least `Reports:MinAccountAge` old with
+  uses up an open pair as a skip (only while it is still open: `WHERE answered_at IS NULL`), and counts toward `Reports:HideAt` only from an account at least `Reports:MinAccountAge` old with
   `Reports:MinCountedVotes` counted votes. `pairs/next`, `vote` and `report` share the `league` rate-limit policy.
 - **Engine outfits** (`league-fill`, every 15 minutes 00:00-20:45 Istanbul, tests call `FillAsync(day, now, ct)`): per (Women or Men, occasion)
-  bucket with human entries today or yesterday and fewer than `EngineFill:MinPool` competing human entries, up to `EngineFill:MaxPerRun` engine
+  bucket with a competing human entry today and fewer than `EngineFill:MinPool` competing human entries, up to `EngineFill:MaxPerRun` engine
   entries a run from Recommendation's `CatalogOutfitSampler` (seed = day number + bucket; existing piece sets skipped), catalog products only,
   never ranked or listed. `engine_fill_at:{day}` is written to `league.state`. Both jobs are registered by `UseLeagueJobs` (after
   `UseIdentityJobs`) only when `Hangfire:Enabled` and `League:Enabled` are true (removed otherwise), and do nothing while the league is off.
-- **Anonymity is the contract.** No league response may ever carry another player's user ID, name, e-mail, entry ID or wardrobe storage key;
+- **Anonymity is the contract: no name, no profile, no stable identifier in any response** (never describe it as "cannot be linked": the
+  copies are the owner's pictures, and someone who knows the pieces can tell; the consent says so). No league response may ever carry another player's user ID, name, e-mail, entry ID or wardrobe storage key;
   group tables show a generated per-week alias. Wardrobe keys contain the owner's ID (`StorageKeys.Build`), so a competing entry's thumbnails
-  are copied to `league/{random}/{random}/thumb.*` (public by the name, new every day; a catalog item without a thumbnail shows its product image)
+  are copied to `league/{random}/{random}/thumb.*` (public by the name, new every day, and different in bytes from the source and every other copy:
+  `ImageMarker` in `Common/Storage`, so no hash or ETag links them; an image it cannot mark is not copied; a catalog item without a thumbnail shows its product image)
   and `LeagueResponses` is the only builder of piece URLs: voters get copies and catalog images only, the owner may see their own thumbnails.
-  `LeagueAnonymityTests` checks pairs and votes of player B for every identifier of A and that the same piece has new URLs every day. **Account deletion:** every league table cascades on the user; `AccountPurger` deletes the league image copies first
+  `LeagueAnonymityTests` checks pairs, votes and results of player B for every identifier of A and that the same piece has new URLs and new bytes (content hash) every day. **Account deletion:** every league table cascades on the user; `AccountPurger` deletes the league image copies first
   (found through `league.entries`); `AccountDeletionTests`' matrix covers the league tables. A new league table that holds a user's data needs
   the same three things (cascade or purger step, privacy notes 1a, the matrix line).
 - **Boundaries:** the league reads other features' tables through `KombinDbContext` only and calls exactly two seams (allow-list lines `Seam`):
   Wardrobe's `WardrobeModerator` (the safety filter, Wardrobe rules) and Recommendation's `CatalogOutfitSampler` / `SampledOutfit` (Recommendation
   rules). It never names `OutfitHash`, `OutfitSlots` or any other engine type: the piece-set hash is its own (`RepeatRule.Hash`). Nothing in
   Recommendation or Wardrobe may ever reference League (it pulls, nothing pushes into it). Metabase never gets the `league` schema.
-- **Tests** play a league day of their own (`LeagueClientExtensions.NewDay`, far in the future, three days apart) and send their time with the
-  test clock's `X-Test-Now` header (`TestHeaderClock` in `ApiFactory`; `client.At(...)`), so pools never mix and nothing depends on the hour; jobs
-  are called with their time. `LeaguePerformanceTests` (`KOMBIN_PERF=1`, own container): `pairs/next` p95 ≤ 100 ms at 6,000 entries.
+- **The voter's own counters** (`league.voter_days`, task L4): `served` moves in the serving transaction and must land on the new pair's sequence
+  (the daily limit and the sequence come from it), `counted` moves with a counted vote (the voting points come from it). Never count either from
+  the pair rows: those are deleted with the account of the player whose outfit they showed.
+- **The day close** (`DayCloser`, design note sections 8 and 9, decisions under PR 3 in section 14). One transaction under
+  `pg_try_advisory_xact_lock(0x4B4F4D42, 2)` (not getting it = `AlreadyRunning`, 409 `League.CloseInProgress`); the day row is created when missing
+  and read `FOR UPDATE` (a vote, a withdrawal and a leave hold it `FOR SHARE`); `closed_at` set = nothing to do; before the day's 21:00 =
+  `NotOver` (409 `League.DayNotOver`). It reads the day's entries and **counted, weighted, non-`Skip` pair rows** in ID order (never the entry
+  counters), leaves out disabled and pending-deletion players (outfits and votes) and every vote on a `Removed` entry, keeps withdrawn entries as
+  opponents, fits the pure `BradleyTerry` (Newman's iteration in place, stopping at 1e-6 on ln π or 500 sweeps: not the note's MM step, which does
+  not converge in 500), ranks with the pure `Percentile` the human `Competing` entries with `MinComparisons` votes (an entry hidden by reports and not reviewed is
+  ranked too and its row marked `under_review`: its owner sees "UnderReview" until `LeagueEntryReviewer` restores or removes it; a removal zeroes
+  that day's vote points only, never undoes a closed week and moves no other rank), and writes
+  one `daily_scores` row (pure `DailyPoints`) per player joined at the close with an entry or a point, `competed` true for every `Competing` entry
+  (the repeat rule reads it). Strengths and scores are written with one statement each from arrays; a closed day is never changed.
+  **`league-close`** (hourly at :00 `Europe/Istanbul`, `[DisableConcurrentExecution(60)]`, `[AutomaticRetry(Attempts = 0)]`, tests call
+  `CloseDueAsync(now, ct)`) closes the unclosed days of the last `League:CloseCatchUpDays` days oldest first and stops at the first failure.
+  Every boundary is 21:00:00 Istanbul, half-open: a vote, a wear or a piece at 21:00:00 is past the day.
+- **Results** (`GET /league/results?day=`, `/results/latest`): the caller's own `daily_scores` row of a closed day and their own entry
+  (`LeagueResponses.ForOwnerAsync`), nothing of anyone else; 404 `League.ResultsNotReady` otherwise.
+- **Weeks** (`WeekCloser`, design note section 10, decisions under PR 4 in section 14): one transaction under
+  `pg_try_advisory_xact_lock(0x4B4F4D42, 3)`, the week row `FOR UPDATE`, only once Sunday's 21:00 passed and all seven days are closed; closed once.
+  The pure `WeeklyTable` (best `BestDays` totals; ties by the seven-day sum, competed days and an FNV hash of (week, user); bands
+  `min(5, floor(competed / 3))`, Diamond never up, Bronze never down; two idle weeks cost a tier), `GroupFormation` (tiers under `MinTierPlayers` merged
+  upward, the top remainder into the set below, labels kept, cut into near-equal groups by the hash) and `LeagueAliases` (18 colours × 16 garments,
+  cryptographically random, unique in the group, never last week's: the one random part). `league-close` closes the weeks of its window after the
+  days; the internal day close does not. `CloseWeekAsync(weekStart, now, players, ct)`: tests always pass their players (idleness would otherwise reach
+  every player of the shared database). Placement (`LeagueGroups.PlaceAsync`, under the week's advisory lock): on join, on `GET /league/me` and
+  `/table`, and by the day close for every player with a result; leaving takes the player off the current week's group.
+- **The table** (`GET /league/table`, `LeagueTables`): rows `{ rank, points, isMe, alias }` and nothing else, ever (`LeagueAnonymityTests`); an open
+  week computed on read, a closed week as stored and renumbered 1..n. `week` in `/league/me` and in the results comes from the same reader.
+- **Style score** (pure `StyleScore`, at every week close, `league.style_scores`): no endpoint and no screen read it.
+- **Review** (`LeagueEntryReviewer`, the one home of the decision; `GET /internal/league/review-queue`, `POST /internal/league/entries/{id}/review`
+  `{ decision: Restore | Remove }`): every decision writes an `admin.audit_log` row (the entity; League never names the Admin feature).
+- **The result push** is Notification's `league-results` job (reads `league.daily_scores`, calls no league code; see Notification rules).
+- **`league-purge`** (daily 04:15, `[DisableConcurrentExecution(60)]`, `[AutomaticRetry(Attempts = 0)]`, tests call `PurgeAsync(now, days, sweepOrphans, ct)`
+  with their own days): copies 7 days after their day, pairs and voter counters 30 days and entries 90 days after a **closed** day, and objects under
+  `league/` that no entry piece names once older than `League:Retention:OrphanGrace` (`IObjectStorage.ListAsync`).
+- **Tests** play a league day of their own (`LeagueClientExtensions.NewDay`, far in the future, three days apart; `NewBlock(n)` for a run of
+  consecutive days, which the hourly close's window needs) and send their time with the test clock's `X-Test-Now` header (`TestHeaderClock` in
+  `ApiFactory`; `client.At(...)`), so pools never mix and nothing depends on the hour; jobs are called with their time. Every class that closes a
+  day joins the `LeagueCloses` collection (one close lock per database). `LeaguePerformanceTests` (`KOMBIN_PERF=1`, own container): `pairs/next`
+  p95 ≤ 100 ms at 6,000 entries, the close ≤ 30 s at 10,000 players (measured at 1,000 and 10,000).
+
+## Try-on rules
+
+- **What exists (task P3):** "Manken üstünde gör" in `Features/TryOn` (design and every decision: `docs/design/try-on.md`; the specification is
+  `kombin-vision/docs/design/try-on-briefs.md` and the vision README's `/v1/garment/prepare` and `/v1/tryon/render`). Schema `tryon` (`garments`, one
+  row per wardrobe item or product, updated in place; `renders`; `reports`), `GET /api/v1/me/tryon?outfitId=|productId=&withWardrobe=`,
+  `POST /api/v1/me/tryon/reports`, the job `tryon-prepare`, `TryOnOptions` (`TryOn:*`, every number), `docs/metrics.sql`'s `-- tryon:` block (run by
+  hand). It is a mannequin drawing, never "sanal deneme": the copy and the API description say so.
+- **Off by default.** `TryOn:Enabled` (env `TryOn__Enabled`) is false: the routes stay mapped and answer 404 `TryOn.Disabled` first, the job does
+  nothing. `ApiFactory` switches it on.
+- **The readiness rule is the pure `TryOnReadiness.Decide`**, in the brief's order: BMI over `TryOn:MaxBmi` (36; no weight = the audience's default
+  BMI, no height = the audience's default height, `TryOnBody`) → no family, no top or no bottom → a core piece (top, outerwear, trousers, skirt, shoes)
+  photographed on a person, not preparable, refused, failed or `reliable = false` → the outermost upper garment (outerwear if any, else the top) with
+  `may_be_outermost = false` → a core piece without an answer is `Preparing` → `Ready`. Bags and belts never block. Every 4xx of the renderer (its
+  four 422s above all) is `Unavailable` and is **remembered under the cache key** (`renders.refusal`), so the same inputs never ask again; a transient
+  render failure is 503 `TryOn.RendererUnavailable`. Change the rule there, in its comment block and in the design note together.
+- **Preparing is pull-based.** Nothing pushes into try-on: `tryon-prepare` (every minute, `[AutomaticRetry(Attempts = 0)]`, deliberately no
+  `[DisableConcurrentExecution]`: rows are claimed with a lease) finds due wardrobe items and products by SQL (`TryOnSources`' hash computed by
+  PostgreSQL: change both together) and the pure `TryOnPrepareRules.Due`; a request that finds a piece without an answer creates its row `Pending`
+  (asked for) and enqueues one `PrepareRequestedAsync`. A wardrobe item with the `person_wearing` warning is **never** prepared; one added from the
+  catalogue uses its product's row. Catalogue prepares run **one at a time** under `TryOnCatalogueLock` (`pg_try_advisory_lock(0x4B4F4D42, 4)`),
+  `TryOn:DayCatalogueBatch` per run by day, `TryOn:NightCatalogueBatch` at night. Transient failures: one later retry (`RetryAfter`), then `Failed`
+  for `FailedRetryAfter`; a 4xx is `Refused` until the source changes; an answered row keeps its answer through failures. "The current version" is the
+  latest answer's; other versions are re-prepared last (low priority). Tests call `ProcessAsync(now, scope, ct)` with their own IDs and belong to the
+  `TryOnJobs` collection (one catalogue lock per database).
+- **Photos over 8 MB are scaled before sending** (`Common/Imaging/VisionImageFit`, SkiaSharp, MIT): ≤ 1600 px on the long side, PNG with alpha when
+  transparent, JPEG 90 otherwise; then the largest photos until the request is ≤ 16 MB. Retailer photos come **only** through the catalogue's
+  `CatalogImageFetcher` (resolved from DI; public addresses, politeness) with `TryOn:MaxSourceImageBytes` (50 MB); a photo over `MaxSourcePixels`
+  (60 MP) is never decoded. SkiaSharp is the API's only image library; do not add another.
+- **Cache key and invalidation** (`TryOnCacheKey`, pure): renderer (`/health`'s `renderer`, cached per process like the CLIP model), body values,
+  each garment's row, version, `prepared_at`, answered source hash, size, reference size (`SizeHints`: own size, else the suggestion) and cut, and
+  the width. Every
+  invalidation of the brief is a new key, so Profile never calls try-on; renders of other measurements are deleted at the next render and by the job,
+  renders unused for `RenderRetention` (30 days) by the job.
+- **Limits:** `TryOnRenderGate`, in memory per instance: `TryOn:RendersPerHour` (30) renderer calls per user per rolling hour (429 `RateLimited`
+  with `retryAfterSeconds` and `Retry-After`, the rate limiter's shape) and one in flight (a second request answers `Preparing`). Cache hits are free.
+- **Privacy:** a render reveals body proportions: private key names (`prepared.png`, `render.webp`), a one-hour presigned GET in the owner's answer only,
+  body values never in a log line or an analytics event (the vision client logs only the path and the service's code). `AccountPurger` deletes the
+  render images and the prepared cutouts of the user's wardrobe items; the rows cascade (`AccountDeletionTests`' matrix, `docs/privacy-notes.md` 1a
+  and 6c).
+- **Response IDs:** `garments[].id` and a report's `garmentIds` are the pieces' IDs as the outfit carries them (wardrobe item or product), never a
+  garment row ID; reports store the resolved `tryon.garments` rows.
+- **Boundaries:** three documented seams (allow-list lines `Seam`): Catalog's `CatalogImageFetcher` (the guarded fetcher), Profile's `SizeHints`
+  (the reference size) and Recommendation's `HowToWear` / `OutfitStore` ("Dolabımla dene" with `withWardrobe=true`: the first how-to-wear outfit of
+  the caller's own pieces only; none → the product alone, so `Unavailable`). Nothing may reference TryOn.
+- **Tests:** `FakeVisionClient.TryOn.cs` answers prepare and render by the photos' text (`tryon-unreliable`, `tryon-folded`, `tryon-503`, `tryon-413`,
+  `tryon-r422-<code>`, `tryon-r503`), counts calls, keeps the last spec and can hold a render.
 
 ## Admin rules
 
@@ -791,6 +895,7 @@ dotnet format Kombin.slnx --verify-no-changes --no-restore     # drop --verify-n
 dotnet build Kombin.slnx --configuration Release --no-restore
 dotnet test --solution Kombin.slnx --configuration Release --no-build    # integration tests need Docker
 dotnet test --project tests/Kombin.Api.Tests                            # unit tests only, no Docker
+KOMBIN_TEST_ISTANBUL_TIME=21:01 dotnet test --project tests/Kombin.Api.IntegrationTests --configuration Release --no-build    # the tests' clock (TestClock) starts at that Istanbul time: a test that fails at some hour must pin its own (X-Test-Now, client.At)
 KOMBIN_PERF=1 dotnet test --project tests/Kombin.Api.IntegrationTests --configuration Release -- --filter-class "Kombin.Api.IntegrationTests.OutfitPerformanceTests" --filter-class "Kombin.Api.IntegrationTests.FeedPerformanceTests" --filter-class "Kombin.Api.IntegrationTests.LensPerformanceTests" --filter-class "Kombin.Api.IntegrationTests.BudgetAndTripPerformanceTests" --filter-class "Kombin.Api.IntegrationTests.LeaguePerformanceTests"    # latency budgets, on a quiet machine
 
 # Run the API against a local PostgreSQL (docker/.env must define JWT_SIGNING_KEY)
@@ -841,7 +946,8 @@ Apple ID tokens (no OAuth redirect flow, no other providers), an admin UI beyond
 repositories, AutoMapper, email/SMS/marketing notifications, A/B testing, scraping workers, affiliate conversion import, a free-form
 analytics event stream (Analytics accepts only its allow-list), and in Social: comments, DMs, stories or video, hashtags or search over
 posts, follow requests, creator payouts and public web pages for posts, and in Lens: text search, multi-photo or video search, storing
-query photos, retraining or fine-tuning, other model families. Features that exist: Identity (auth with a password or a Google/Apple ID token, me, account deletion with a 7-day window), Legal (the public legal pages and their version), Catalog (brands, sellers, categories, products, offers, price
+query photos, retraining or fine-tuning, other model families, and in TryOn: drawing the user's own photo ("sanal deneme"), garments photographed on a
+person, a review screen for reports. Features that exist: Identity (auth with a password or a Google/Apple ID token, me, account deletion with a 7-day window), Legal (the public legal pages and their version), Catalog (brands, sellers, categories, products, offers, price
 snapshots, internal upsert, seller bootstrap and listing, offer sweep), Engagement (saved products, price alerts and their trigger feed, `/go` redirect, click
 history) and Profile (user profile and measurements, personas, swipe onboarding with style cards, derived style profile,
 rule-based match score, size map with hints) and Notification (devices, notification preferences, the notification feed, push
@@ -853,5 +959,8 @@ Social (versioned posting consent, photo and outfit posts with moderation, metad
 blocks, reports and review, the feed, try-with-wardrobe, creators with click attribution and earnings estimates) and Lens (visual search:
 catalog embeddings and their job, photo search with family, floor and audience guardrails, wardrobe matches) and Admin (the founder's
 panel: review queue, creators, catalog and backfill, user disable, audit log, dashboard) and League (Kombin Ligi: schema, settings, consent,
-join and leave, the worn outfit's entry with its image copies, engine outfits, pairing, voting, reports and withdrawing; off by default). Learning from
+join and leave, the worn outfit's entry with its image copies, engine outfits, pairing, voting, reports and withdrawing, the day close with
+Bradley–Terry and the daily points, the results, the purge, weeks with groups, aliases, promotion and relegation, the table, the style score, the
+review queue and the evening result push; off by default) and TryOn ("Manken üstünde gör": prepared garments, the readiness rule, cached
+mannequin drawings, "Yanlış görünüyor" reports; off by default). Learning from
 clicks, saves and outfit feedback is still to come, and not Profile's job. Add other features only when a task asks for them.

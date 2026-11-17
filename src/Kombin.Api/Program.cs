@@ -7,6 +7,7 @@ using Kombin.Api.Common.RateLimiting;
 using Kombin.Api.Common.Storage;
 using Kombin.Api.Common.Time;
 using Kombin.Api.Common.Validation;
+using Kombin.Api.Common.Vision;
 using Kombin.Api.Features.Admin;
 using Kombin.Api.Features.Analytics;
 using Kombin.Api.Features.Catalog;
@@ -19,6 +20,7 @@ using Kombin.Api.Features.Notification;
 using Kombin.Api.Features.Profile;
 using Kombin.Api.Features.Recommendation;
 using Kombin.Api.Features.Social;
+using Kombin.Api.Features.TryOn;
 using Kombin.Api.Features.Wardrobe;
 using Kombin.Api.Persistence;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
@@ -62,12 +64,14 @@ builder.Services.AddEngagementFeature();
 builder.Services.AddNotificationFeature();
 builder.Services.AddAnalyticsFeature();
 builder.Services.AddObjectStorage();
+builder.Services.AddVisionClient();
 builder.Services.AddWardrobeFeature();
 builder.Services.AddRecommendationFeature();
 builder.Services.AddSocialFeature();
 builder.Services.AddAdminFeature();
 builder.Services.AddLegalFeature();
 builder.Services.AddLeagueFeature();
+builder.Services.AddTryOnFeature();
 
 var app = builder.Build();
 
@@ -117,6 +121,7 @@ app.MapLensEndpoints();
 app.MapAdminEndpoints();
 app.MapLegalEndpoints();
 app.MapLeagueEndpoints();
+app.MapTryOnEndpoints();
 
 await app.MigrateDatabaseOnStartupAsync();
 await app.SeedStyleCardsOnStartupAsync();
@@ -130,6 +135,7 @@ app.UseWardrobeJobs();
 app.UseSocialJobs();
 app.UseIdentityJobs();
 app.UseLeagueJobs();
+app.UseTryOnJobs();
 await app.RunAsync();
 return 0;
 

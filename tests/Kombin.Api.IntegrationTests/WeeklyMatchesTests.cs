@@ -32,7 +32,7 @@ public sealed class WeeklyMatchesTests(ApiFactory factory)
                 FormalityMean = 3,
                 LikeCount = 12,
                 Confidence = 1,
-                UpdatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = TestClock.UtcNow,
             });
             await db.SaveChangesAsync(Ct);
 
@@ -199,9 +199,9 @@ public sealed class WeeklyMatchesTests(ApiFactory factory)
                 Title = "Eski",
                 Body = "Eski",
                 DedupeKey = $"newmatches:{Guid.NewGuid()}:2020-W01",
-                CreatedAt = DateTimeOffset.UtcNow.AddDays(-2),
-                ScheduledFor = DateTimeOffset.UtcNow.AddDays(-2),
-                SentAt = DateTimeOffset.UtcNow.AddDays(-2),
+                CreatedAt = TestClock.UtcNow.AddDays(-2),
+                ScheduledFor = TestClock.UtcNow.AddDays(-2),
+                SentAt = TestClock.UtcNow.AddDays(-2),
                 Status = NotificationStatus.Sent,
             });
             await db.SaveChangesAsync(Ct);

@@ -167,7 +167,7 @@ public sealed class FeedPerformanceTests(FeedPerformanceTests.FeedPerformanceFac
         private async Task<(HttpClient Viewer, HttpClient Anonymous)> SeedOnceAsync(CancellationToken cancellationToken)
         {
             var random = new Random(20261107);
-            var now = DateTimeOffset.UtcNow;
+            var now = TestClock.UtcNow;
             var colours = Enum.GetValues<ProductColor>();
             var fits = new[] { ProductFit.Slim, ProductFit.Regular, ProductFit.Relaxed, ProductFit.Oversized };
 

@@ -1,4 +1,5 @@
 using Kombin.Api.Common.Storage;
+using Kombin.Api.Common.Vision;
 using Kombin.Api.Features.Wardrobe;
 using Kombin.Api.Features.Wardrobe.AddFromProduct;
 using Kombin.Api.Features.Wardrobe.CreateUploadUrl;

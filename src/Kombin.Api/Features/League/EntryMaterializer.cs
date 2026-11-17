@@ -23,11 +23,17 @@ internal sealed record EntryResolution(LeagueEntry? Entry, int ModerationCalls);
 /// <item>Eligibility is the pure <see cref="EntryEligibility"/>; the image safety filter is Wardrobe's <see cref="WardrobeModerator"/>, the
 /// one seam this class uses.</item>
 /// <item>Images: when the entry becomes <c>Competing</c>, each piece's thumbnail is copied to <c>league/{random}/{random}/thumb.*</c>, public by
-/// its name and linked to no one (wardrobe keys carry the owner's ID). A catalog item without a stored thumbnail shows its product's image.
-/// Replaced copies are deleted after the commit; withdrawn and removed entries' copies by <see cref="ReleaseCopiesAsync"/>.</item>
+/// its name and linked to no one (wardrobe keys carry the owner's ID), and every copy differs in bytes from its source and from every other copy
+/// (<see cref="ImageMarker"/>: no hash or ETag links two copies of one piece). A thumbnail that cannot be marked is not copied, so a catalog item
+/// shows its product's image and a photo piece leaves the outfit <c>PieceUnavailable</c>. Replaced copies are deleted after the commit; withdrawn
+/// and removed entries' copies by <see cref="ReleaseCopiesAsync"/>.</item>
+/// <item>Until it is first served, the entry follows what changed since: a fresh decision that is not <c>Competing</c> (a birth year, an archived
+/// or deleted piece) replaces a competing entry and its copies are deleted; an outfit that is no longer today's (dismissed) leaves the entry
+/// <c>NotCompeting</c> with <c>NotWorn</c>.</item>
 /// </list>
-/// One player's resolutions are serialised by a transaction-scoped advisory lock, and the entry row is read <c>FOR UPDATE</c>, so a pair being
-/// served at the same moment either sees the old entry (and locks it) or the new one.
+/// One player's resolutions, and leaving (<see cref="LockPlayerDayAsync"/>), are serialised by a transaction-scoped advisory lock, the player's
+/// standing is checked again under it, and the entry row is read <c>FOR NO KEY UPDATE</c>, so a pair being served at the same moment either sees the old
+/// entry (and locks it) or the new one, and a player who left while the safety filter was asked never gets a competing entry.
 /// </summary>
 internal sealed partial class EntryMaterializer(
     KombinDbContext db,
@@ -58,7 +64,8 @@ internal sealed partial class EntryMaterializer(
         var outfit = await TodaysOutfit.ResolveAsync(db, userId, day, settings.DayClosesAt, cancellationToken);
         if (outfit is null)
         {
-            return new EntryResolution(settled, 0);
+            // No worn outfit (any more): an entry made from one that was dismissed since stops competing.
+            return new EntryResolution(settled is null ? null : await RetireAsync(userId, day, cancellationToken), 0);
         }
 
         var outfitItems = outfit.Items.OrderBy(item => item.Position).ThenBy(item => item.Id).ToList();
@@ -82,7 +89,9 @@ internal sealed partial class EntryMaterializer(
 
         var productImages = await ProductImagesAsync([.. items.Values.Select(item => item.ProductId).OfType<Guid>()], cancellationToken);
         var pieces = outfitItems.Select(piece => Describe(piece, items, productImages)).ToList();
-        var pieceIds = RepeatRule.PieceIds(outfitItems.Where(piece => piece.WardrobeItemId is not null).Select(piece => (piece.Slot, piece.WardrobeItemId!.Value)));
+        var pieceIds = RepeatRule.PieceIds(outfitItems
+            .Where(piece => piece.WardrobeItemId is not null)
+            .Select(piece => (piece.Slot, Identity(piece.WardrobeItemId!.Value, items))));
         var profile = await db.UserProfiles.AsNoTracking()
             .Where(row => row.UserId == userId)
             .Select(row => new { row.BirthYear, row.Audience })
@@ -136,6 +145,21 @@ internal sealed partial class EntryMaterializer(
             count += batch.Count;
         }
     }
+
+    /// <summary>
+    /// The transaction-scoped advisory lock of one player's league day: every resolution of the entry and <c>POST /league/leave</c> take it, so
+    /// leaving and a resolution in flight never interleave. Must run inside a transaction.
+    /// </summary>
+    public static Task LockPlayerDayAsync(KombinDbContext db, Guid userId, DateOnly day, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(db);
+
+        return db.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock(hashtextextended({$"league-entry:{userId:N}:{day.DayNumber}"}, 0))", cancellationToken);
+    }
+
+    /// <summary>A piece's identity in the repeat rule: the product for a piece added from the catalog, else the wardrobe item.</summary>
+    private static Guid Identity(Guid wardrobeItemId, Dictionary<Guid, WardrobeItem> items) =>
+        items.TryGetValue(wardrobeItemId, out var item) ? RepeatRule.Identity(wardrobeItemId, item.ProductId, item.FromCatalog) : wardrobeItemId;
 
     private async Task<bool> InGoodStandingAsync(Guid userId, CancellationToken cancellationToken)
     {
@@ -202,10 +226,15 @@ internal sealed partial class EntryMaterializer(
         var released = new List<string>();
 
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-        await db.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock(hashtextextended({$"league-entry:{userId:N}:{day.DayNumber}"}, 0))", cancellationToken);
+        var entry = await LockedEntryAsync(userId, day, cancellationToken);
 
-        await db.Database.ExecuteSqlAsync($"SELECT 1 FROM league.entries WHERE day = {day} AND user_id = {userId} FOR UPDATE", cancellationToken);
-        var entry = await db.LeagueEntries.Include(row => row.Pieces).SingleOrDefaultAsync(row => row.Day == day && row.UserId == userId, cancellationToken);
+        // The player left (or lost their standing) while the outfit was judged: nothing is written. Leaving takes the same lock and has
+        // already withdrawn an existing entry.
+        if (!await InGoodStandingAsync(userId, cancellationToken))
+        {
+            await transaction.CommitAsync(cancellationToken);
+            return entry;
+        }
 
         // Final for the day (withdrawn, removed), or already in front of voters: the entry no longer follows the player's wears.
         if (entry is { Status: LeagueEntryStatus.Withdrawn or LeagueEntryStatus.Removed } || entry?.LockedAt is not null)
@@ -214,8 +243,9 @@ internal sealed partial class EntryMaterializer(
             return entry;
         }
 
-        // Already competing with this outfit: nothing to redo (no second copy of the images).
-        if (entry is { Status: LeagueEntryStatus.Competing } && entry.OutfitId == outfit.Id)
+        // Already competing with this outfit and still allowed to: nothing to redo (no second copy of the images). A fresh decision that is
+        // not Competing (a birth year set, a piece archived or deleted) falls through and replaces the entry and its copies.
+        if (entry is { Status: LeagueEntryStatus.Competing } && entry.OutfitId == outfit.Id && verdict.Status == LeagueEntryStatus.Competing)
         {
             await transaction.CommitAsync(cancellationToken);
             return entry;
@@ -288,6 +318,51 @@ internal sealed partial class EntryMaterializer(
         return entry;
     }
 
+    /// <summary>
+    /// The entry of a player who has no worn outfit today any more (dismissed after it was worn): <c>NotCompeting</c> with <c>NotWorn</c> and its
+    /// copies deleted, unless it is final or already in front of voters.
+    /// </summary>
+    private async Task<LeagueEntry?> RetireAsync(Guid userId, DateOnly day, CancellationToken cancellationToken)
+    {
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var entry = await LockedEntryAsync(userId, day, cancellationToken);
+
+        if (entry is null or { Status: LeagueEntryStatus.Withdrawn or LeagueEntryStatus.Removed } or { LockedAt: not null }
+            or { Status: LeagueEntryStatus.NotCompeting, Reason: LeagueEntryReason.NotWorn })
+        {
+            await transaction.CommitAsync(cancellationToken);
+            return entry;
+        }
+
+        var released = entry.Pieces.Select(piece => piece.ImageKey).OfType<string>().ToList();
+        foreach (var piece in entry.Pieces)
+        {
+            piece.ImageKey = null;
+        }
+
+        entry.Status = LeagueEntryStatus.NotCompeting;
+        entry.Reason = LeagueEntryReason.NotWorn;
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        await DeleteQuietlyAsync(released, cancellationToken);
+
+        return entry;
+    }
+
+    /// <summary>
+    /// The player's day lock, then their entry of the day (with its pieces) read <c>FOR NO KEY UPDATE</c>: it waits for a pair being served on it
+    /// (which takes the same lock) but not for the key-share locks of pair rows, which would make a serve and a resolution deadlock. Inside a
+    /// transaction.
+    /// </summary>
+    private async Task<LeagueEntry?> LockedEntryAsync(Guid userId, DateOnly day, CancellationToken cancellationToken)
+    {
+        await LockPlayerDayAsync(db, userId, day, cancellationToken);
+        await db.Database.ExecuteSqlAsync($"SELECT 1 FROM league.entries WHERE day = {day} AND user_id = {userId} FOR NO KEY UPDATE", cancellationToken);
+
+        return await db.LeagueEntries.Include(row => row.Pieces).SingleOrDefaultAsync(row => row.Day == day && row.UserId == userId, cancellationToken);
+    }
+
     private static LeagueEntryPiece Piece(PieceInput piece, int position, string? imageKey, string? imageUrl) => new()
     {
         Position = (short)position,
@@ -298,7 +373,10 @@ internal sealed partial class EntryMaterializer(
         ImageUrl = imageUrl,
     };
 
-    /// <summary>The league's own copy of a thumbnail under random key segments; null when the source object is gone.</summary>
+    /// <summary>
+    /// The league's own copy of a thumbnail under random key segments, with bytes of its own (<see cref="ImageMarker"/>); null when the source
+    /// object is gone or is not an image that can be marked (an unmarked copy would hash like the wardrobe thumbnail).
+    /// </summary>
     private async Task<string?> CopyAsync(string sourceKey, CancellationToken cancellationToken)
     {
         if (await storage.GetAsync(sourceKey, cancellationToken) is not { } stored)
@@ -306,9 +384,14 @@ internal sealed partial class EntryMaterializer(
             return null;
         }
 
-        var extension = StorageKeys.ExtensionFor(stored.ContentType) ?? Path.GetExtension(sourceKey).TrimStart('.');
-        var key = StorageKeys.Build("league", Guid.NewGuid(), Guid.NewGuid(), ImageVariant.Thumb, string.IsNullOrEmpty(extension) ? "webp" : extension);
-        await storage.PutAsync(key, stored.Content, stored.ContentType, cancellationToken);
+        if (ImageMarker.Mark(stored.Content) is not { } marked)
+        {
+            LogUnmarkable(logger, stored.ContentType);
+            return null;
+        }
+
+        var key = StorageKeys.Build("league", Guid.NewGuid(), Guid.NewGuid(), ImageVariant.Thumb, StorageKeys.ExtensionFor(marked.ContentType) ?? "webp");
+        await storage.PutAsync(key, marked.Content, marked.ContentType, cancellationToken);
 
         return key;
     }
@@ -332,6 +415,9 @@ internal sealed partial class EntryMaterializer(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "League: {Count} image copies could not be deleted and are left in storage.")]
     private static partial void LogCopiesLeft(ILogger logger, int count, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "League: a thumbnail ({ContentType}) is not a JPEG, PNG or WEBP that parses; it is not copied.")]
+    private static partial void LogUnmarkable(ILogger logger, string contentType);
 
     private sealed record PieceInput(OutfitSlot Slot, WardrobeItem? Item, string? ThumbKey, string? ProductImage, EligibilityPiece Eligibility);
 }

@@ -17,6 +17,12 @@ internal sealed class LeagueOptions
     /// <summary>The day closes (votes stop, results are computed) at this Istanbul time.</summary>
     public TimeOnly DayClosesAt { get; set; } = new(21, 0);
 
+    /// <summary>
+    /// How many past days the hourly <c>league-close</c> looks at for one that has not been closed (a deploy, a crash); an older day is closed
+    /// by hand (<c>POST /internal/league/days/{date}/close</c>).
+    /// </summary>
+    public int CloseCatchUpDays { get; set; } = 7;
+
     /// <summary>A known birth year keeps the player out unless they are certainly older than this (<c>LeagueRules.IsUnderAge</c>).</summary>
     public int MinAge { get; set; } = 18;
 
@@ -144,6 +150,10 @@ internal sealed class LeagueRetention
     public int PairDays { get; set; } = 30;
 
     public int EntryDays { get; set; } = 90;
+
+    /// <summary>A stored copy under <c>league/</c> that no entry piece names is deleted by <c>league-purge</c> once it is this old (a younger one may
+    /// belong to an entry whose transaction has not committed yet).</summary>
+    public TimeSpan OrphanGrace { get; set; } = TimeSpan.FromDays(1);
 }
 
 internal sealed class LeagueOptionsValidator : IValidateOptions<LeagueOptions>
@@ -196,9 +206,9 @@ internal sealed class LeagueOptionsValidator : IValidateOptions<LeagueOptions>
             yield return "League:Points must not be negative, and PieceDaysPerWeek must be 0-7.";
         }
 
-        if (options.BestDays is < 1 or > 7)
+        if (options.BestDays is < 1 or > 7 || !Positive(options.CloseCatchUpDays))
         {
-            yield return "League:BestDays must be 1-7.";
+            yield return "League:BestDays must be 1-7 and CloseCatchUpDays at least 1.";
         }
 
         if (!Positive(options.GroupSize) || options.GroupMaxSize < options.GroupSize || options.PromoteCount < 0 || options.RelegateCount < 0
@@ -229,9 +239,10 @@ internal sealed class LeagueOptionsValidator : IValidateOptions<LeagueOptions>
             yield return "League:StyleScore: WindowDays, MinDays and ConsecutiveWeeks at least 1, MinDays at most WindowDays, MinRankedPerDay not negative, Threshold 0-100.";
         }
 
-        if (!Positive(retention.ImageDays) || !Positive(retention.PairDays) || retention.EntryDays < Math.Max(options.RepeatExactDays, styleScore.WindowDays))
+        if (!Positive(retention.ImageDays) || !Positive(retention.PairDays) || retention.EntryDays < Math.Max(options.RepeatExactDays, styleScore.WindowDays)
+            || retention.OrphanGrace < TimeSpan.FromHours(1))
         {
-            yield return "League:Retention: ImageDays and PairDays at least 1; EntryDays at least RepeatExactDays and StyleScore:WindowDays (the rules read that far back).";
+            yield return "League:Retention: ImageDays and PairDays at least 1; EntryDays at least RepeatExactDays and StyleScore:WindowDays (the rules read that far back); OrphanGrace at least an hour.";
         }
     }
 }
