@@ -529,6 +529,98 @@ public sealed class TryOnTests(ApiFactory factory)
     }
 
     [Fact]
+    public async Task ACheckSaysWhetherTheDrawingWouldBeAvailableWithoutDrawingOrSpendingTheLimit()
+    {
+        var marker = NewMarker();
+        using var user = await factory.CreateUserAsync(Ct);
+        var (outfit, top, trousers, shoes) = await factory.SeedWardrobeOutfitAsync(user.Id, marker);
+
+        // Not prepared yet: Preparing, and the prepare is asked for (otherwise the answer could never change); nothing is drawn.
+        var preparing = await user.Client.GetTryOnOkAsync($"outfitId={outfit}&check=true", Ct);
+        Assert.Equal("Preparing", preparing.Status());
+        Assert.Equal(JsonValueKind.Null, preparing.GetProperty("imageUrl").ValueKind);
+        Assert.Equal(TryOnGarmentStatus.Pending, (await RowOfItemAsync(top))!.Status);
+        await factory.RunTryOnAsync(TestClock.UtcNow, items: [top, trousers, shoes]);
+
+        // Ready means a real request would draw: the shape is the same record, with no image, no garments and no renderer; nothing was drawn or stored.
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            var check = await user.Client.GetTryOnOkAsync($"outfitId={outfit}&check=true", Ct);
+            Assert.Equal("Ready", check.Status());
+            Assert.Null(check.Reason());
+            Assert.Equal(JsonValueKind.Null, check.GetProperty("imageUrl").ValueKind);
+            Assert.Empty(check.GetProperty("garments").EnumerateArray());
+            Assert.Empty(check.GetProperty("defaultedMeasurements").EnumerateArray());
+            Assert.Equal(JsonValueKind.Null, check.GetProperty("renderer").ValueKind);
+        }
+
+        Assert.Equal(0, FakeVisionClient.RenderCalls(marker));
+        Assert.Empty(await RendersOfAsync(user.Id));
+
+        // The real request still draws, and `check=false` is the plain request.
+        var drawn = await user.Client.GetTryOnOkAsync($"outfitId={outfit}&check=false", Ct);
+        Assert.Equal("Ready", drawn.Status());
+        Assert.False(string.IsNullOrEmpty(drawn.GetProperty("imageUrl").GetString()));
+        Assert.Equal(1, FakeVisionClient.RenderCalls(marker));
+
+        // A check is a cache read: it does not move the render's last use.
+        var before = Assert.Single(await RendersOfAsync(user.Id)).LastUsedAt;
+        Assert.Equal("Ready", (await user.Client.GetTryOnOkAsync($"outfitId={outfit}&check=true", Ct)).Status());
+        Assert.Equal(before, Assert.Single(await RendersOfAsync(user.Id)).LastUsedAt);
+        Assert.Equal(1, FakeVisionClient.RenderCalls(marker));
+    }
+
+    [Fact]
+    public async Task ACheckAnswersWhatTheReadinessRuleAndARememberedRefusalWouldAnswerAndNeverSpendsTheLimit()
+    {
+        // The readiness rule: a product alone can never be drawn.
+        var marker = NewMarker();
+        using var alone = await factory.CreateUserAsync(Ct);
+        var product = await factory.SeedTryOnProductAsync("ust-giyim/gomlek", [TryOnClientExtensions.ImageUrl(marker)]);
+        var unavailable = await alone.Client.GetTryOnOkAsync($"productId={product}&check=true", Ct);
+        Assert.Equal("Unavailable", unavailable.Status());
+        Assert.NotNull(unavailable.Reason());
+
+        // A refusal the renderer already gave for these inputs: the check knows it without asking again.
+        var refusedMarker = NewMarker();
+        var (user, outfit, _, _, _) = await ReadyOutfitAsync(refusedMarker, topFlavor: "tryon-r422-folded_sleeves");
+        using var _1 = user;
+        Assert.Equal("Ready", (await user.Client.GetTryOnOkAsync($"outfitId={outfit}&check=true", Ct)).Status());
+        Assert.Equal("Unavailable", (await user.Client.GetTryOnOkAsync($"outfitId={outfit}", Ct)).Status());
+        var refused = await user.Client.GetTryOnOkAsync($"outfitId={outfit}&check=true", Ct);
+        Assert.Equal(("Unavailable", "RendererRefused"), (refused.Status(), refused.Reason()));
+        Assert.Equal(1, FakeVisionClient.RenderCalls(refusedMarker));
+
+        // Checks are free: more than the hourly number of them are never limited.
+        for (var attempt = 0; attempt < 40; attempt++)
+        {
+            Assert.Equal("Unavailable", (await user.Client.GetTryOnOkAsync($"outfitId={outfit}&check=true", Ct)).Status());
+        }
+
+        Assert.Equal(1, FakeVisionClient.RenderCalls(refusedMarker));
+    }
+
+    [Fact]
+    public async Task TheReadyAnswerNamesTheRendererTheReportSendsBack()
+    {
+        var marker = NewMarker();
+        var (user, outfit, top, _, _) = await ReadyOutfitAsync(marker);
+        using var _1 = user;
+
+        var ready = await user.Client.GetTryOnOkAsync($"outfitId={outfit}", Ct);
+        var renderer = ready.GetProperty("renderer").GetString();
+        Assert.Equal(FakeVisionClient.Renderer, renderer);
+        Assert.Equal(Assert.Single(await RendersOfAsync(user.Id)).Renderer, renderer);
+
+        // A cache hit names it too; a Preparing or Unavailable answer has none.
+        Assert.Equal(renderer, (await user.Client.GetTryOnOkAsync($"outfitId={outfit}", Ct)).GetProperty("renderer").GetString());
+
+        using var reported = await user.Client.PostAsJsonAsync("/api/v1/me/tryon/reports", new { outfitId = outfit, garmentIds = new[] { top }, renderer }, Ct);
+        Assert.Equal(HttpStatusCode.NoContent, reported.StatusCode);
+        Assert.Equal(renderer, Assert.Single(await factory.WithDbAsync(db => db.TryOnReports.AsNoTracking().Where(row => row.UserId == user.Id).ToListAsync(Ct))).Renderer);
+    }
+
+    [Fact]
     public async Task AReportIsStoredOnceForTheDrawnGarmentsAndTheMetricListsThem()
     {
         var marker = NewMarker();

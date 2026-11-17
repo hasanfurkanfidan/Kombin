@@ -22,29 +22,34 @@ namespace Kombin.Api.Features.TryOn.GetTryOn;
 /// <summary>
 /// Exactly one of <c>OutfitId</c> (one of the caller's outfits: daily, how-to-wear, saved) and <c>ProductId</c>. <c>WithWardrobe</c> (product
 /// only): "Dolabımla dene", the product with the caller's own pieces; without it the product alone (never drawable: no bottom or no top).
+/// <c>Check</c>: only say whether the drawing would be available (see <see cref="GetTryOnEndpoint.Description"/>).
 /// </summary>
-internal sealed record TryOnQuery(Guid? OutfitId, Guid? ProductId, bool? WithWardrobe);
+internal sealed record TryOnQuery(Guid? OutfitId, Guid? ProductId, bool? WithWardrobe, bool? Check);
 
 /// <summary>
 /// "Manken üstünde gör". <c>Status</c>: <c>Ready</c> (show <c>ImageUrl</c>, a presigned GET valid for an hour, with "Manken üzerinde yaklaşık
 /// görünüm"), <c>Preparing</c> (show "Hazırlanıyor" and ask again), <c>Unavailable</c> (hide the action entirely, never a disabled button).
 /// <c>Garments</c> (Ready only): each drawn piece by the ID the outfit gives it (wardrobe item or product) with its fit label, null when nothing
 /// was comparable. <c>DefaultedMeasurements</c> (Ready only): the measurements the mannequin guessed; not empty → "Ölçülerini ekle, manken sana
-/// benzesin". <c>Reason</c> (Unavailable only): why, for the app team and support.
+/// benzesin". <c>Reason</c> (Unavailable only): why, for the app team and support. <c>Renderer</c> (Ready with an image only): the name of the
+/// renderer that drew it, sent back as <c>renderer</c> of <c>POST /me/tryon/reports</c> ("Yanlış görünüyor"); null otherwise, a check included.
 /// </summary>
 internal sealed record TryOnResponse(
     TryOnStatus Status,
     string? ImageUrl,
     IReadOnlyList<TryOnGarmentResponse> Garments,
     IReadOnlyList<string> DefaultedMeasurements,
-    TryOnUnavailableReason? Reason);
+    TryOnUnavailableReason? Reason,
+    string? Renderer = null);
 
 internal static class GetTryOnEndpoint
 {
     public const string Description =
         "\"Manken üstünde gör\": the outfit drawn on a mannequin proportioned from the caller's measurements. Ready carries a presigned image URL "
         + "(one hour); Preparing means a garment is still being prepared (ask again); Unavailable means the action must be hidden. A render reveals "
-        + "body proportions: the image is private to the caller.";
+        + "body proportions: the image is private to the caller. With check=true nothing is drawn and no render limit is spent: the answer is "
+        + "the status and reason only (Ready means a real request would draw it; imageUrl, garments and renderer stay empty), the way to decide "
+        + "whether to show the action. Ready carries renderer, which the app sends back with a \"Yanlış görünüyor\" report.";
 
     /// <summary>How many how-to-wear outfits "Dolabımla dene" looks through for one made of the caller's own pieces only.</summary>
     public const int WardrobeOutfits = 3;
@@ -96,6 +101,14 @@ internal static class GetTryOnEndpoint
             return TypedResults.Ok(new TryOnResponse(decision.Status, null, [], [], decision.Reason));
         }
 
+        if (query.Check == true)
+        {
+            // Would it be available? The readiness rule above plus a refusal the renderer already gave for these exact inputs; no drawing, no gate.
+            return await renderer.CheckAsync(userId, body, pieces, cancellationToken) == RenderVerdict.Refused
+                ? TypedResults.Ok(new TryOnResponse(TryOnStatus.Unavailable, null, [], [], TryOnUnavailableReason.RendererRefused))
+                : TypedResults.Ok(new TryOnResponse(TryOnStatus.Ready, null, [], [], null));
+        }
+
         var result = await renderer.RenderAsync(userId, body, pieces, now, cancellationToken);
 
         return result.Verdict switch
@@ -105,7 +118,8 @@ internal static class GetTryOnEndpoint
                 storage.GetPresignedDownloadUrl(result.Render!.ImageKey!, options.Value.RenderUrlLifetime),
                 JsonSerializer.Deserialize<List<TryOnGarmentResponse>>(result.Render.GarmentsJson, TryOnRenderer.Json) ?? [],
                 result.Render.DefaultedMeasurements,
-                null)),
+                null,
+                result.Render.Renderer)),
             RenderVerdict.InFlight => TypedResults.Ok(new TryOnResponse(TryOnStatus.Preparing, null, [], [], null)),
             RenderVerdict.Refused => TypedResults.Ok(new TryOnResponse(TryOnStatus.Unavailable, null, [], [], TryOnUnavailableReason.RendererRefused)),
             RenderVerdict.OverLimit => new RenderLimitResult(result.RetryAfter),
