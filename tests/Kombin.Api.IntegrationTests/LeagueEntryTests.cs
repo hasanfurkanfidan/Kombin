@@ -251,7 +251,8 @@ public sealed class LeagueEntryTests(ApiFactory factory)
     [Fact]
     public async Task AnOutfitThatCompetedRecentlySitsOutWithTheRulesLine()
     {
-        var day = NewDay();
+        // Three days back is another test's NewDay; a block keeps both days this test's own (a close there would read this row).
+        var day = NewBlock(4).AddDays(3);
         using var player = await factory.CreatePlayerAsync(day, Ct);
         var outfit = await factory.SeedOutfitAsync(player.Id, Ct);
 
@@ -391,7 +392,7 @@ public sealed class LeagueEntryTests(ApiFactory factory)
     [Fact]
     public async Task EngineOutfitsTopUpASmallPoolFromTheCatalogOnly()
     {
-        var day = NewDay();
+        var day = NewBlock(2).AddDays(1); // yesterday is used too: both days are this test's own
         using var anonymous = factory.CreateAnonymousClient();
         foreach (var (category, colour, formality) in new[]
         {

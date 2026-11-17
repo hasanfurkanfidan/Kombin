@@ -116,6 +116,8 @@ internal sealed class KombinDbContext(DbContextOptions<KombinDbContext> options)
 
     public DbSet<LeagueReport> LeagueReports => Set<LeagueReport>();
 
+    public DbSet<LeagueVoterDay> LeagueVoterDays => Set<LeagueVoterDay>();
+
     public DbSet<LeagueDailyScore> LeagueDailyScores => Set<LeagueDailyScore>();
 
     public DbSet<LeagueWeek> LeagueWeeks => Set<LeagueWeek>();

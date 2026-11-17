@@ -35,7 +35,19 @@ internal static class WithdrawEntryEndpoint
 
         var now = clock.UtcNow;
         var day = Istanbul.Today(now);
-        if (now >= LeagueDays.ClosesAt(day, options.Value.DayClosesAt) || await db.LeagueDays.AnyAsync(row => row.Day == day && row.ClosedAt != null, cancellationToken))
+        var closesAt = LeagueDays.ClosesAt(day, options.Value.DayClosesAt);
+        if (now >= closesAt)
+        {
+            return LeagueErrors.DayClosed.ToHttpResult();
+        }
+
+        // The day row is held FOR SHARE like a vote holds it, so the close (FOR UPDATE) sees the entry either before or after the withdrawal.
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        await db.Database.ExecuteSqlAsync(
+            $"INSERT INTO league.days (day, closes_at, ranked_count, engine_count, pair_count, bt_iterations, bt_converged, close_ms) VALUES ({day}, {closesAt}, 0, 0, 0, 0, false, 0) ON CONFLICT (day) DO NOTHING",
+            cancellationToken);
+        await db.Database.ExecuteSqlAsync($"SELECT 1 FROM league.days WHERE day = {day} FOR SHARE", cancellationToken);
+        if (await db.LeagueDays.AnyAsync(row => row.Day == day && row.ClosedAt != null, cancellationToken))
         {
             return LeagueErrors.DayClosed.ToHttpResult();
         }
@@ -52,6 +64,8 @@ internal static class WithdrawEntryEndpoint
             entry.Reason = null;
             await db.SaveChangesAsync(cancellationToken);
         }
+
+        await transaction.CommitAsync(cancellationToken);
 
         return TypedResults.NoContent();
     }

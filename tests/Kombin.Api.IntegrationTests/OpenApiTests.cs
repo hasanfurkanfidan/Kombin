@@ -59,6 +59,28 @@ public sealed class OpenApiTests(ApiFactory factory)
         Assert.Equal(["chosenGames", "chosenWinRate", "counted", "countedToday", "limit", "servedToday", "target"], Properties("VoteResponse"));
     }
 
+    // Task L4 (league PR 3): the results of a closed day, and the operators' close.
+    [Fact]
+    public async Task TheLeagueResultsAndTheCloseAreDocumented()
+    {
+        var document = await DocumentAsync();
+        var paths = document.GetProperty("paths");
+        var schemas = document.GetProperty("components").GetProperty("schemas");
+        string[] Properties(string schema) => [.. schemas.GetProperty(schema).GetProperty("properties").EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal)];
+
+        var results = paths.GetProperty("/api/v1/league/results").GetProperty("get");
+        Assert.Contains("LeagueResultsResponse", results.GetProperty("responses").GetProperty("200").GetRawText(), StringComparison.Ordinal);
+        Assert.Contains(results.GetProperty("parameters").EnumerateArray(), parameter => parameter.GetProperty("name").GetString() == "day");
+        Assert.Contains("LeagueResultsResponse", paths.GetProperty("/api/v1/league/results/latest").GetProperty("get").GetProperty("responses").GetProperty("200").GetRawText(), StringComparison.Ordinal);
+        Assert.Contains("CloseDayResponse", paths.GetProperty("/api/v1/internal/league/days/{date}/close").GetProperty("post").GetProperty("responses").GetProperty("200").GetRawText(), StringComparison.Ordinal);
+
+        Assert.Equal(["comparisons", "competed", "day", "entry", "message", "piecePointsAvailable", "points", "rank", "ranked", "rankedCount", "status", "week"], Properties("LeagueResultsResponse"));
+        Assert.Equal(["pieces", "total", "votes", "voting", "worn"], Properties("LeaguePointsResponse"));
+        Assert.Equal(["pieces"], Properties("LeagueResultEntryResponse"));
+        Assert.Equal(["endsAt", "groupRank", "pointsToPromotion", "tier"], Properties("LeagueResultsWeekResponse"));
+        Assert.Equal(["btConverged", "btIterations", "closeMs", "closedAt", "closedNow", "day", "engineCount", "pairCount", "rankedCount"], Properties("CloseDayResponse"));
+    }
+
     // Security review M5: the API documentation must say that "Followers" is not private (anyone can follow without approval).
     [Fact]
     public async Task PublishingSaysFollowersIsNotPrivate()

@@ -199,6 +199,15 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
             [HttpStatusCode.NotFound],
             async (w, f) => Assert.False(await f.WithDbAsync(db => db.LeagueReports.AnyAsync(report => report.ReporterId == w.Intruder.Id, Ct)))),
 
+        // A has a result on a closed day of the world's own; B asks for that day and for B's latest: only the caller's own row is ever read, so
+        // both are 404 League.ResultsNotReady and carry none of A's identifiers.
+        ["GET /api/v1/league/results"] = Probe(
+            w => new HttpRequestMessage(HttpMethod.Get, $"/api/v1/league/results?day={w.LeagueResultsDay.Iso()}"),
+            [HttpStatusCode.NotFound]),
+        ["GET /api/v1/league/results/latest"] = Probe(
+            w => new HttpRequestMessage(HttpMethod.Get, "/api/v1/league/results/latest"),
+            [HttpStatusCode.NotFound]),
+
         // Social
         ["GET /api/v1/social/consent"] = ScopedRead("/api/v1/social/consent"),
         ["POST /api/v1/social/consent"] = Exempt("Records the caller's own consent."),
@@ -580,13 +589,36 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
             return pair.Id;
         });
 
+        // A's result on a closed league day (written as the close writes it), with A's entry of that day.
+        var resultsDay = LeagueClientExtensions.NewDay();
+        var resultsEntryId = await factory.InsertEntryAsync(resultsDay, owner.Id, cancellationToken: cancellation);
+        await factory.WithDbAsync(async db =>
+        {
+            db.LeagueDays.Add(new Kombin.Api.Persistence.Entities.League.LeagueDay { Day = resultsDay, ClosesAt = LeagueClientExtensions.Time(resultsDay, 21), ClosedAt = LeagueClientExtensions.Time(resultsDay, 21, 1) });
+            db.LeagueDailyScores.Add(new Kombin.Api.Persistence.Entities.League.LeagueDailyScore
+            {
+                UserId = owner.Id,
+                Day = resultsDay,
+                EntryId = resultsEntryId,
+                Competed = true,
+                Ranked = true,
+                Rank = 1,
+                RankedCount = 1,
+                Comparisons = 8,
+                Percentile = 0.5,
+                VotePoints = 35,
+                Total = 35,
+            });
+            return await db.SaveChangesAsync(cancellation);
+        });
+
         // A second session of the owner, whose refresh token the intruder tries to log out.
         using var login = await anonymous.LoginAsync(ownerEmail, ApiClientExtensions.DefaultPassword, cancellationToken: cancellation);
         var ownerRefresh = (await login.ReadTokensAsync(cancellation)).RefreshToken;
 
         return new World(
             owner.Id, ownerEmail, intruder, ownerPersona, itemId, product.ProductId, alertId, sizeId, sizePromptId, outfitId, notificationId, deviceToken,
-            privatePost, followersPost, draftPost, ownerRefresh, tripId, leagueDay, leagueEntryId, leaguePairId);
+            privatePost, followersPost, draftPost, ownerRefresh, tripId, leagueDay, leagueEntryId, leaguePairId, resultsDay, resultsEntryId);
     }
 
     internal sealed record World(
@@ -609,14 +641,16 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
         Guid TripId,
         DateOnly LeagueDay,
         Guid LeagueEntryId,
-        Guid LeaguePairId)
+        Guid LeaguePairId,
+        DateOnly LeagueResultsDay,
+        Guid LeagueResultsEntryId)
     {
         /// <summary>What must never appear in an answer to user B. The product is public and the notification ID numeric, so neither is listed.</summary>
         public IReadOnlyList<string> OwnerSecrets =>
         [
             OwnerId.ToString(), OwnerEmail, OwnerPersonaId.ToString(), ItemId.ToString(), AlertId.ToString(), SizeId.ToString(), SizePromptId.ToString(), OutfitId.ToString(),
             OwnerDeviceToken, PrivatePostId.ToString(), FollowersPostId.ToString(), DraftPostId.ToString(), TripId.ToString(),
-            LeagueEntryId.ToString(), LeaguePairId.ToString(),
+            LeagueEntryId.ToString(), LeaguePairId.ToString(), LeagueResultsEntryId.ToString(),
         ];
     }
 

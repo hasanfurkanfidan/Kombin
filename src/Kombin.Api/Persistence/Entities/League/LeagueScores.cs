@@ -43,6 +43,15 @@ internal sealed class LeagueDailyScore
 
     /// <summary>Set by the Notification feature's result push.</summary>
     public DateTimeOffset? NotifiedAt { get; set; }
+
+    /// <summary>
+    /// The entry was hidden by reports and not yet reviewed at the close: it is ranked and its points are stored (they count in the week), but its
+    /// owner sees "under review" without the rank or the vote points until a reviewer restores or removes it (<c>LeagueEntryReviewer</c>).
+    /// </summary>
+    public bool UnderReview { get; set; }
+
+    /// <summary>A reviewer removed the entry after the close: its vote points became 0 and its rank is gone; other outfits keep theirs.</summary>
+    public bool RemovedByReview { get; set; }
 }
 
 /// <summary>A week, Monday 00:00 to Sunday 21:00 Istanbul.</summary>

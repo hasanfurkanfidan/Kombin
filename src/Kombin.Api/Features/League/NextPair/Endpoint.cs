@@ -49,7 +49,8 @@ internal static class NextPairEndpoint
     /// <summary>
     /// Serves the caller's next pair (design note section 6). An unanswered pair is returned again (asking again never re-rolls, so no one can
     /// fish for an outfit); after <c>League:MaxPairsPerDay</c> served pairs the answer is <c>DailyLimit</c> (skips and too-fast votes count; the
-    /// count is the last sequence, so pairs deleted with another player's account still count and their numbers are never reused);
+    /// count is the voter's own counter, <c>league.voter_days</c>, moved in the serving transaction, so pairs deleted with another player's
+    /// account still count and their numbers are never reused);
     /// otherwise <see cref="Pairing.Choose"/> picks from the least exposed candidates and the pair is stored with both entries' exposure
     /// counters (and their lock: an entry no longer follows its owner's wears once shown) in one transaction, the two entry rows locked in ID
     /// order like the vote does, so concurrent serves and votes on the same two outfits never deadlock. Errors: 403
@@ -88,11 +89,11 @@ internal static class NextPairEndpoint
 
             var served = await db.LeaguePairs.AsNoTracking()
                 .Where(pair => pair.VoterId == voterId && pair.Day == day)
-                .Select(pair => new { pair.LowEntryId, pair.HighEntryId, pair.Sequence })
+                .Select(pair => new { pair.LowEntryId, pair.HighEntryId })
                 .ToListAsync(cancellationToken);
 
-            // The last sequence, not the row count: a pair deleted with another player's account leaves a gap, and its number must not be reused.
-            var last = served.Count == 0 ? 0 : served.Max(pair => (int)pair.Sequence);
+            // The voter's own counter, not the pair rows: a pair deleted with another player's account (even the last one) leaves its number used.
+            var last = (await LeagueVoterStats.ForDayAsync(db, voterId, day, cancellationToken)).Served;
             if (last >= settings.MaxPairsPerDay)
             {
                 return await RespondAsync(null, LeagueNoPairReason.DailyLimit);
@@ -123,6 +124,19 @@ internal static class NextPairEndpoint
             try
             {
                 await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
+                // The voter's counter moves first and must land on this pair's sequence; a parallel serve of the same voter waits on the row
+                // here and then finds a different number (and, after the retry, the pair the first one served).
+                var counter = (await db.Database
+                    .SqlQuery<int>($"INSERT INTO league.voter_days (user_id, day, served, counted) VALUES ({voterId}, {day}, 1, 0) ON CONFLICT (user_id, day) DO UPDATE SET served = league.voter_days.served + 1 RETURNING served AS \"Value\"")
+                    .ToListAsync(cancellationToken)).Single();
+                if (counter != sequence)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    db.ChangeTracker.Clear();
+                    continue;
+                }
+
                 db.LeaguePairs.Add(pair);
                 await db.SaveChangesAsync(cancellationToken);
 

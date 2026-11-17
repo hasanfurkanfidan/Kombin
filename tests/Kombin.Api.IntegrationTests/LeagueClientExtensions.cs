@@ -66,6 +66,73 @@ internal static class LeagueClientExtensions
     /// <summary>A day of the test's own.</summary>
     public static DateOnly NewDay() => new DateOnly(2040, 1, 1).AddDays(Interlocked.Increment(ref NextDayIndex) * 3);
 
+    /// <summary>
+    /// The first of at least <paramref name="days"/> consecutive days of the test's own (the hourly close looks at a whole window of days, so
+    /// a test of it needs every day in that window to itself). <see cref="NewDay"/>'s days are three apart; this takes a run of them.
+    /// </summary>
+    public static DateOnly NewBlock(int days)
+    {
+        var steps = (days / 3) + 2;
+        var last = Interlocked.Add(ref NextDayIndex, steps);
+
+        return new DateOnly(2040, 1, 1).AddDays((last - steps + 1) * 3);
+    }
+
+    /// <summary>Closes <paramref name="day"/> with the close the job and the internal endpoint use, at <paramref name="now"/>.</summary>
+    public static Task<DayCloseResult> CloseDayAsync(this ApiFactory factory, DateOnly day, DateTimeOffset now, CancellationToken cancellationToken) =>
+        factory.RunJobAsync<DayCloser, DayCloseResult>(closer => closer.CloseAsync(day, now, cancellationToken));
+
+    /// <summary><c>POST /internal/league/days/{date}/close</c> with the internal key, at <paramref name="now"/>.</summary>
+    public static async Task<HttpResponseMessage> InternalCloseAsync(this ApiFactory factory, string date, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        using var client = factory.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/internal/league/days/{date}/close");
+        request.Headers.Add("X-Internal-Key", ApiFactory.InternalApiKey);
+        request.Headers.Add(TestHeaderClock.Header, now.ToString("O", CultureInfo.InvariantCulture));
+
+        return await client.SendAsync(request, cancellationToken);
+    }
+
+    public static string Iso(this DateOnly day) => day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+    /// <summary><c>GET /league/results?day=</c>.</summary>
+    public static Task<HttpResponseMessage> ResultsAsync(this HttpClient client, DateOnly day, CancellationToken cancellationToken) =>
+        client.GetAsync($"/api/v1/league/results?day={day.Iso()}", cancellationToken);
+
+    /// <summary>
+    /// Answered pairs inserted directly for one voter (sequence 1, 2, ...), served at noon and answered three seconds later: votes the API would
+    /// have stored, including ones it never makes (a skip marked counted), for the close to read.
+    /// </summary>
+    public static Task InsertVotesAsync(
+        this ApiFactory factory, DateOnly day, Guid voterId, IReadOnlyList<(Guid Left, Guid Right, LeaguePairChoice Choice, bool Counted)> votes, CancellationToken cancellationToken) =>
+        factory.WithDbAsync(async db =>
+        {
+            var served = Time(day, 12);
+            db.LeaguePairs.AddRange(votes.Select((vote, index) =>
+            {
+                var (low, high) = vote.Left.CompareTo(vote.Right) < 0 ? (vote.Left, vote.Right) : (vote.Right, vote.Left);
+                return new LeaguePair
+                {
+                    Day = day,
+                    VoterId = voterId,
+                    LeftEntryId = vote.Left,
+                    RightEntryId = vote.Right,
+                    LowEntryId = low,
+                    HighEntryId = high,
+                    MatchLevel = LeaguePairMatch.Strict,
+                    Sequence = (short)(index + 1),
+                    ServedAt = served,
+                    AnsweredAt = served.AddSeconds(3),
+                    Choice = vote.Choice,
+                    ClientDecisionMilliseconds = 3000,
+                    Counted = vote.Counted,
+                    Weight = vote.Counted ? 1 : 0,
+                };
+            }));
+
+            return await db.SaveChangesAsync(cancellationToken);
+        });
+
     /// <summary>An instant of <paramref name="day"/> at the given Istanbul time.</summary>
     public static DateTimeOffset Time(DateOnly day, int hour, int minute = 0, int second = 0, int millisecond = 0) =>
         LeagueDays.ClosesAt(day, new TimeOnly(hour, minute, second, millisecond));

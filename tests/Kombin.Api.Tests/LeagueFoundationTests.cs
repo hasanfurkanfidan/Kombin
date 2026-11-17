@@ -13,6 +13,7 @@ public class LeagueOptionsTests
 
         Assert.False(options.Enabled);
         Assert.Equal(new TimeOnly(21, 0), options.DayClosesAt);
+        Assert.Equal(7, options.CloseCatchUpDays);
         Assert.Equal(18, options.MinAge);
         Assert.Equal((30, 10), (options.MaxPairsPerDay, options.VotesForPoints));
         Assert.Equal(TimeSpan.FromMilliseconds(600), options.MinDecisionTime);
@@ -26,7 +27,7 @@ public class LeagueOptionsTests
         Assert.Equal((30, 20), (options.EngineFill.MinPool, options.EngineFill.MaxPerRun));
         Assert.Equal((3, TimeSpan.FromHours(72), 20), (options.Reports.HideAt, options.Reports.MinAccountAge, options.Reports.MinCountedVotes));
         Assert.Equal((90, 30, 30, 75.0, 4), (options.StyleScore.WindowDays, options.StyleScore.MinRankedPerDay, options.StyleScore.MinDays, options.StyleScore.Threshold, options.StyleScore.ConsecutiveWeeks));
-        Assert.Equal((7, 30, 90), (options.Retention.ImageDays, options.Retention.PairDays, options.Retention.EntryDays));
+        Assert.Equal((7, 30, 90, TimeSpan.FromDays(1)), (options.Retention.ImageDays, options.Retention.PairDays, options.Retention.EntryDays, options.Retention.OrphanGrace));
     }
 
     [Fact]

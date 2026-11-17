@@ -1497,9 +1497,17 @@ namespace Kombin.Api.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("ranked_count");
 
+                    b.Property<bool>("RemovedByReview")
+                        .HasColumnType("boolean")
+                        .HasColumnName("removed_by_review");
+
                     b.Property<int>("Total")
                         .HasColumnType("integer")
                         .HasColumnName("total");
+
+                    b.Property<bool>("UnderReview")
+                        .HasColumnType("boolean")
+                        .HasColumnName("under_review");
 
                     b.Property<int>("VotePoints")
                         .HasColumnType("integer")
@@ -2158,6 +2166,36 @@ namespace Kombin.Api.Persistence.Migrations
                     b.ToTable("style_scores", "league", t =>
                         {
                             t.HasCheckConstraint("ck_style_scores_score", "score IS NULL OR score BETWEEN 0 AND 100");
+                        });
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.League.LeagueVoterDay", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<DateOnly>("Day")
+                        .HasColumnType("date")
+                        .HasColumnName("day");
+
+                    b.Property<int>("Counted")
+                        .HasColumnType("integer")
+                        .HasColumnName("counted");
+
+                    b.Property<int>("Served")
+                        .HasColumnType("integer")
+                        .HasColumnName("served");
+
+                    b.HasKey("UserId", "Day")
+                        .HasName("pk_voter_days");
+
+                    b.HasIndex("Day")
+                        .HasDatabaseName("ix_voter_days_day");
+
+                    b.ToTable("voter_days", "league", t =>
+                        {
+                            t.HasCheckConstraint("ck_voter_days_counts", "served >= 0 AND counted >= 0 AND counted <= served");
                         });
                 });
 
@@ -4436,6 +4474,16 @@ namespace Kombin.Api.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_style_scores_users_user_id");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.League.LeagueVoterDay", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_voter_days_users_user_id");
                 });
 
             modelBuilder.Entity("Kombin.Api.Persistence.Entities.Notification.Device", b =>

@@ -38,7 +38,8 @@ internal static class VoteEndpoint
     /// <item>the day row is read <c>FOR SHARE</c> (the close will take it <c>FOR UPDATE</c>): from <c>closes_at</c> on, 409 <c>League.DayClosed</c>;</item>
     /// <item>answered already: the same choice returns the result again (200), another is 409 <c>League.AlreadyVoted</c>;</item>
     /// <item>counted only when not a skip and both the server's time since serving and the app's <c>decisionMs</c> reach
-    /// <c>League:MinDecisionTime</c>; the voter's first <c>League:NewVoterVotes</c> counted votes weigh <c>League:NewVoterWeight</c>;</item>
+    /// <c>League:MinDecisionTime</c>; the voter's first <c>League:NewVoterVotes</c> counted votes weigh <c>League:NewVoterWeight</c>, and the
+    /// voter's own counter of the day (<c>league.voter_days</c>, which the voting points are counted from) moves;</item>
     /// <item>a counted vote adds a comparison and the weight to both entries' games and to the chosen one's wins, in one statement that locks the
     /// two rows in ID order (as <c>pairs/next</c> does; <c>FOR NO KEY UPDATE</c>, compatible with the key-share locks of new pair rows), so two
     /// voters judging the same two outfits at once never deadlock.</item>
@@ -108,6 +109,11 @@ internal static class VoteEndpoint
                 .SqlQuery<int>($"UPDATE league.players SET counted_votes = counted_votes + 1, updated_at = {now} WHERE user_id = {voterId} RETURNING counted_votes AS \"Value\"")
                 .ToListAsync(cancellationToken)).Single() - 1;
             weight = countedBefore < settings.NewVoterVotes ? settings.NewVoterWeight : 1.0;
+
+            // The voter's own count of the day (the voting points): it outlives pair rows deleted with another player's account.
+            await db.Database.ExecuteSqlAsync(
+                $"INSERT INTO league.voter_days (user_id, day, served, counted) VALUES ({voterId}, {pairDay}, 1, 1) ON CONFLICT (user_id, day) DO UPDATE SET counted = league.voter_days.counted + 1",
+                cancellationToken);
         }
 
         pair.AnsweredAt = now;

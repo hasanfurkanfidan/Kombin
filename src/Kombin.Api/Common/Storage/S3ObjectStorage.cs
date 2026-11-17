@@ -1,4 +1,5 @@
 using System.Net;
+using System.Runtime.CompilerServices;
 using Amazon.Runtime;
 using Amazon.S3;
 using Amazon.S3.Model;
@@ -122,6 +123,27 @@ internal sealed class S3ObjectStorage : IObjectStorage, IDisposable
                     Quiet = true,
                 },
                 cancellationToken);
+        }
+    }
+
+    public async IAsyncEnumerable<StoredObjectInfo> ListAsync(string prefix, [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var request = new ListObjectsV2Request { BucketName = _options.Bucket, Prefix = prefix, MaxKeys = 1000 };
+
+        while (true)
+        {
+            var response = await _client.ListObjectsV2Async(request, cancellationToken);
+            foreach (var stored in response.S3Objects ?? [])
+            {
+                yield return new StoredObjectInfo(stored.Key, new DateTimeOffset(DateTime.SpecifyKind(stored.LastModified ?? DateTime.MinValue, DateTimeKind.Utc)));
+            }
+
+            if (response.IsTruncated != true || string.IsNullOrEmpty(response.NextContinuationToken))
+            {
+                yield break;
+            }
+
+            request.ContinuationToken = response.NextContinuationToken;
         }
     }
 

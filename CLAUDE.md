@@ -43,8 +43,8 @@ exist: `POST /internal/catalog/offers/upsert`, `POST /internal/catalog/offers/sw
 `PUT /internal/catalog/sellers/{slug}` (see Catalog ingestion rules), `POST /internal/catalog/embeddings/run` (see Visual search rules),
 `POST /internal/notifications/test`,
 `GET /internal/analytics/weekly` (see Analytics rules), `PUT` and `DELETE /internal/social/creators/{userId}`, `GET /internal/social/review-queue`
-and `POST /internal/social/posts/{id}/review` (see Social rules), and `POST /internal/identity/users/{userId}/disable` and `/enable` (see
-Identity rules).
+and `POST /internal/social/posts/{id}/review` (see Social rules), `POST /internal/identity/users/{userId}/disable` and `/enable` (see
+Identity rules), and `POST /internal/league/days/{date}/close` (see League rules).
 
 ## How to add a new use case
 
@@ -311,7 +311,7 @@ External Python workers (a separate repo) push the catalog through the internal 
 - **Hangfire wiring:** `AddNotificationFeature` registers storage lazily; `UseNotificationJobs` (called in `Program.cs` after the EF
   migrations and the seeds) is what first creates the `hangfire` schema, registers the recurring jobs (`UseCatalogJobs` adds the
   Catalog's `offer-sweep`, `UseAnalyticsJobs` the Analytics' `weekly-metrics` and `analytics-retention`, `UseWardrobeJobs` the Wardrobe's `wardrobe-cleanup` and
-  `UseSocialJobs` the Social's `social-purge`, `UseIdentityJobs` the Identity's `account-deletion` and `UseLeagueJobs` the League's `league-entries` and `league-fill` (also behind `League:Enabled`) right after it, behind the same flag; `UseCatalogJobs` also registers `product-embeddings`; `outfit-narrate` and `post-process` are fire-and-forget,
+  `UseSocialJobs` the Social's `social-purge`, `UseIdentityJobs` the Identity's `account-deletion` and `UseLeagueJobs` the League's `league-entries`, `league-fill`, `league-close` and `league-purge` (also behind `League:Enabled`) right after it, behind the same flag; `UseCatalogJobs` also registers `product-embeddings`; `outfit-narrate` and `post-process` are fire-and-forget,
   not recurring) and, **in Development only**
   (or wherever `Diagnostics:Expose` is true, then behind the `/admin` sign-in), maps the dashboard at `/hangfire` (open in Development, unmapped otherwise). Nothing happens unless `Hangfire:Enabled` is
   true (compose sets it; tests set it to false; `Development` defaults to true). The storage uses `EnableLongPolling`
@@ -648,13 +648,14 @@ External Python workers (a separate repo) push the catalog through the internal 
 
 ## League rules
 
-- **What exists (tasks L2 and L3, PRs 1 and 2 of 4):** "Kombin Ligi" in `Features/League` (design and the owner's decisions: `docs/design/league.md`;
+- **What exists (tasks L2, L3 and L4, PRs 1 to 3 of 4):** "Kombin Ligi" in `Features/League` (design and the owner's decisions: `docs/design/league.md`;
   the rules: `Tasarım/kombin-ligi-aritmetik.md`, a product decision: never change a rule in code, raise it). Schema `league` with all 14 tables
   of the design (players, consents, days, entries, entry_pieces, pairs, reports, daily_scores, weeks, groups, group_members, style_scores,
-  engine_preferences, state), `LeagueOptions`, `LeagueConsent`; `GET /api/v1/league/me` (with the `today` block), `POST /league/join`,
-  `POST /league/leave`, `DELETE /league/me/entry`, `GET /league/pairs/next`, `POST /league/pairs/{pairId}/vote`, `POST /league/pairs/{pairId}/report`;
-  the jobs `league-entries` and `league-fill`. No day close, no Bradley–Terry, points, results, table, weeks, style score, review endpoints or
-  result push yet (PRs 3 and 4); nothing writes `league.days.closed_at` or `daily_scores` yet.
+  engine_preferences, state) plus `voter_days` (task L4), `LeagueOptions`, `LeagueConsent`; `GET /api/v1/league/me` (with the `today` block), `POST /league/join`,
+  `POST /league/leave`, `DELETE /league/me/entry`, `GET /league/pairs/next`, `POST /league/pairs/{pairId}/vote`, `POST /league/pairs/{pairId}/report`,
+  `GET /league/results?day=`, `GET /league/results/latest`, `POST /internal/league/days/{date}/close`; the jobs `league-entries`, `league-fill`,
+  `league-close` and `league-purge`. No table, weeks, aliases, style score, review endpoints or result push yet (PR 4; the push copy is already in
+  `Copy.ForLeagueResult`).
 - **Off by default.** `League:Enabled` (env `League__Enabled`) is false until the app screens ship: the routes stay mapped (OpenAPI, the
   authorization matrix) but `LeagueEnabledFilter` answers 404 `League.Disabled` first. `ApiFactory` switches it on; a test that needs it off
   builds its own host.
@@ -705,16 +706,40 @@ External Python workers (a separate repo) push the catalog through the internal 
   are copied to `league/{random}/{random}/thumb.*` (public by the name, new every day, and different in bytes from the source and every other copy:
   `ImageMarker` in `Common/Storage`, so no hash or ETag links them; an image it cannot mark is not copied; a catalog item without a thumbnail shows its product image)
   and `LeagueResponses` is the only builder of piece URLs: voters get copies and catalog images only, the owner may see their own thumbnails.
-  `LeagueAnonymityTests` checks pairs and votes of player B for every identifier of A and that the same piece has new URLs and new bytes (content hash) every day. **Account deletion:** every league table cascades on the user; `AccountPurger` deletes the league image copies first
+  `LeagueAnonymityTests` checks pairs, votes and results of player B for every identifier of A and that the same piece has new URLs and new bytes (content hash) every day. **Account deletion:** every league table cascades on the user; `AccountPurger` deletes the league image copies first
   (found through `league.entries`); `AccountDeletionTests`' matrix covers the league tables. A new league table that holds a user's data needs
   the same three things (cascade or purger step, privacy notes 1a, the matrix line).
 - **Boundaries:** the league reads other features' tables through `KombinDbContext` only and calls exactly two seams (allow-list lines `Seam`):
   Wardrobe's `WardrobeModerator` (the safety filter, Wardrobe rules) and Recommendation's `CatalogOutfitSampler` / `SampledOutfit` (Recommendation
   rules). It never names `OutfitHash`, `OutfitSlots` or any other engine type: the piece-set hash is its own (`RepeatRule.Hash`). Nothing in
   Recommendation or Wardrobe may ever reference League (it pulls, nothing pushes into it). Metabase never gets the `league` schema.
-- **Tests** play a league day of their own (`LeagueClientExtensions.NewDay`, far in the future, three days apart) and send their time with the
-  test clock's `X-Test-Now` header (`TestHeaderClock` in `ApiFactory`; `client.At(...)`), so pools never mix and nothing depends on the hour; jobs
-  are called with their time. `LeaguePerformanceTests` (`KOMBIN_PERF=1`, own container): `pairs/next` p95 ≤ 100 ms at 6,000 entries.
+- **The voter's own counters** (`league.voter_days`, task L4): `served` moves in the serving transaction and must land on the new pair's sequence
+  (the daily limit and the sequence come from it), `counted` moves with a counted vote (the voting points come from it). Never count either from
+  the pair rows: those are deleted with the account of the player whose outfit they showed.
+- **The day close** (`DayCloser`, design note sections 8 and 9, decisions under PR 3 in section 14). One transaction under
+  `pg_try_advisory_xact_lock(0x4B4F4D42, 2)` (not getting it = `AlreadyRunning`, 409 `League.CloseInProgress`); the day row is created when missing
+  and read `FOR UPDATE` (a vote, a withdrawal and a leave hold it `FOR SHARE`); `closed_at` set = nothing to do; before the day's 21:00 =
+  `NotOver` (409 `League.DayNotOver`). It reads the day's entries and **counted, weighted, non-`Skip` pair rows** in ID order (never the entry
+  counters), leaves out disabled and pending-deletion players (outfits and votes) and every vote on a `Removed` entry, keeps withdrawn entries as
+  opponents, fits the pure `BradleyTerry` (Newman's iteration in place, stopping at 1e-6 on ln π or 500 sweeps: not the note's MM step, which does
+  not converge in 500), ranks with the pure `Percentile` the human `Competing` entries with `MinComparisons` votes (an entry hidden by reports and not reviewed is
+  ranked too and its row marked `under_review`: its owner sees "UnderReview" until `LeagueEntryReviewer` restores or removes it; a removal zeroes
+  that day's vote points only, never undoes a closed week and moves no other rank), and writes
+  one `daily_scores` row (pure `DailyPoints`) per player joined at the close with an entry or a point, `competed` true for every `Competing` entry
+  (the repeat rule reads it). Strengths and scores are written with one statement each from arrays; a closed day is never changed.
+  **`league-close`** (hourly at :00 `Europe/Istanbul`, `[DisableConcurrentExecution(60)]`, `[AutomaticRetry(Attempts = 0)]`, tests call
+  `CloseDueAsync(now, ct)`) closes the unclosed days of the last `League:CloseCatchUpDays` days oldest first and stops at the first failure.
+  Every boundary is 21:00:00 Istanbul, half-open: a vote, a wear or a piece at 21:00:00 is past the day.
+- **Results** (`GET /league/results?day=`, `/results/latest`): the caller's own `daily_scores` row of a closed day and their own entry
+  (`LeagueResponses.ForOwnerAsync`), nothing of anyone else; 404 `League.ResultsNotReady` otherwise.
+- **`league-purge`** (daily 04:15, `[DisableConcurrentExecution(60)]`, `[AutomaticRetry(Attempts = 0)]`, tests call `PurgeAsync(now, days, sweepOrphans, ct)`
+  with their own days): copies 7 days after their day, pairs and voter counters 30 days and entries 90 days after a **closed** day, and objects under
+  `league/` that no entry piece names once older than `League:Retention:OrphanGrace` (`IObjectStorage.ListAsync`).
+- **Tests** play a league day of their own (`LeagueClientExtensions.NewDay`, far in the future, three days apart; `NewBlock(n)` for a run of
+  consecutive days, which the hourly close's window needs) and send their time with the test clock's `X-Test-Now` header (`TestHeaderClock` in
+  `ApiFactory`; `client.At(...)`), so pools never mix and nothing depends on the hour; jobs are called with their time. Every class that closes a
+  day joins the `LeagueCloses` collection (one close lock per database). `LeaguePerformanceTests` (`KOMBIN_PERF=1`, own container): `pairs/next`
+  p95 ≤ 100 ms at 6,000 entries, the close ≤ 30 s at 10,000 players (measured at 1,000 and 10,000).
 
 ## Admin rules
 
@@ -863,5 +888,6 @@ Social (versioned posting consent, photo and outfit posts with moderation, metad
 blocks, reports and review, the feed, try-with-wardrobe, creators with click attribution and earnings estimates) and Lens (visual search:
 catalog embeddings and their job, photo search with family, floor and audience guardrails, wardrobe matches) and Admin (the founder's
 panel: review queue, creators, catalog and backfill, user disable, audit log, dashboard) and League (Kombin Ligi: schema, settings, consent,
-join and leave, the worn outfit's entry with its image copies, engine outfits, pairing, voting, reports and withdrawing; off by default). Learning from
+join and leave, the worn outfit's entry with its image copies, engine outfits, pairing, voting, reports and withdrawing, the day close with
+Bradley–Terry and the daily points, the results, the purge; off by default). Learning from
 clicks, saves and outfit feedback is still to come, and not Profile's job. Add other features only when a task asks for them.

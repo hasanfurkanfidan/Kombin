@@ -58,3 +58,18 @@ internal sealed class LeagueReportConfiguration : IEntityTypeConfiguration<Leagu
         builder.HasOne<User>().WithMany().HasForeignKey(report => report.ReporterId).OnDelete(DeleteBehavior.Cascade);
     }
 }
+
+internal sealed class LeagueVoterDayConfiguration : IEntityTypeConfiguration<LeagueVoterDay>
+{
+    public void Configure(EntityTypeBuilder<LeagueVoterDay> builder)
+    {
+        builder.ToTable("voter_days", "league", table =>
+            table.HasCheckConstraint("ck_voter_days_counts", "served >= 0 AND counted >= 0 AND counted <= served"));
+
+        // One row per voter and day; the close reads a day's rows, the purge deletes old days.
+        builder.HasKey(row => new { row.UserId, row.Day });
+        builder.HasIndex(row => row.Day);
+
+        builder.HasOne<User>().WithMany().HasForeignKey(row => row.UserId).OnDelete(DeleteBehavior.Cascade);
+    }
+}

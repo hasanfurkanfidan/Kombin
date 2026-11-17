@@ -15,6 +15,8 @@ internal sealed class FakeObjectStorage : IObjectStorage
 
     private readonly ConcurrentQueue<string> _deleted = new();
 
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _written = new(StringComparer.Ordinal);
+
     private readonly ConcurrentDictionary<string, byte> _failingPrefixes = new(StringComparer.Ordinal);
 
     /// <summary>Makes <see cref="DeleteAsync"/> throw (like an unreachable store) while any key it is given starts with <paramref name="prefix"/>.</summary>
@@ -33,7 +35,14 @@ internal sealed class FakeObjectStorage : IObjectStorage
     public IReadOnlyList<string> Deleted => [.. _deleted];
 
     /// <summary>What the app does with the presigned URL: put the photo under the key.</summary>
-    public void Upload(string key, byte[] content, string contentType) => _objects[key] = new StoredObject(content, contentType);
+    public void Upload(string key, byte[] content, string contentType)
+    {
+        _objects[key] = new StoredObject(content, contentType);
+        _written[key] = DateTimeOffset.UtcNow;
+    }
+
+    /// <summary>Makes an object look as if it had been written at <paramref name="at"/> (what <see cref="ListAsync"/> reports).</summary>
+    public void Backdate(string key, DateTimeOffset at) => _written[key] = at;
 
     /// <summary>The keys of the objects that belong to a user (every key carries the user's ID).</summary>
     public IReadOnlyList<string> KeysOfUser(Guid userId) => [.. _objects.Keys.Where(key => key.Contains($"/{userId}/", StringComparison.Ordinal))];
@@ -48,6 +57,7 @@ internal sealed class FakeObjectStorage : IObjectStorage
         }
 
         _objects[key] = new StoredObject(content, contentType);
+        _written[key] = DateTimeOffset.UtcNow;
         return Task.CompletedTask;
     }
 
@@ -72,9 +82,20 @@ internal sealed class FakeObjectStorage : IObjectStorage
         foreach (var key in keys)
         {
             _objects.TryRemove(key, out _);
+            _written.TryRemove(key, out _);
             _deleted.Enqueue(key);
         }
 
         return Task.CompletedTask;
+    }
+
+    public async IAsyncEnumerable<StoredObjectInfo> ListAsync(string prefix, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        foreach (var key in _objects.Keys.Where(key => key.StartsWith(prefix, StringComparison.Ordinal)).Order(StringComparer.Ordinal).ToList())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await Task.Yield();
+            yield return new StoredObjectInfo(key, _written.GetValueOrDefault(key, DateTimeOffset.UtcNow));
+        }
     }
 }

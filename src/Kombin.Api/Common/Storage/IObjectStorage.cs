@@ -5,6 +5,9 @@ internal sealed record PresignedUpload(string Url, IReadOnlyDictionary<string, s
 
 internal sealed record StoredObject(byte[] Content, string ContentType);
 
+/// <summary>A key in the store and when its object was last written.</summary>
+internal sealed record StoredObjectInfo(string Key, DateTimeOffset LastModified);
+
 /// <summary>
 /// The object store shared by every feature. Keys come from <see cref="StorageKeys"/>; whether a key is publicly readable is decided by
 /// its name (the bucket policy, see <see cref="StorageKeys.IsPublic"/>), never per call.
@@ -30,4 +33,7 @@ internal interface IObjectStorage
 
     /// <summary>Deletes the objects; keys that do not exist are ignored.</summary>
     Task DeleteAsync(IReadOnlyCollection<string> keys, CancellationToken cancellationToken);
+
+    /// <summary>Every object whose key starts with <paramref name="prefix"/>, in key order, fetched page by page (for sweeps of leftovers).</summary>
+    IAsyncEnumerable<StoredObjectInfo> ListAsync(string prefix, CancellationToken cancellationToken);
 }

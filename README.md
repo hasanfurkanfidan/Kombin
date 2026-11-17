@@ -13,7 +13,7 @@ Hangfire) and **Analytics** (an event intake for the app, the four beta metrics,
 and a rule-based gap analysis with catalog suggestions) and an **Admin panel** (server-rendered pages under `/admin` for the founder: review
 queue, creators, catalog, users, audit log) and **launch readiness**: account deletion with a 7-day cancellation window, rate limits, request body limits,
 the public legal pages (privacy, terms, deleting your account), a Production mode that refuses development defaults, and the deploy kit (compose
-override, Caddy, backups, `docs/deploy.md`). **Kombin Ligi** (the league) has its foundations (schema, settings, consent, joining) and is off by default.
+override, Caddy, backups, `docs/deploy.md`). **Kombin Ligi** (the league) has its foundations, entries and voting, and the 21:00 day close with points and results; it is off by default.
 
 ## Requirements
 
@@ -550,7 +550,8 @@ Measured by `LensPerformanceTests` (50k products, one region, `KOMBIN_PERF=1`, v
 
 Design: `docs/design/league.md`. **Off by default**: with `League:Enabled` false (env `League__Enabled`) every route below answers 404
 `League.Disabled`; configuration switches it on when the app screens ship. Task L2 built the foundations (schema `league`, the settings, the
-consent, joining and leaving); task L3 the entries and the voting. The 21:00 day close, the results and the weekly tables come next. Signed in.
+consent, joining and leaving); task L3 the entries and the voting; task L4 the 21:00 day close, the daily points and the results. The weekly
+tables come next. Signed in.
 
 | Method | Route | Success | Errors |
 |---|---|---|---|
@@ -560,6 +561,9 @@ consent, joining and leaving); task L3 the entries and the voting. The 21:00 day
 | DELETE | `/league/me/entry` | 204: today's outfit leaves the pool, final for the day (again: 204) | 403 `League.NotJoined`; 404 `League.NoEntryToday`; 409 `League.DayClosed` |
 | GET | `/league/pairs/next` | 200 `{ pair: { id, left: { pieces: [{ slot, imageUrl }] }, right, sequence } \| null, reason: null \| "DailyLimit" \| "NoPairs", countedToday, servedToday, target, limit, closesAt }`; an unanswered pair is returned again | 403 `League.NotJoined`; 409 `League.DayClosed` |
 | POST | `/league/pairs/{pairId}/vote` | 200 `{ counted, chosenWinRate, chosenGames, countedToday, servedToday, target, limit }`. Body `{ choice: "left" \| "right" \| "skip", decisionMs }`; the same vote again returns the result | 400; 404 `League.PairNotFound`; 409 `League.AlreadyVoted`, `League.DayClosed` |
+| GET | `/league/results?day=yyyy-MM-dd` | 200 `{ day, status, message, entry: { pieces } \| null, competed, ranked, rank, rankedCount, comparisons, points: { votes, voting, worn, pieces, total }, piecePointsAvailable, week }` for the caller's own closed day. `status`: `Final`, `UnderReview` (reported, waiting for a review: `ranked`, `rank`, `points.votes` null, `total` = usage points, `message` "Kombinin inceleniyor. Sonuç inceleme bitince görünecek.") or `Removed` (taken out by a review after the close: no rank, 0 vote points) | 400 `League.InvalidDay`; 404 `League.ResultsNotReady` (not closed, or no entry and no points that day) |
+| GET | `/league/results/latest` | 200 same shape, the caller's latest closed day with a result | 404 `League.ResultsNotReady` |
+| POST | `/internal/league/days/{date}/close` | 200 `{ day, closedNow, closedAt, rankedCount, engineCount, pairCount, btIterations, btConverged, closeMs }` (internal key); closing a closed day changes nothing (`closedNow: false`) | 400 `League.InvalidDay`; 401; 409 `League.DayNotOver`, `League.CloseInProgress` |
 | POST | `/league/pairs/{pairId}/report` | 202 `{ reported: true }`. Body `{ side: "left" \| "right", reason? }` (`Inappropriate`, `NotClothing`, `Other`); an open pair is used up as a skip | 400; 404 `League.PairNotFound`; 409 `League.AlreadyReported` |
 
 - The consent (version `2026-11-v2`; players who joined under `2026-11-v1` are asked again) is also the 18+ declaration and says that someone who knows the pieces can tell whose outfit it is; its text is pinned by `LeagueConsentTests` and every join stores the text shown.
@@ -576,9 +580,12 @@ consent, joining and leaving); task L3 the entries and the voting. The 21:00 day
 |---|---|---|
 | `league-entries` | every minute | resolves the players who wore an outfit in the last 10 minutes and those whose entry waits for the image safety check (asking it for at most 50 pieces a run); copies the thumbnails of a competing entry; deletes the copies of withdrawn and removed entries |
 | `league-fill` | every 15 minutes, 00:00-20:45 Istanbul | tops a small pool (fewer than 30 competing players' outfits per audience and occasion) up with catalog-only engine outfits, at most 20 per bucket a run |
+| `league-close` | hourly at :00 Istanbul | closes, oldest first, every day of the last 7 whose 21:00 has passed and that is not closed: Bradley–Terry over the day's counted votes, rank and percentile of the outfits with at least 8 of them, every player's daily points (votes up to 70, voting on 10 pairs 15, worn 10, a piece 5 on at most 3 days a week); one transaction under an advisory lock |
+| `league-purge` | daily 04:15 Istanbul | deletes the image copies 7 days after their day, votes and the voters' day counters 30 days and entries 90 days after a closed day, and copies under `league/` no entry names once a day old |
 
-Both jobs are registered only when `League:Enabled` is true. Measured by `LeaguePerformanceTests` (6,000 entries, 12 voters serving their 30
-pairs, `KOMBIN_PERF=1`): `pairs/next` p95 23.7 ms (budget 100 ms).
+The jobs are registered only when `League:Enabled` is true. Measured by `LeaguePerformanceTests` (`KOMBIN_PERF=1`): `pairs/next` p95 23.7 ms at
+6,000 entries (task L3; 34-44 ms in task L4 on a machine under another load, where the L3 code measured 40-41 ms; budget 100 ms); the day close
+0.71 s at 1,000 players and 2.24 s at 10,000 (budget 30 s).
 
 ### Admin panel
 

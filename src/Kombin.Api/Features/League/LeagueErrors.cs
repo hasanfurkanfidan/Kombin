@@ -33,4 +33,19 @@ internal static class LeagueErrors
 
     public static readonly Error AlreadyReported =
         Error.Conflict("League.AlreadyReported", "You already reported this outfit.");
+
+    /// <summary>The day is not closed yet, or the caller has no result on it (no entry and no points).</summary>
+    public static readonly Error ResultsNotReady =
+        Error.NotFound("League.ResultsNotReady", "There are no results for you on this day.");
+
+    public static readonly Error InvalidDay =
+        Error.Validation("League.InvalidDay", "The day must be a date in the form yyyy-MM-dd.");
+
+    /// <summary>Another close holds the league's close lock (the hourly job, or another call).</summary>
+    public static readonly Error CloseInProgress =
+        Error.Conflict("League.CloseInProgress", "A league day is being closed right now; try again in a minute.");
+
+    /// <summary>Votes on the day are still open: its close time has not come.</summary>
+    public static readonly Error DayNotOver =
+        Error.Conflict("League.DayNotOver", "This league day has not reached its close time yet.");
 }

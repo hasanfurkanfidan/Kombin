@@ -25,7 +25,8 @@ namespace Kombin.Api.IntegrationTests;
 /// in the day's pool (5,000 players' outfits over three audiences and six occasion buckets, 1,000 engine outfits, exposures already spread),
 /// measured while 12 voters each serve and answer their 30 pairs of the day, so the candidate query, the voter's served pairs, the choice and the
 /// serving transaction are all on the path. Synthetic data on its own PostgreSQL container, gated by <c>KOMBIN_PERF=1</c> like the other budgets.
-/// The day close's budget comes with the close (PR 3).
+/// The day close (PR 3): at most <see cref="CloseBudget"/> at 10,000 players (section 13), measured at 1,000 and 10,000 players with the note's
+/// shape (60 % of the players compete, every player answers 15 counted pairs, engine outfits at 5 % of the players).
 /// </summary>
 [Collection(LatencyBudgets.Name)]
 public sealed class LeaguePerformanceTests(LeaguePerformanceTests.LeaguePerformanceFactory factory) : IClassFixture<LeaguePerformanceTests.LeaguePerformanceFactory>
@@ -37,6 +38,8 @@ public sealed class LeaguePerformanceTests(LeaguePerformanceTests.LeaguePerforma
     public const int Voters = 12;
 
     public static readonly TimeSpan Budget = TimeSpan.FromMilliseconds(100);
+
+    public static readonly TimeSpan CloseBudget = TimeSpan.FromSeconds(30);
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -74,6 +77,31 @@ public sealed class LeaguePerformanceTests(LeaguePerformanceTests.LeaguePerforma
         TestContext.Current.TestOutputHelper?.WriteLine($"pairs/next ({samples.Count} samples, {Players + Engines} entries): p50 {Percentile(samples, 50):F1} ms  p95 {p95:F1} ms  max {samples.Max():F1} ms");
 
         Assert.True(p95 <= Budget.TotalMilliseconds, $"pairs/next p95 {p95:F1} ms");
+    }
+
+    [Theory(Skip = OutfitPerformanceTests.SkipMessage, SkipUnless = nameof(Enabled))]
+    [InlineData(1_000)]
+    [InlineData(10_000)]
+    public async Task TheDayCloseStaysWithinThirtySecondsAtTenThousandPlayers(int players)
+    {
+        var day = new DateOnly(2041, 4, 1).AddDays(players / 1_000);
+        var (entries, pairs) = await factory.SeedCloseDayAsync(day, players, Ct);
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var closer = scope.ServiceProvider.GetRequiredService<DayCloser>();
+        var stopwatch = Stopwatch.StartNew();
+        var result = await closer.CloseAsync(day, Time(day, 21, 0, 1), Ct);
+        stopwatch.Stop();
+
+        TestContext.Current.TestOutputHelper?.WriteLine(
+            $"close of {players} players ({entries} entries, {pairs} counted pairs): {stopwatch.Elapsed.TotalMilliseconds:F0} ms wall, close_ms {result.CloseMilliseconds}, "
+            + $"{result.RankedCount} ranked, {result.ScoresWritten} score rows, Bradley–Terry {result.BtIterations} iterations (converged: {result.BtConverged})");
+
+        Assert.Equal(DayCloseOutcome.Closed, result.Outcome);
+        Assert.True(result.BtConverged);
+        Assert.Equal(pairs, result.PairCount);
+        Assert.Equal(players, result.ScoresWritten);
+        Assert.True(stopwatch.Elapsed <= CloseBudget, $"close {stopwatch.Elapsed.TotalSeconds:F1} s");
     }
 
     private static double Percentile(List<double> samples, int percentile)
@@ -154,6 +182,162 @@ public sealed class LeaguePerformanceTests(LeaguePerformanceTests.LeaguePerforma
                 ["RateLimits:Enabled"] = "false",
                 ["League:Enabled"] = "true",
             }));
+        }
+
+        /// <summary>
+        /// A day to close: <paramref name="players"/> joined players, 60 % of them with a competing outfit, engine outfits at 5 % of the players,
+        /// every player with 15 counted answers (distinct pairs, never their own outfit, a human on the left, the first answers at half weight)
+        /// and their day counter. Returns the entries and the counted pairs.
+        /// </summary>
+        public async Task<(int Entries, int Pairs)> SeedCloseDayAsync(DateOnly day, int players, CancellationToken cancellationToken)
+        {
+            var random = new Random(players);
+            var now = DateTimeOffset.UtcNow;
+            var served = Time(day, 12);
+            var playerIds = Enumerable.Range(0, players).Select(_ => Guid.CreateVersion7()).ToArray();
+            var humans = (int)(players * 0.6);
+            var engines = players / 20;
+            var entryIds = Enumerable.Range(0, humans + engines).Select(_ => Guid.CreateVersion7()).ToArray();
+
+            await using var connection = new NpgsqlConnection(_postgres.GetConnectionString());
+            await connection.OpenAsync(cancellationToken);
+
+            await using (var writer = await connection.BeginBinaryImportAsync(
+                "COPY identity.users (id, email, password_hash, display_name, created_at, updated_at) FROM STDIN (FORMAT BINARY)", cancellationToken))
+            {
+                for (var index = 0; index < players; index++)
+                {
+                    await writer.StartRowAsync(cancellationToken);
+                    await writer.WriteAsync(playerIds[index], NpgsqlDbType.Uuid, cancellationToken);
+                    await writer.WriteAsync($"closer-{day.DayNumber}-{index}@league.example.com", NpgsqlDbType.Varchar, cancellationToken);
+                    await writer.WriteAsync("not-a-real-hash", NpgsqlDbType.Varchar, cancellationToken);
+                    await writer.WriteAsync($"Oyuncu {index}", NpgsqlDbType.Varchar, cancellationToken);
+                    await writer.WriteAsync(now, NpgsqlDbType.TimestampTz, cancellationToken);
+                    await writer.WriteAsync(now, NpgsqlDbType.TimestampTz, cancellationToken);
+                }
+
+                await writer.CompleteAsync(cancellationToken);
+            }
+
+            await using (var writer = await connection.BeginBinaryImportAsync(
+                "COPY league.players (user_id, tier, joined_at, consent_version, counted_votes, idle_weeks, created_at, updated_at) FROM STDIN (FORMAT BINARY)", cancellationToken))
+            {
+                foreach (var playerId in playerIds)
+                {
+                    await writer.StartRowAsync(cancellationToken);
+                    await writer.WriteAsync(playerId, NpgsqlDbType.Uuid, cancellationToken);
+                    await writer.WriteAsync("Bronze", NpgsqlDbType.Varchar, cancellationToken);
+                    await writer.WriteAsync(Time(day, 1), NpgsqlDbType.TimestampTz, cancellationToken);
+                    await writer.WriteAsync(LeagueConsent.Current.Version, NpgsqlDbType.Varchar, cancellationToken);
+                    await writer.WriteAsync(15, NpgsqlDbType.Integer, cancellationToken);
+                    await writer.WriteAsync((short)0, NpgsqlDbType.Smallint, cancellationToken);
+                    await writer.WriteAsync(now, NpgsqlDbType.TimestampTz, cancellationToken);
+                    await writer.WriteAsync(now, NpgsqlDbType.TimestampTz, cancellationToken);
+                }
+
+                await writer.CompleteAsync(cancellationToken);
+            }
+
+            await using (var writer = await connection.BeginBinaryImportAsync(
+                "COPY league.entries (id, day, user_id, kind, audience, occasion, piece_ids, piece_set_hash, status, exposures, comparisons, weighted_wins, weighted_games, counting_reports, created_at, updated_at) FROM STDIN (FORMAT BINARY)",
+                cancellationToken))
+            {
+                for (var index = 0; index < entryIds.Length; index++)
+                {
+                    var human = index < humans;
+                    await writer.StartRowAsync(cancellationToken);
+                    await writer.WriteAsync(entryIds[index], NpgsqlDbType.Uuid, cancellationToken);
+                    await writer.WriteAsync(day, NpgsqlDbType.Date, cancellationToken);
+                    if (human)
+                    {
+                        await writer.WriteAsync(playerIds[index], NpgsqlDbType.Uuid, cancellationToken);
+                    }
+                    else
+                    {
+                        await writer.WriteNullAsync(cancellationToken);
+                    }
+
+                    await writer.WriteAsync(human ? "Human" : "Engine", NpgsqlDbType.Varchar, cancellationToken);
+                    await writer.WriteAsync(random.Next(2) == 0 ? "Women" : "Men", NpgsqlDbType.Varchar, cancellationToken);
+                    await writer.WriteAsync("Office", NpgsqlDbType.Varchar, cancellationToken);
+                    await writer.WriteAsync(new[] { Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid() }, NpgsqlDbType.Array | NpgsqlDbType.Uuid, cancellationToken);
+                    await writer.WriteAsync(Guid.NewGuid().ToString("N"), NpgsqlDbType.Varchar, cancellationToken);
+                    await writer.WriteAsync("Competing", NpgsqlDbType.Varchar, cancellationToken);
+                    await writer.WriteAsync(0, NpgsqlDbType.Integer, cancellationToken);
+                    await writer.WriteAsync(0, NpgsqlDbType.Integer, cancellationToken);
+                    await writer.WriteAsync(0.0, NpgsqlDbType.Double, cancellationToken);
+                    await writer.WriteAsync(0.0, NpgsqlDbType.Double, cancellationToken);
+                    await writer.WriteAsync(0, NpgsqlDbType.Integer, cancellationToken);
+                    await writer.WriteAsync(now, NpgsqlDbType.TimestampTz, cancellationToken);
+                    await writer.WriteAsync(now, NpgsqlDbType.TimestampTz, cancellationToken);
+                }
+
+                await writer.CompleteAsync(cancellationToken);
+            }
+
+            // Hidden quality per outfit, so the votes have a structure for the fit to find (as real taste would).
+            var quality = entryIds.Select(_ => (random.NextDouble() * 4) - 2).ToArray();
+            var pairs = 0;
+            await using (var writer = await connection.BeginBinaryImportAsync(
+                "COPY league.pairs (id, day, voter_id, left_entry_id, right_entry_id, low_entry_id, high_entry_id, match_level, sequence, served_at, answered_at, choice, client_decision_ms, counted, weight) FROM STDIN (FORMAT BINARY)",
+                cancellationToken))
+            {
+                for (var voter = 0; voter < players; voter++)
+                {
+                    var seen = new HashSet<(int, int)>();
+                    for (var sequence = 1; sequence <= 15;)
+                    {
+                        var left = random.Next(humans);
+                        var right = random.Next(entryIds.Length);
+                        if (left == right || left == voter || right == voter || !seen.Add((Math.Min(left, right), Math.Max(left, right))))
+                        {
+                            continue;
+                        }
+
+                        var leftWins = random.NextDouble() < 1 / (1 + Math.Exp(quality[right] - quality[left]));
+                        var (low, high) = entryIds[left].CompareTo(entryIds[right]) < 0 ? (entryIds[left], entryIds[right]) : (entryIds[right], entryIds[left]);
+                        await writer.StartRowAsync(cancellationToken);
+                        await writer.WriteAsync(Guid.CreateVersion7(), NpgsqlDbType.Uuid, cancellationToken);
+                        await writer.WriteAsync(day, NpgsqlDbType.Date, cancellationToken);
+                        await writer.WriteAsync(playerIds[voter], NpgsqlDbType.Uuid, cancellationToken);
+                        await writer.WriteAsync(entryIds[left], NpgsqlDbType.Uuid, cancellationToken);
+                        await writer.WriteAsync(entryIds[right], NpgsqlDbType.Uuid, cancellationToken);
+                        await writer.WriteAsync(low, NpgsqlDbType.Uuid, cancellationToken);
+                        await writer.WriteAsync(high, NpgsqlDbType.Uuid, cancellationToken);
+                        await writer.WriteAsync("Strict", NpgsqlDbType.Varchar, cancellationToken);
+                        await writer.WriteAsync((short)sequence, NpgsqlDbType.Smallint, cancellationToken);
+                        await writer.WriteAsync(served.AddMinutes(sequence), NpgsqlDbType.TimestampTz, cancellationToken);
+                        await writer.WriteAsync(served.AddMinutes(sequence).AddSeconds(3), NpgsqlDbType.TimestampTz, cancellationToken);
+                        await writer.WriteAsync(leftWins ? "Left" : "Right", NpgsqlDbType.Varchar, cancellationToken);
+                        await writer.WriteAsync(3000, NpgsqlDbType.Integer, cancellationToken);
+                        await writer.WriteAsync(true, NpgsqlDbType.Boolean, cancellationToken);
+                        await writer.WriteAsync(sequence <= 5 ? 0.5f : 1f, NpgsqlDbType.Real, cancellationToken);
+                        sequence++;
+                        pairs++;
+                    }
+                }
+
+                await writer.CompleteAsync(cancellationToken);
+            }
+
+            await using (var writer = await connection.BeginBinaryImportAsync("COPY league.voter_days (user_id, day, served, counted) FROM STDIN (FORMAT BINARY)", cancellationToken))
+            {
+                foreach (var playerId in playerIds)
+                {
+                    await writer.StartRowAsync(cancellationToken);
+                    await writer.WriteAsync(playerId, NpgsqlDbType.Uuid, cancellationToken);
+                    await writer.WriteAsync(day, NpgsqlDbType.Date, cancellationToken);
+                    await writer.WriteAsync(15, NpgsqlDbType.Integer, cancellationToken);
+                    await writer.WriteAsync(15, NpgsqlDbType.Integer, cancellationToken);
+                }
+
+                await writer.CompleteAsync(cancellationToken);
+            }
+
+            await using var analyze = new NpgsqlCommand("ANALYZE league.entries; ANALYZE league.pairs; ANALYZE league.voter_days; ANALYZE league.players; ANALYZE identity.users;", connection);
+            await analyze.ExecuteNonQueryAsync(cancellationToken);
+
+            return (entryIds.Length, pairs);
         }
 
         private async Task<(DateOnly Day, IReadOnlyList<HttpClient> Voters)> SeedOnceAsync(CancellationToken cancellationToken)

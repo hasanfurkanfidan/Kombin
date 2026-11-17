@@ -26,7 +26,7 @@ public sealed class AccountDeletionTests(ApiFactory factory)
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     /// <summary>The league tables a player who entered, voted and was reported has rows in.</summary>
-    private static readonly string[] PlayedLeagueTables = ["league.players", "league.consents", "league.entries", "league.entry_pieces", "league.pairs", "league.reports"];
+    private static readonly string[] PlayedLeagueTables = ["league.players", "league.consents", "league.entries", "league.entry_pieces", "league.pairs", "league.reports", "league.voter_days"];
 
     private static string Wrong => "Wrong-password-1";
 
@@ -491,6 +491,7 @@ public sealed class AccountDeletionTests(ApiFactory factory)
         // The league of the others: the bystander's closed day and entry stay as they were; the engine's preference row has no user to lose.
         var bystanderScore = await factory.WithDbAsync(db => db.LeagueDailyScores.AsNoTracking().SingleAsync(row => row.UserId == bystander.Id && row.Day == league.Day, Ct));
         Assert.Equal((league.BystanderTotal, league.BystanderEntryId), (bystanderScore.Total, bystanderScore.EntryId));
+        Assert.True(await factory.WithDbAsync(db => db.LeagueVoterDays.AnyAsync(row => row.UserId == bystander.Id && row.Day == league.Day, Ct)));
         Assert.True(await factory.WithDbAsync(db => db.LeagueEntries.AnyAsync(row => row.Id == league.BystanderEntryId, Ct)));
         Assert.True(await factory.WithDbAsync(db => db.LeagueEnginePreferences.AnyAsync(row => row.Id == league.EnginePreferenceId, Ct)));
 
@@ -688,6 +689,7 @@ public sealed class AccountDeletionTests(ApiFactory factory)
         ["league.pairs"] = await db.LeaguePairs.CountAsync(row => row.VoterId == userId || db.LeagueEntries.Any(entry => (entry.Id == row.LeftEntryId || entry.Id == row.RightEntryId) && entry.UserId == userId), Ct),
         ["league.reports"] = await db.LeagueReports.CountAsync(row => row.ReporterId == userId || db.LeagueEntries.Any(entry => entry.Id == row.EntryId && entry.UserId == userId), Ct),
         ["league.daily_scores"] = await db.LeagueDailyScores.CountAsync(row => row.UserId == userId, Ct),
+        ["league.voter_days"] = await db.LeagueVoterDays.CountAsync(row => row.UserId == userId, Ct),
         ["league.group_members"] = await db.LeagueGroupMembers.CountAsync(row => row.UserId == userId, Ct),
         ["league.style_scores"] = await db.LeagueStyleScores.CountAsync(row => row.UserId == userId, Ct),
     });
@@ -755,6 +757,9 @@ public sealed class AccountDeletionTests(ApiFactory factory)
             db.LeagueDailyScores.AddRange(
                 new LeagueDailyScore { UserId = subjectId, Day = day, EntryId = mine.Id, Competed = true, VotingPoints = 15, Total = 15 },
                 new LeagueDailyScore { UserId = bystanderId, Day = day, EntryId = theirs.Id, Competed = true, WornPoints = 10, Total = 10 });
+            db.LeagueVoterDays.AddRange(
+                new LeagueVoterDay { UserId = subjectId, Day = day, Served = 1, Counted = 1 },
+                new LeagueVoterDay { UserId = bystanderId, Day = day, Served = 1, Counted = 1 });
             if (!await db.LeagueWeeks.AnyAsync(week => week.WeekStart == day, Ct))
             {
                 db.LeagueWeeks.Add(new LeagueWeek { WeekStart = day, EndsAt = served });

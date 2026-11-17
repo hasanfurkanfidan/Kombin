@@ -5,7 +5,8 @@ competes, aliases in the table, 18+, the win rate after a vote; quoted as "the r
 `Tasarım/kombin-ligi/01-05` are context only. This document changes no rule. The owner's answers to the open questions of the first draft
 (task L1) are written into the sections they belong to; one question remains [open](#open-questions).
 
-Status: accepted (task L2). PR 1 (foundations, task L2) and PR 2 (entering and voting, task L3) are implemented; everything else is design. "Not verified" marks a statement about behaviour I
+Status: accepted (task L2). PR 1 (foundations, task L2), PR 2 (entering and voting, task L3) and PR 3 (day close, points, results, task L4) are
+implemented; PR 4 (weeks, aliases, style score, reviews, the push, the metrics) is design. "Not verified" marks a statement about behaviour I
 did not read in the code.
 
 ---
@@ -137,7 +138,13 @@ characters), like every other schema here. Built in PR 1 as migration `League` (
 text shown, as `social.posting_consents` stores it), `at`. It is the join/leave record; `players` holds only the current state.
 
 **`league.days`**: `day` date PK, `closes_at` timestamptz (21:00 Istanbul of that day), `closed_at` null, `ranked_count` int, `engine_count`,
-`pair_count`, `bt_iterations`, `bt_converged` bool, `close_ms` int. A missing row means "open, nothing closed".
+`pair_count`, `bt_iterations`, `bt_converged` bool, `close_ms` int. A missing row means "open, nothing closed"; so does a row with `closed_at`
+null (the first vote, a withdrawal or a leave creates it, so the close's `FOR UPDATE` has a row to wait on).
+
+**`league.voter_days`** (task L4): `user_id`, `day` (PK), `served`, `counted`, cascade on the user. The voter's own counters of the day: the
+pairs served (the daily limit and the next sequence come from it, moved in the serving transaction) and the counted votes (the voting points come
+from it, moved in the vote's transaction). Pair rows are deleted with the account of the player whose outfit they showed; these counters are not,
+so "voted on ten pairs" and the 30-pair cap never shrink because someone else left. Deleted by `league-purge` 30 days after a closed day.
 
 **`league.entries`**: one outfit in one day's pool.
 
@@ -480,6 +487,11 @@ then the style scores if a week was closed. The 21:00 run does the real work; th
 crash without relying on Hangfire's misfire handling (not verified). Tests call `CloseDayAsync(day, ct)` and `CloseWeekAsync(weekStart, ct)`
 directly; they use days in 2020, like the metric tests, because the database is shared.
 
+**As built (task L4)**: `DayCloser` (one day) and `LeagueCloseJob` (`league-close`), with the decisions recorded under PR 3 in section 14.
+The job closes, oldest first, every unclosed day of the last `League:CloseCatchUpDays` (7) days whose close has passed, stops at the first
+failure (a later day's weekly piece cap reads the earlier days) and logs a warning for an open day older than that window; the internal endpoint
+is `POST /internal/league/days/{date}/close`. Tests close their own league days (`NewDay`, far in the future), not days in 2020.
+
 **Lock.** One transaction per day, opened with `SELECT pg_try_advisory_xact_lock(0x4B4F4D42, 2)`: the same class as the embedding lock
 (`Features/Catalog/Embeddings/EmbeddingRunLock.cs`, object 1); object 2 is the league close. Transaction-scoped (like
 `Features/Wardrobe/AddFromProduct/Endpoint.cs:90`) because the close fits in one transaction, so commit or rollback releases it and a dead
@@ -490,7 +502,8 @@ answers 409 `League.CloseInProgress` in that case. Then `SELECT ... FROM league.
 
 1. Load the day's entries (`Competing` or `Withdrawn`, plus engine) and counted pairs (`counted`, weight > 0). Entries of disabled or
    pending-deletion players are left out, and so are their pairs.
-2. **Bradley–Terry** (pure `BradleyTerry.Fit`), minorization–maximization (Hunter 2004) with the virtual prior of the rules ("ortalama bir
+2. **Bradley–Terry** (pure `BradleyTerry.Fit`; as built, Newman's 2023 fixed-point iteration applied in place, which has the same fixed point as
+   the MM step below and meets the stopping rule: see PR 3 in section 14), minorization–maximization (Hunter 2004) with the virtual prior of the rules ("ortalama bir
    rakibe karşı yarım galibiyet ve yarım yenilgi"): every entry plays one virtual game against a fixed opponent of strength 1, won ½ and lost ½.
 
    ```
@@ -540,8 +553,9 @@ Notes:
 - **Weekly cap of 3** is counted at each close: `SELECT count(*) FROM league.daily_scores WHERE user_id = @u AND day BETWEEN @monday AND @d - 1 AND piece_points > 0`;
   the 4th day with an addition gets 0. The earliest three days win, because a closed day is never changed.
 - Usage before joining on the join day counts; a player who left gets no row.
-- Vote points are at most `round(70 × (N − 0,5)/N)`: the formula stays as written (owner's decision), so the best outfit gets 70 only from
-  N = 36 up (66 at N = 8); "en iyi kombin 70" holds on days of that size.
+- Vote points are at most `round(70 × (N − 0,5)/N)`: the formula stays as written (owner's decision), so the best outfit gets
+  `round(70 − 35 / N)` (half away from zero): 70 only from N = 70 (66 at N = 8, 69 at N = 36); "en iyi kombin 70" holds on days of that size
+  (corrected in task L5: the first draft said N = 36, which holds only for a ceiling; the owner kept the rounding).
 
 ---
 
@@ -704,7 +718,8 @@ schema (section 4). The blocks:
 | `league_style_threshold` | players whose style score is at or above 75 |
 | `league_engine_win_rate` | weighted win rate of engine entries in counted votes against human entries |
 
-**Load at the close** (estimates, not measured; assumes 60 % of players compete and the average voter answers 15 pairs):
+**Load at the close** (estimates of task L1; assumes 60 % of players compete and the average voter answers 15 pairs; the measured close of task L4
+is under PR 3 in section 14: 0.7 s at 1,000 players and 2.2 s at 10,000):
 
 | | 1,000 players | 10,000 players |
 |---|---|---|
@@ -798,7 +813,7 @@ pairs; budget 100 ms) and the strict age rule (section 4). Where it differs from
 `POST /internal/league/close`, `league-purge`, `UseLeagueJobs` after `UseIdentityJobs` in `Program.cs`.
 *Tests:* unit: `BradleyTerryTests` (prior pulls an unbeaten outfit below infinity; a known 3-player fit; convergence; same input same output;
 two disconnected audiences on one scale), `DailyPointsTests` (the rules' example week: 74 / 0 / 92 / 61 / 0 / 85 / 55 → best five 367; piece cap
-on the 4th day; 70 × p rounding, 70 only from N = 36); integration (days in 2020): a full day with 12 players and engine fill, re-run is a no-op,
+on the 4th day; 70 × p rounding, 70 only from N = 70); integration (days in 2020): a full day with 12 players and engine fill, re-run is a no-op,
 a crash before the commit leaves nothing, a vote after 21:00 is 409, `LeagueCloseLockTests`; `LeagueAnonymityTests` (results);
 `LeaguePerformanceTests`.
 
@@ -816,6 +831,82 @@ a crash before the commit leaves nothing, a vote after 21:00 is 409, `LeagueClos
   without `closed_at` as an open day, not as one it already handled.
 - `league-purge` must also scan the `league/` storage prefix for copies no `entry_pieces` row points to (a crash between the object write and
   the commit, or a failed delete, leaves them behind).
+
+*As built (task L4).* `BradleyTerry`, `Percentile`, `DailyPoints` (pure, in `Rules/`), `DayCloser` (the close, one transaction), `LeagueCloseJob`
+(`league-close`, hourly at :00), `POST /internal/league/days/{date}/close` (`{ day, closedNow, closedAt, rankedCount, engineCount, pairCount,
+btIterations, btConverged, closeMs }`; 400 `League.InvalidDay`, 409 `League.DayNotOver` / `League.CloseInProgress`), `GET /league/results?day=`
+and `GET /league/results/latest` (404 `League.ResultsNotReady`, 400 `League.InvalidDay`), `LeaguePurgeJob` (`league-purge`, daily 04:15), the
+table `league.voter_days` (migration `LeagueDayClose`, which also fills it from existing pair rows), `IObjectStorage.ListAsync` (S3
+`ListObjectsV2`, for the orphan sweep), and the result push copy in `Features/Notification/Copy.cs` (`Copy.ForLeagueResult`, not sent: PR 4).
+`UseLeagueJobs` registers `league-close` and `league-purge` beside the PR 2 jobs. The decisions:
+
+- **Votes on outfits that changed after they were served** (night review). *Withdrawn*: the votes stay in the fit as information about the
+  other outfit (section 4); the withdrawn outfit is an opponent, never ranked, and its owner's row says `competed: false`. *Removed* (a review
+  after reports; nothing removes an entry until PR 4's review endpoint): every vote on it is dropped, from the fit and from the opponent's
+  comparisons, because a win or a loss against an outfit taken down as unsafe or not clothing says nothing reliable about the other one; it gets
+  no strength. *Hidden* (counting reports reached `Reports:HideAt`, not reviewed by the close): **changed in task L5** (the first version left it
+  unranked, which let a player wipe a rival's vote points by reporting them). It is ranked like any other outfit from its counted pair rows,
+  its rank, percentile and points are stored, and its row carries `under_review`; the stored points count in the week from the start.
+  `GET /league/results` shows its owner `status: "UnderReview"`, the message "Kombinin inceleniyor. Sonuç inceleme bitince görünecek.", no rank
+  and no vote points (`ranked`, `rank` and `points.votes` null, `points.total` the usage points). `LeagueEntryReviewer` decides it: *Restore*
+  removes the mark and the stored result becomes visible; *Remove* makes the entry `Removed`, sets that day's vote points to 0 (total
+  recomputed, rank and percentile cleared, `removed_by_review`, `status: "Removed"`), so the live week total follows; **a week already closed is
+  not undone** (week points, final ranks, promotions and relegations stay), and **no other outfit's rank or points are recomputed** (N stays).
+  A removal on an open day takes the outfit out before the close, which then drops every vote on it. (The owner's default was "removed out,
+  withdrawn in"; I agree.)
+- **Who is left out**: a player who is disabled or whose deletion is pending at the close: their outfit and **the votes they cast** (a disabled
+  account may be the reason for the disabling). A player who left before the close gets no row (section 9); one who left after it keeps the
+  day, and leaving after 21:00 no longer withdraws that day's entry (the day is over; before, a leave at 21:00:30 would have taken a competed
+  outfit out of its own results).
+- **The vote counts come from the pair rows**: the ranking threshold and the fit use the day's pair rows that are `counted`, have a weight and
+  are not `Skip` (whatever `counted` says); the entry counters stay a display aid for the win rate. `daily_scores.comparisons` is that count.
+- **Every competing entry gets `competed = true`** at the close, ranked or not, so the repeat rule now blocks a repeat
+  (`AnOutfitThatCompetedSitsOutTheNextDay`). `LeagueAnonymityTests` closes day one and wears another outfit (the same top, two pieces
+  different) on day two.
+- **Open days**: a day row without `closed_at` is open whoever created it; a day without a row is closed like any other (every entry unranked,
+  the usage points still given, the row created closed).
+- **Accounts deleted during the day**: the voting points and the 30-pair cap come from the voter's own counter (`league.voter_days`), so pair rows
+  deleted with another account cost the voter nothing (`AnAccountDeletedDuringTheDayCostsTheVotersNothing...`). The same counter replaces "the
+  last sequence" of task L3-fix, which still lost a number when the deleted pair was the voter's latest.
+- **Day boundary**: everything is half-open at 21:00:00 Istanbul. A vote at 20:59:59.999 counts, one at 21:00:00 is 409; a wear at 21:00:00
+  earns nothing that day and, by decision 8, nothing the next day either (the worn window is 00:00-21:00); a piece added at 21:00:00 counts for
+  the next day. `GET /league/pairs/next` at 21:00:00 is 409 (the next day's pool opens at midnight). The brief said "belongs to the next day":
+  for a vote and a wear that can only mean "not this day", because the league day is 00:00-21:00. **Accepted by the owner (task L5)**: a wear at
+  21:00:00 earns nothing on either day.
+- **Withdrawing and the close** are serialised like voting: `DELETE /league/me/entry` and `POST /league/leave` hold the day row `FOR SHARE`.
+- **Results**: `GET /league/results?day=` (required) and `GET /league/results/latest` (the caller's latest closed day with a row) instead of one
+  route with a default; `week` is in the shape and null until PR 4; `piecePointsAvailable` is about the next day's week. Only the caller's own
+  row and entry are ever read.
+- **Purge**: copies 7 days after their day; pairs and voter counters 30 days and entries 90 days after a **closed** day (an open day keeps its
+  inputs until it is closed); objects under `league/` that no entry piece names and that are older than `League:Retention:OrphanGrace` (1 day).
+- **Determinism**: entries and pairs are read in ID order, the fit runs in a fixed order, ranks are broken by entry ID; the same rows give the
+  same strengths, percentiles, ranks and points to the last bit (`DayCloseRulesTests.TheSameRowsGiveTheSameResultToTheLastBit`,
+  `BradleyTerryTests.TheSameGamesInAnyOrderGiveTheSameDoublesToTheLastBit`). Closing twice changes nothing; a close that dies half-way writes
+  nothing (one transaction: `ACloseThatDiesHalfWayWritesNothingAndTheNextOneDoesItAll`).
+
+*Where it differs from this note:*
+
+- **The Bradley–Terry iteration.** **Accepted by the owner (task L5)**, who checked independently that both reach the same fixed point;
+  `BradleyTerryTests.NewmansFitIsTheMmFixedPoint` pins it (a fixed set of games, MM run to convergence, strengths within 1e-4, same order).
+  Section 8's MM step (Hunter 2004) never met the stopping rule within 500 iterations on simulated days of 650
+  and 6,100 outfits (15,000 and 150,000 votes), nor on a 30-0 outfit, so every real close would have logged "not converged" with strengths still
+  moving. `BradleyTerry.Fit` uses Newman's fixed-point iteration (JMLR 24, 2023) for the same model and prior, which has the same fixed point,
+  done in place (Gauss–Seidel): about 160 / 75 sweeps on those days, 25 on a pure chain of wins (where the simultaneous form oscillates for
+  ever). The stopping rule (1e-6 on ln π, 500 sweeps) is the note's. The measured closes converged in 122 and 110 sweeps.
+- **"70 only from N = 36"** (section 9, first draft) was not what `round(70 × p)` gives: the best of N gets `round(70 − 35 / N)`, which is 69
+  for N = 36 and reaches 70 at N = 70 (69.5 rounds up). **Owner's decision (task L5): keep round-half-up**; section 9 now says 70 from N = 70
+  (66 at N = 8, 69 at N = 36). `DailyPointsTests` pins N = 8 → 66, 36 → 69, 69 → 69, 70 → 70.
+- Two new settings: `League:CloseCatchUpDays` (7) and `League:Retention:OrphanGrace` (1 day).
+- The results route is two routes (above); the internal close is `POST /internal/league/days/{date}/close` (the brief), not
+  `POST /internal/league/close { day? }`.
+- Tests use far-future league days of their own instead of days in 2020 (the existing league tests' convention), and the classes that close
+  days share the `LeagueCloses` collection, because the close lock is one per database.
+- Not measured at scale: the usage reads (worn outfits, added pieces); the performance test seeds players, entries, pairs and counters only.
+
+*Measured* (`LeaguePerformanceTests`, `KOMBIN_PERF=1`, own container, on a machine with another workload at ~380 % CPU): the close of 1,000
+players (650 entries, 15,000 counted pairs) 0.71 s wall (estimate ~1 s), of 10,000 players (6,500 entries, 150,000 pairs) 2.24 s (estimate
+~10 s, budget 30 s). `pairs/next` p95 34-44 ms on the same machine, the same as the L3 code measured there (40-41 ms): the counter costs nothing
+visible.
 
 **PR 4 — Weeks, aliases, style score, reviews, the result push, the metrics.** `WeeklyTable`, `CloseWeekAsync`, group formation and mid-week
 placement, `LeagueAliases` (word lists and the generator), `GET /league/table`, `StyleScore`, the review queue and review endpoints,
@@ -839,6 +930,7 @@ and the push copy), `MetricSqlTests` (the job's metrics unchanged); integration:
 |---|---|
 | `Enabled` | **false** (every route answers 404 `League.Disabled`, no job is registered); configuration switches it on when the app screens ship; tests enable it |
 | `DayClosesAt` | `21:00` |
+| `CloseCatchUpDays` | 7 (task L4: days the hourly close looks back for an unclosed one) |
 | `MinAge` | 18 |
 | `MaxPairsPerDay` | 30 |
 | `VotesForPoints` | 10 |
@@ -867,7 +959,7 @@ and the push copy), `MetricSqlTests` (the job's metrics unchanged); integration:
 | `EngineFill:MinPool` / `EngineFill:MaxPerRun` | 30 / 20 |
 | `Reports:HideAt` / `Reports:MinAccountAge` / `Reports:MinCountedVotes` | 3 / 72 h / 20 |
 | `StyleScore:WindowDays` / `MinRankedPerDay` / `MinDays` / `Threshold` / `ConsecutiveWeeks` | 90 / 30 / 30 / 75 / 4 |
-| `Retention:ImageDays` / `PairDays` / `EntryDays` | 7 / 30 / 90 |
+| `Retention:ImageDays` / `PairDays` / `EntryDays` / `OrphanGrace` | 7 / 30 / 90 / 1 day (task L4: an unnamed copy younger than this may belong to a transaction still running) |
 | `RateLimits:League` | 120 per 300 s |
 
 Not settings: the week (Monday to Sunday, the rules), the job schedules (cron strings next to each job, as everywhere), the advisory lock IDs,
@@ -885,7 +977,7 @@ the consent texts and the alias word lists (versioned in code, pinned by tests).
 |---|---|---|---|
 | 1 | Names in the group table | none; a per-week generated alias "<colour> <garment>", unique in the group | 3, 4, 10, 12 |
 | 2 | Consent text | the owner's text, version `2026-11-v1`, then `2026-11-v2` (task L3-fix: the pieces can be recognised); counsel review open | 4 |
-| 3 | "En iyi kombin 70" | the formula stays; 70 only from N = 36 | 9 |
+| 3 | "En iyi kombin 70" | the formula stays, rounded half away from zero; 70 only from N = 70 (66 at N = 8, 69 at N = 36; corrected in task L5) | 9 |
 | 4 | Small groups | `min(5, floor(competed / 3))` each | 10 |
 | 5 | Minors | a known birth year joins only when certainly 18 (`year − birthYear > 18`, strict since task L3); unknown may; the consent is the declaration | 4 |
 | 6 | Revoking the creator right | v1 never revokes; the columns stay unwritten | 11 |

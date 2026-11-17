@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Kombin.Api.Features.Catalog;
 using Kombin.Api.Persistence.Entities.Catalog;
+using Kombin.Api.Persistence.Entities.Wardrobe;
 
 namespace Kombin.Api.Features.Wardrobe;
 
@@ -34,7 +35,8 @@ internal static class WardrobeAnalysis
     /// </summary>
     public const double CategoryThreshold = 0.35;
 
-    public const string NotGarmentWarning = "not_garment";
+    /// <summary>A stored value, so it lives on the entity (the league reads it too); this name stays for the analysis code.</summary>
+    public const string NotGarmentWarning = WardrobeItem.NotGarmentWarning;
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
