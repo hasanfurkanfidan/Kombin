@@ -12,8 +12,9 @@ internal sealed record LeagueConsentResponse(string Version, string Text);
 
 /// <summary>
 /// The caller's outfit in today's league. <c>Status</c>: Pending (waiting for the image safety check), Competing, NotCompeting (with a
-/// <c>Reason</c>), Withdrawn, Removed. <c>Message</c> is the rules' line for <c>RecentlyCompeted</c> ("Bu kombin yakın zamanda yarıştı, bugün
-/// yarışmıyor."), null otherwise. The pieces are the owner's own view.
+/// <c>Reason</c>), Withdrawn, Removed. <c>Message</c> is the Turkish line to show (<c>LeagueCopy</c>): one for every <c>Reason</c> of a NotCompeting entry
+/// (RecentlyCompeted, UnsafePiece, IncompleteOutfit, PieceUnavailable, AgeRestricted, NotWorn) and one for Removed; null for Pending, Competing
+/// and Withdrawn. The pieces are the owner's own view.
 /// </summary>
 internal sealed record LeagueTodayEntryResponse(LeagueEntryStatus Status, LeagueEntryReason? Reason, string? Message, IReadOnlyList<LeaguePieceResponse> Pieces);
 
@@ -96,7 +97,7 @@ internal static partial class GetLeagueMeEndpoint
             LeagueDays.ClosesAt(day, options.DayClosesAt),
             entry is null
                 ? null
-                : new LeagueTodayEntryResponse(entry.Status, entry.Reason, LeagueCopy.For(entry.Reason), await LeagueResponses.ForOwnerAsync(db, storage, entry, cancellationToken)),
+                : new LeagueTodayEntryResponse(entry.Status, entry.Reason, LeagueCopy.ForEntry(entry.Status, entry.Reason), await LeagueResponses.ForOwnerAsync(db, storage, entry, cancellationToken)),
             votes.Served,
             votes.Counted,
             options.VotesForPoints,

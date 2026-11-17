@@ -115,6 +115,7 @@ public sealed class LeagueReviewTests(ApiFactory factory)
         var result = await ResultsOkAsync(played.Rival.Client, played.Day);
         Assert.Equal(("Removed", false, 0, 10), (result.GetProperty("status").GetString(), result.GetProperty("ranked").GetBoolean(),
             result.GetProperty("points").GetProperty("votes").GetInt32(), result.GetProperty("points").GetProperty("total").GetInt32()));
+        Assert.Equal(LeagueCopy.Removed, result.GetProperty("message").GetString());
 
         Assert.Equal((LeagueReviewOutcome.Done, false), ((await ReviewAsync(played.RivalEntry, LeagueReviewDecision.Remove)).Outcome, (await ReviewAsync(played.RivalEntry, LeagueReviewDecision.Remove)).ResultChanged));
         Assert.Equal(LeagueReviewOutcome.NotReviewable, (await ReviewAsync(played.RivalEntry, LeagueReviewDecision.Restore)).Outcome);

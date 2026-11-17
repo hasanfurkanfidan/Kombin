@@ -34,7 +34,8 @@ internal sealed record LeagueResultsWeekResponse(LeagueTier Tier, int GroupRank,
 
 /// <summary>
 /// The caller's result of one closed day (screen 04, "Akşamki sonuç"). <c>Status</c> and <c>Message</c>: <see cref="LeagueResultStatus"/>;
-/// the message is "Kombinin inceleniyor. Sonuç inceleme bitince görünecek." while under review, null otherwise. <c>Entry</c>: their own outfit
+/// the message is "Kombinin inceleniyor. Sonuç inceleme bitince görünecek." while under review, the removal's line (<c>LeagueCopy.Removed</c>)
+/// when a review took the outfit out, null for a final result. <c>Entry</c>: their own outfit
 /// (null when they had none, or it is older than the entries are kept). <c>Competed</c>: it was in the pool at the close. <c>Ranked</c>: it
 /// reached the comparisons to be ranked (null while under review); when false the app says "yeterli oy toplanamadı". <c>Rank</c> (1 = best) of <c>RankedCount</c> ranked outfits; <c>Comparisons</c>: the counted
 /// votes on it. <c>PiecePointsAvailable</c>: a piece added now would still earn its points this week ("Eklersen 5 puan"). Nothing about any
@@ -132,7 +133,7 @@ internal static class GetResultsEndpoint
         return TypedResults.Ok(new LeagueResultsResponse(
             score.Day,
             status,
-            held ? LeagueCopy.UnderReview : null,
+            LeagueCopy.ForResult(status),
             entry,
             score.Competed,
             held ? null : score.Ranked,
