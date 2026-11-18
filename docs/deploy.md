@@ -196,6 +196,18 @@ Set `Storage__Endpoint` (`https://<account>.r2.cloudflarestorage.com`), `Storage
 those names) and drop the `minio`, `minio-init` services and the `storage.` site of the Caddyfile. Not done by default because the public-read-by-name rule is the privacy guarantee
 for private photos and has to be rebuilt carefully.
 
+### A CDN in front of the storage (cache and deletion)
+
+The public images (`cutout.*`, `thumb.*`, the league's copies) are public URLs: they cannot be revoked, and a deleted account's or item's photo stays
+readable at its URL for as long as any cache keeps it. The API stores them with `Cache-Control: public, max-age=86400` (a day, never `immutable`) and
+Caddy's `storage.<domain>` block answers the same header for them, replacing whatever the store sent (task B9; before it the wardrobe's images carried a
+year, `immutable`, so **purge a CDN once after this update**). A CDN or any other cache in front of `storage.<domain>` must therefore either
+- honour that header and never keep an object longer than a day (no "override origin cache TTL" and no "cache everything for a month" rule), or
+- be purged by key when the API deletes an object (account deletion, an archived item after 30 days, a withdrawn league outfit); the API does not call a
+  CDN, so a purge is an operational step (a lifecycle rule or a script over the deleted keys), not something to assume.
+
+Cloudflare in front of R2 or of Caddy: leave "Browser/Edge Cache TTL" on "Respect existing headers". The app keeps its own image cache and clears it on sign-out.
+
 ## 8. Updating
 
 ```bash

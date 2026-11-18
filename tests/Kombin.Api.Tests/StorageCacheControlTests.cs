@@ -5,14 +5,12 @@ using Kombin.Api.Common.Storage;
 namespace Kombin.Api.Tests;
 
 /// <summary>
-/// Task B8: public images are stored with a long immutable <c>Cache-Control</c> so phones stop downloading the same thumbnail again and again,
-/// and nothing private ever is (a presigned link carries the header too, whatever the object was stored with).
+/// Task B8 and B9: public images are stored with a one-day <c>Cache-Control</c> (never <c>immutable</c>, never longer: a deleted photo must leave every
+/// cache within a day), and nothing private ever is public (a presigned link carries the header too, whatever the object was stored with).
 /// </summary>
 public class StorageCacheControlTests
 {
-    private const string LongLived = "public, max-age=31536000, immutable";
-
-    private const string OneDay = "public, max-age=86400, immutable";
+    private const string OneDay = "public, max-age=86400";
 
     private const string Private = "private, no-store";
 
@@ -21,8 +19,8 @@ public class StorageCacheControlTests
     private static readonly Guid Owner = Guid.Parse("7a1d2b3c-4e5f-4a6b-8c7d-9e0f1a2b3c4d");
 
     [Theory]
-    [InlineData("wardrobe", "Cutout", "png", LongLived)]
-    [InlineData("wardrobe", "Thumb", "webp", LongLived)]
+    [InlineData("wardrobe", "Cutout", "png", OneDay)]
+    [InlineData("wardrobe", "Thumb", "webp", OneDay)]
     [InlineData("wardrobe", "Original", "jpg", Private)]
     [InlineData("posts", "Original", "jpg", Private)]
     [InlineData("posts", "Feed", "jpg", Private)]
@@ -37,6 +35,23 @@ public class StorageCacheControlTests
         var key = StorageKeys.Build(area, User, Owner, Enum.Parse<ImageVariant>(variantName), extension);
 
         Assert.Equal(expected, StorageKeys.CacheControlFor(key));
+    }
+
+    [Fact]
+    public void NoPublicImageIsEverCachedLongerThanADayOrAsImmutable()
+    {
+        foreach (var area in new[] { "wardrobe", "posts", "tryon", "league", "anything-new" })
+        {
+            foreach (var variant in new[] { ImageVariant.Cutout, ImageVariant.Thumb })
+            {
+                var header = StorageKeys.CacheControlFor(StorageKeys.Build(area, User, Owner, variant, "webp"));
+                var maxAge = header.Split(',', StringSplitOptions.TrimEntries)
+                    .Single(directive => directive.StartsWith("max-age=", StringComparison.Ordinal))["max-age=".Length..];
+
+                Assert.True(int.Parse(maxAge, System.Globalization.CultureInfo.InvariantCulture) <= 86400, header);
+                Assert.DoesNotContain("immutable", header, StringComparison.Ordinal);
+            }
+        }
     }
 
     [Fact]
@@ -80,7 +95,7 @@ public class StorageCacheControlTests
         }
 
         Assert.Equal(
-            [(thumb, Directives(LongLived)), (copy, Directives(OneDay)), (render, Directives(Private)), (original, Directives(Private))],
+            [(thumb, Directives(OneDay)), (copy, Directives(OneDay)), (render, Directives(Private)), (original, Directives(Private))],
             handler.Puts.Select(put => (put.Key, Directives(put.CacheControl))));
 
         // A presigned GET (only ever for non-public objects) asks the store to answer with a private Cache-Control, whatever was stored.

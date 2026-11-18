@@ -52,16 +52,12 @@ internal static class StorageKeys
     }
 
     /// <summary>
-    /// What a public image (<c>cutout.*</c>, <c>thumb.*</c>) says to every cache: its key is never written with different bytes once a client can see
-    /// it (a wardrobe item's images are final when it is Ready, a league copy has a random key), so a phone keeps it for a year and never asks again.
+    /// What a public image (<c>cutout.*</c>, <c>thumb.*</c>, a wardrobe item's or a league copy) says to every cache: a day, never <c>immutable</c> and never
+    /// longer (task B9). A public URL cannot be revoked, so the longest a deleted account's or item's photo can stay in a CDN or on another phone is the
+    /// time we told them to keep it; the app keeps its own image cache and clears it on sign-out. A league copy is also the picture of one day, deleted
+    /// when its outfit is withdrawn and after seven days.
     /// </summary>
-    public const string LongLivedCacheControl = "public, max-age=31536000, immutable";
-
-    /// <summary>
-    /// A league copy is the picture of one day's outfit and is deleted when the outfit is withdrawn or after seven days; a cache must not hold it
-    /// much longer than the day it is voted on, so it is cached for a day only.
-    /// </summary>
-    public const string LeagueCacheControl = "public, max-age=86400, immutable";
+    public const string PublicCacheControl = "public, max-age=86400";
 
     /// <summary>
     /// Everything that is not public (originals, a post's feed image and preview, a try-on cutout and render): served through presigned GETs, to the
@@ -69,17 +65,12 @@ internal static class StorageKeys
     /// </summary>
     public const string PrivateCacheControl = "private, no-store";
 
-    /// <summary>The <c>Cache-Control</c> an object is stored with, decided by its key like <see cref="IsPublic"/> (the league's copies live under <c>league/</c>).</summary>
+    /// <summary>The <c>Cache-Control</c> an object is stored with, decided by its key like <see cref="IsPublic"/>.</summary>
     public static string CacheControlFor(string key)
     {
         ArgumentNullException.ThrowIfNull(key);
 
-        if (!IsPublic(key))
-        {
-            return PrivateCacheControl;
-        }
-
-        return key.StartsWith("league/", StringComparison.Ordinal) ? LeagueCacheControl : LongLivedCacheControl;
+        return IsPublic(key) ? PublicCacheControl : PrivateCacheControl;
     }
 
     /// <summary>Whether the bucket policy lets anyone read the key: its file name is <c>cutout.*</c> or <c>thumb.*</c>.</summary>
