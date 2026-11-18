@@ -2,6 +2,7 @@ using System.Globalization;
 using Kombin.Api.Common.Auth;
 using Kombin.Api.Common.Results;
 using Kombin.Api.Common.Storage;
+using Kombin.Api.Common.Time;
 using Kombin.Api.Persistence;
 using Kombin.Api.Persistence.Entities.League;
 using Microsoft.Extensions.Options;
@@ -79,7 +80,7 @@ internal static class GetResultsEndpoint
     /// own row is ever read.
     /// </summary>
     private static async Task<IResult> HandleDay(
-        string? day, ICurrentUser currentUser, KombinDbContext db, IObjectStorage storage, IOptions<LeagueOptions> options, CancellationToken cancellationToken)
+        string? day, ICurrentUser currentUser, KombinDbContext db, IObjectStorage storage, IClock clock, IOptions<LeagueOptions> options, CancellationToken cancellationToken)
     {
         if (!DateOnly.TryParseExact(day, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
         {
@@ -89,12 +90,12 @@ internal static class GetResultsEndpoint
         var userId = currentUser.UserId;
         var score = await db.LeagueDailyScores.AsNoTracking().SingleOrDefaultAsync(row => row.UserId == userId && row.Day == date, cancellationToken);
 
-        return await RespondAsync(db, storage, options.Value, score, cancellationToken);
+        return await RespondAsync(db, storage, options.Value, clock.UtcNow, score, cancellationToken);
     }
 
     /// <summary>The caller's most recent result (the latest closed day on which they had an entry or earned a point); 404 <c>League.ResultsNotReady</c> when none.</summary>
     private static async Task<IResult> HandleLatest(
-        ICurrentUser currentUser, KombinDbContext db, IObjectStorage storage, IOptions<LeagueOptions> options, CancellationToken cancellationToken)
+        ICurrentUser currentUser, KombinDbContext db, IObjectStorage storage, IClock clock, IOptions<LeagueOptions> options, CancellationToken cancellationToken)
     {
         var userId = currentUser.UserId;
         var score = await db.LeagueDailyScores.AsNoTracking()
@@ -102,11 +103,11 @@ internal static class GetResultsEndpoint
             .OrderByDescending(row => row.Day)
             .FirstOrDefaultAsync(cancellationToken);
 
-        return await RespondAsync(db, storage, options.Value, score, cancellationToken);
+        return await RespondAsync(db, storage, options.Value, clock.UtcNow, score, cancellationToken);
     }
 
     private static async Task<IResult> RespondAsync(
-        KombinDbContext db, IObjectStorage storage, LeagueOptions options, LeagueDailyScore? score, CancellationToken cancellationToken)
+        KombinDbContext db, IObjectStorage storage, LeagueOptions options, DateTimeOffset now, LeagueDailyScore? score, CancellationToken cancellationToken)
     {
         // Rows are written by the close only, but a row is a result only once its day is closed.
         if (score is null || !await db.LeagueDays.AnyAsync(row => row.Day == score.Day && row.ClosedAt != null, cancellationToken))
@@ -147,7 +148,7 @@ internal static class GetResultsEndpoint
                 score.PiecePoints,
                 held ? score.Total - score.VotePoints : score.Total),
             pieceDays < options.Points.PieceDaysPerWeek,
-            await LeagueTables.ForMemberAsync(db, options, score.UserId, LeagueDays.WeekStart(score.Day), cancellationToken) is { } week
+            await LeagueTables.ForMemberAsync(db, options, score.UserId, LeagueDays.WeekStart(score.Day), now, cancellationToken) is { } week
                 ? new LeagueResultsWeekResponse(week.Tier, week.MyRank, week.PointsToPromotion, week.EndsAt)
                 : null));
     }

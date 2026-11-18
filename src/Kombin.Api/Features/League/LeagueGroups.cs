@@ -23,6 +23,27 @@ internal static class LeagueGroups
         return LeagueDays.WeekStart(now >= LeagueDays.ClosesAt(today, closesAt) ? today.AddDays(1) : today);
     }
 
+    /// <summary>
+    /// Whether the week before <paramref name="weekStart"/> is still waiting for its close: its row exists, is not closed, and the hourly job can still
+    /// close it (<c>League:CloseCatchUpDays</c> after its end; a week stuck beyond that never blocks the next one). No row means nobody was ever in a
+    /// group of that week (the first week of the league), so nothing is waiting. While it is pending the week close forms this week's groups at the
+    /// tiers that week decides, and nobody is placed by hand (task B9).
+    /// </summary>
+    public static async Task<bool> PreviousWeekPendingAsync(
+        KombinDbContext db, LeagueOptions options, DateOnly weekStart, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(db);
+        ArgumentNullException.ThrowIfNull(options);
+
+        var previous = weekStart.AddDays(-7);
+        var row = await db.LeagueWeeks.AsNoTracking()
+            .Where(week => week.WeekStart == previous)
+            .Select(week => new { week.ClosedAt, week.EndsAt })
+            .SingleOrDefaultAsync(cancellationToken);
+
+        return row is { ClosedAt: null } && now < row.EndsAt.AddDays(options.CloseCatchUpDays);
+    }
+
     /// <summary>When the week ends: Sunday's close.</summary>
     public static DateTimeOffset EndsAt(DateOnly weekStart, TimeOnly closesAt) => LeagueDays.ClosesAt(weekStart.AddDays(6), closesAt);
 
@@ -48,7 +69,8 @@ internal static class LeagueGroups
     /// Places every given player who is a joined player and not yet in a group of <paramref name="weekStart"/> (which must not be closed), each in
     /// the group of their tier with the fewest members below <c>League:GroupMaxSize</c>, else in a new group of their tier, under an alias free in
     /// that group and different from their alias of the week before. Must run inside a transaction (it takes the week's lock). Returns the number
-    /// placed.
+    /// placed. Nobody is placed while the week before is not closed (<see cref="PreviousWeekPendingAsync"/>): a placement then would use the tier of
+    /// the week that is about to change it, and the close skips whoever is placed already.
     /// </summary>
     public static async Task<int> PlaceAsync(
         KombinDbContext db, LeagueOptions options, DateOnly weekStart, IReadOnlyCollection<Guid> userIds, DateTimeOffset now, CancellationToken cancellationToken)
@@ -63,7 +85,8 @@ internal static class LeagueGroups
 
         await LockWeekAsync(db, weekStart, cancellationToken);
         await EnsureWeekAsync(db, weekStart, options.DayClosesAt, cancellationToken);
-        if (await db.LeagueWeeks.AnyAsync(week => week.WeekStart == weekStart && week.ClosedAt != null, cancellationToken))
+        if (await db.LeagueWeeks.AnyAsync(week => week.WeekStart == weekStart && week.ClosedAt != null, cancellationToken)
+            || await PreviousWeekPendingAsync(db, options, weekStart, now, cancellationToken))
         {
             return 0;
         }

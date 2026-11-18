@@ -1,3 +1,4 @@
+using Kombin.Api.Common.Time;
 using Kombin.Api.Features.League.Rules;
 using Kombin.Api.Persistence;
 using Kombin.Api.Persistence.Entities.League;
@@ -8,12 +9,31 @@ namespace Kombin.Api.Features.League;
 internal sealed record LeagueTableRow(int Rank, int Points, bool IsMe, string Alias);
 
 /// <summary>
+/// Where a week stands: <c>Open</c> (it is running), <c>Ending</c> (its last close has passed but the week close has not run: the table is as the day
+/// closes left it, and the next week's groups are still to be formed) or <c>Final</c> (closed: the stored final table).
+/// </summary>
+internal enum LeagueWeekState
+{
+    Open,
+    Ending,
+    Final,
+}
+
+/// <summary>
 /// The caller's group in one week: the rows (in table order), the caller's own place and points, and the promotion and relegation bands as they
 /// stand. <see cref="PointsToPromotion"/>: the last promoted row's points minus the caller's, null when the caller is inside the band or there
 /// is no band.
 /// </summary>
 internal sealed record MemberWeek(
-    DateOnly WeekStart, DateTimeOffset EndsAt, bool Closed, LeagueTier Tier, IReadOnlyList<LeagueTableRow> Rows, int MyRank, int MyPoints, int PromoteCount, int RelegateCount)
+    DateOnly WeekStart,
+    DateTimeOffset EndsAt,
+    LeagueWeekState State,
+    LeagueTier Tier,
+    IReadOnlyList<LeagueTableRow> Rows,
+    int MyRank,
+    int MyPoints,
+    int PromoteCount,
+    int RelegateCount)
 {
     public int? PointsToPromotion => PromoteCount == 0 || MyRank <= PromoteCount ? null : Rows[PromoteCount - 1].Points - MyPoints;
 }
@@ -25,7 +45,24 @@ internal sealed record MemberWeek(
 /// </summary>
 internal static class LeagueTables
 {
-    public static async Task<MemberWeek?> ForMemberAsync(KombinDbContext db, LeagueOptions options, Guid userId, DateOnly weekStart, CancellationToken cancellationToken)
+    /// <summary>
+    /// The week the caller sees at <paramref name="now"/>: the week of today, or, while the week before is waiting for its close and the caller has
+    /// no group in today's week yet, that week as it stands (<see cref="LeagueWeekState.Ending"/>). Never a group of one made up for the gap.
+    /// </summary>
+    public static async Task<MemberWeek?> ForMemberNowAsync(KombinDbContext db, LeagueOptions options, Guid userId, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        var weekStart = LeagueDays.WeekStart(Istanbul.Today(now));
+        var view = await ForMemberAsync(db, options, userId, weekStart, now, cancellationToken);
+        if (view is null && await LeagueGroups.PreviousWeekPendingAsync(db, options, weekStart, now, cancellationToken))
+        {
+            view = await ForMemberAsync(db, options, userId, weekStart.AddDays(-7), now, cancellationToken);
+        }
+
+        return view;
+    }
+
+    public static async Task<MemberWeek?> ForMemberAsync(
+        KombinDbContext db, LeagueOptions options, Guid userId, DateOnly weekStart, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(db);
         ArgumentNullException.ThrowIfNull(options);
@@ -72,6 +109,8 @@ internal static class LeagueTables
         var mine = rows.Single(row => row.IsMe);
         var (promote, relegate) = WeeklyTable.Bands(competed, options.PromoteCount, options.RelegateCount);
 
-        return new MemberWeek(weekStart, week.EndsAt, week.ClosedAt is not null, me.Tier, rows, mine.Rank, mine.Points, promote, relegate);
+        var state = week.ClosedAt is not null ? LeagueWeekState.Final : now >= week.EndsAt ? LeagueWeekState.Ending : LeagueWeekState.Open;
+
+        return new MemberWeek(weekStart, week.EndsAt, state, me.Tier, rows, mine.Rank, mine.Points, promote, relegate);
     }
 }
