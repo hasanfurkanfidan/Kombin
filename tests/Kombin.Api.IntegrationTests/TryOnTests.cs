@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Kombin.Api.Common.Storage;
+using Kombin.Api.Features.TryOn;
 using Kombin.Api.Features.TryOn.Jobs;
 using Kombin.Api.Persistence.Entities.Catalog;
 using Kombin.Api.Persistence.Entities.Recommendation;
@@ -10,6 +11,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Npgsql;
 
 namespace Kombin.Api.IntegrationTests;
@@ -40,6 +42,9 @@ public sealed class TryOnTests(ApiFactory factory)
 
     private Task<TryOnGarment?> RowOfProductAsync(Guid productId) =>
         factory.WithDbAsync(db => db.TryOnGarments.AsNoTracking().SingleOrDefaultAsync(row => row.ProductId == productId, Ct));
+
+    private Task<List<TryOnReport>> ReportsOfAsync(Guid userId) =>
+        factory.WithDbAsync(db => db.TryOnReports.AsNoTracking().Where(report => report.UserId == userId).ToListAsync(Ct));
 
     private Task<List<TryOnRender>> RendersOfAsync(Guid userId) =>
         factory.WithDbAsync(db => db.TryOnRenders.AsNoTracking().Where(render => render.UserId == userId).ToListAsync(Ct));
@@ -501,6 +506,47 @@ public sealed class TryOnTests(ApiFactory factory)
         Assert.InRange(problem.GetProperty("retryAfterSeconds").GetInt32(), 1, 3600);
         Assert.NotNull(limited.Headers.RetryAfter);
         Assert.Equal(30, FakeVisionClient.RenderCalls(marker));
+
+        // At the limit a check still answers (it is a cache read: it neither looks at the limit nor draws), and says what a draw would be.
+        var check = await user.Client.GetTryOnOkAsync($"outfitId={outfit}&check=true", Ct);
+        Assert.Equal("Ready", check.Status());
+        Assert.Equal(JsonValueKind.Null, check.GetProperty("imageUrl").ValueKind);
+        Assert.Equal(30, FakeVisionClient.RenderCalls(marker));
+
+        // ... and the limit is still there for a real draw.
+        using var stillLimited = await user.Client.GetAsync($"/api/v1/me/tryon?outfitId={outfit}", Ct);
+        Assert.Equal(HttpStatusCode.TooManyRequests, stillLimited.StatusCode);
+    }
+
+    [Fact]
+    public async Task MoreChecksThanTheHourlyLimitNeverUseItUpSoARealDrawStillSucceeds()
+    {
+        var marker = NewMarker();
+        var (user, outfit, _, _, _) = await ReadyOutfitAsync(marker);
+        using var _1 = user;
+        var limit = factory.Services.GetRequiredService<IOptions<TryOnOptions>>().Value.RendersPerHour;
+
+        for (var attempt = 0; attempt < limit + 5; attempt++)
+        {
+            var check = await user.Client.GetTryOnOkAsync($"outfitId={outfit}&check=true", Ct);
+            Assert.Equal("Ready", check.Status());
+        }
+
+        Assert.Equal(0, FakeVisionClient.RenderCalls(marker));
+        Assert.Empty(await RendersOfAsync(user.Id));
+
+        // A real draw is not limited (no 429), and the limit is spent by this one draw only: the next `limit - 1` draws still succeed.
+        var drawn = await user.Client.GetTryOnOkAsync($"outfitId={outfit}", Ct);
+        Assert.Equal("Ready", drawn.Status());
+        Assert.Equal(1, FakeVisionClient.RenderCalls(marker));
+
+        for (var height = 151; FakeVisionClient.RenderCalls(marker) < limit; height++)
+        {
+            using var profile = await user.Client.PutAsJsonAsync("/api/v1/me/profile", new { heightCm = height }, Ct);
+            Assert.Equal("Ready", (await user.Client.GetTryOnOkAsync($"outfitId={outfit}", Ct)).Status());
+        }
+
+        Assert.Equal(limit, FakeVisionClient.RenderCalls(marker));
     }
 
     [Fact]
@@ -675,6 +721,98 @@ public sealed class TryOnTests(ApiFactory factory)
 
         Assert.Equal(("wardrobe", 1L), listed[topRow.Id]);
         Assert.Equal(("wardrobe", 1L), listed[trousersRow.Id]);
+    }
+
+    [Fact]
+    public async Task AReportMustBelongToADrawingOfTheCallerAndOnlyOneIsStoredPerDrawing()
+    {
+        var marker = NewMarker();
+        var (user, outfit, top, trousers, shoes) = await ReadyOutfitAsync(marker);
+        using var _1 = user;
+
+        // Never drawn yet: nothing to report, whatever the renderer's name.
+        using (var early = await user.Client.PostAsJsonAsync("/api/v1/me/tryon/reports", new { outfitId = outfit, garmentIds = new[] { top }, renderer = FakeVisionClient.Renderer }, Ct))
+        {
+            Assert.Equal(HttpStatusCode.NotFound, early.StatusCode);
+            Assert.Equal("TryOn.RenderNotFound", (await early.ReadProblemAsync(Ct)).GetProperty("errorCode").GetString());
+        }
+
+        Assert.Equal("Ready", (await user.Client.GetTryOnOkAsync($"outfitId={outfit}", Ct)).Status());
+
+        // A renderer name nobody drew with is not a report, however many names a client invents: nothing is stored.
+        foreach (var invented in new[] { $"{FakeVisionClient.Renderer}-next", "invented", "x", new string('y', 40) })
+        {
+            using var response = await user.Client.PostAsJsonAsync("/api/v1/me/tryon/reports", new { outfitId = outfit, garmentIds = new[] { top }, renderer = invented }, Ct);
+            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        }
+
+        Assert.Empty(await ReportsOfAsync(user.Id));
+
+        // Another outfit of the same user that was never drawn: its pieces are prepared, but no drawing holds them.
+        var (second, secondTop, _, _) = await factory.SeedWardrobeOutfitAsync(user.Id, NewMarker());
+        await factory.RunTryOnAsync(TestClock.UtcNow, items: [secondTop]);
+        using (var undrawn = await user.Client.PostAsJsonAsync("/api/v1/me/tryon/reports", new { outfitId = second, garmentIds = new[] { secondTop }, renderer = FakeVisionClient.Renderer }, Ct))
+        {
+            Assert.Equal(HttpStatusCode.NotFound, undrawn.StatusCode);
+        }
+
+        // The real one: the renderer of the drawing. A second report of the same drawing (even for other garments) is the same report.
+        using (var first = await user.Client.PostAsJsonAsync("/api/v1/me/tryon/reports", new { outfitId = outfit, garmentIds = new[] { top }, renderer = FakeVisionClient.Renderer }, Ct))
+        {
+            Assert.Equal(HttpStatusCode.NoContent, first.StatusCode);
+        }
+
+        using (var again = await user.Client.PostAsJsonAsync("/api/v1/me/tryon/reports", new { outfitId = outfit, garmentIds = new[] { trousers, shoes }, renderer = FakeVisionClient.Renderer }, Ct))
+        {
+            Assert.Equal(HttpStatusCode.NoContent, again.StatusCode);
+        }
+
+        var drawing = Assert.Single(await RendersOfAsync(user.Id));
+        var report = Assert.Single(await ReportsOfAsync(user.Id));
+        Assert.Equal(drawing.Id, report.RenderId);
+        Assert.Equal(drawing.Renderer, report.Renderer);
+
+        // Other measurements are another drawing, and a drawing can be reported again.
+        using (var profile = await user.Client.PutAsJsonAsync("/api/v1/me/profile", new { heightCm = 171 }, Ct))
+        {
+            Assert.True(profile.IsSuccessStatusCode);
+        }
+
+        Assert.Equal("Ready", (await user.Client.GetTryOnOkAsync($"outfitId={outfit}", Ct)).Status());
+        using (var next = await user.Client.PostAsJsonAsync("/api/v1/me/tryon/reports", new { outfitId = outfit, garmentIds = new[] { top }, renderer = FakeVisionClient.Renderer }, Ct))
+        {
+            Assert.Equal(HttpStatusCode.NoContent, next.StatusCode);
+        }
+
+        var reports = await ReportsOfAsync(user.Id);
+        Assert.Equal(2, reports.Count);
+        Assert.Equal(2, reports.Select(row => row.RenderId).Distinct().Count());
+    }
+
+    [Fact]
+    public async Task AReportOfAProductNeedsADrawingThatContainsIt()
+    {
+        var marker = NewMarker();
+        using var user = await factory.CreateUserAsync(Ct);
+        var shirt = await factory.SeedTryOnProductAsync("ust-giyim/gomlek", [TryOnClientExtensions.ImageUrl(marker, "shirt")], color: ProductColor.White);
+        var other = await factory.SeedTryOnProductAsync("ust-giyim/gomlek", [TryOnClientExtensions.ImageUrl(NewMarker(), "shirt")], color: ProductColor.White);
+        var trousers = await factory.SeedTryOnItemAsync(user.Id, "alt-giyim/pantolon", $"{marker}:trousers", color: ProductColor.Navy);
+        var shoes = await factory.SeedTryOnItemAsync(user.Id, "ayakkabi/sneaker", $"{marker}:shoes", color: ProductColor.White);
+        await user.Client.GetTryOnOkAsync($"productId={shirt}&withWardrobe=true", Ct);
+        await factory.RunTryOnAsync(TryOnClientExtensions.Noon, items: [trousers, shoes], products: [shirt, other]);
+        Assert.Equal("Ready", (await user.Client.GetTryOnOkAsync($"productId={shirt}&withWardrobe=true", Ct)).Status());
+
+        using (var drawn = await user.Client.PostAsJsonAsync("/api/v1/me/tryon/reports", new { productId = shirt, garmentIds = new[] { shirt }, renderer = FakeVisionClient.Renderer }, Ct))
+        {
+            Assert.Equal(HttpStatusCode.NoContent, drawn.StatusCode);
+        }
+
+        using (var undrawn = await user.Client.PostAsJsonAsync("/api/v1/me/tryon/reports", new { productId = other, garmentIds = new[] { other }, renderer = FakeVisionClient.Renderer }, Ct))
+        {
+            Assert.Equal(HttpStatusCode.NotFound, undrawn.StatusCode);
+        }
+
+        Assert.Equal(shirt, Assert.Single(await ReportsOfAsync(user.Id)).ProductId);
     }
 
     private static string TryOnMetricSql()

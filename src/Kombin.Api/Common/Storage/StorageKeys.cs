@@ -3,7 +3,9 @@ namespace Kombin.Api.Common.Storage;
 /// <summary>
 /// The renditions of one stored image. Only <c>Cutout</c> and <c>Thumb</c> are public; an original stays private, and so do a social post's
 /// <c>Feed</c> image and <c>Preview</c> (a followers-only post must not be readable by URL), which are served through presigned GETs, a try-on
-/// garment's <c>Prepared</c> cutout (read by the server only) and a try-on <c>Render</c> (it reveals body proportions: presigned GETs only).
+/// garment's <c>Prepared</c> cutout (read by the server only), a try-on <c>Render</c> (it reveals body proportions: presigned GETs only) and the two
+/// staged images of bulk add: <c>Staged</c> is a piece's cutout as vision sent it (the review image, the larger one) and <c>StagedThumb</c> its
+/// thumbnail (the grid); neither is <c>cutout.*</c> or <c>thumb.*</c>, so both are private and are copied to the item's public names at confirm.
 /// </summary>
 internal enum ImageVariant
 {
@@ -14,6 +16,8 @@ internal enum ImageVariant
     Preview,
     Prepared,
     Render,
+    Staged,
+    StagedThumb,
 }
 
 /// <summary>
@@ -43,6 +47,28 @@ internal static class StorageKeys
         return $"{area}/{userId:D}/{ownerId:D}/{variant.ToString().ToLowerInvariant()}.{extension.TrimStart('.').ToLowerInvariant()}";
     }
 
+    /// <summary>The storage area of bulk add ("Toplu ekle"): keys are <c>bulk/{userId}/{batchId}/{ownerId}/{variant}.{ext}</c>.</summary>
+    public const string BulkArea = "bulk";
+
+    /// <summary>
+    /// A bulk-add key: <c>bulk/{userId}/{batchId}/{ownerId}/{variant}.{ext}</c>. The batch is part of the path, so confirm, cancel, the cleanup and the
+    /// account purger delete a batch (or a user) by listing its prefix instead of trusting rows: a crashed delete or a lost row leaves nothing the next
+    /// run cannot find. The room photo is owned by the batch itself (<paramref name="ownerId"/> = <paramref name="batchId"/>, <c>Original</c>); a piece's
+    /// images are owned by the piece (<c>Staged</c>, <c>StagedThumb</c>). None of these names is public.
+    /// </summary>
+    public static string BuildBulk(Guid userId, Guid batchId, Guid ownerId, ImageVariant variant, string extension)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(extension);
+
+        return $"{BulkBatchPrefix(userId, batchId)}{ownerId:D}/{variant.ToString().ToLowerInvariant()}.{extension.TrimStart('.').ToLowerInvariant()}";
+    }
+
+    /// <summary>Everything of one bulk-add batch, with the trailing slash: the prefix to list and delete.</summary>
+    public static string BulkBatchPrefix(Guid userId, Guid batchId) => $"{BulkUserPrefix(userId)}{batchId:D}/";
+
+    /// <summary>Everything of one user's bulk adds, with the trailing slash: what the account purger deletes.</summary>
+    public static string BulkUserPrefix(Guid userId) => $"{BulkArea}/{userId:D}/";
+
     /// <summary>The file extension for an accepted image content type (parameters such as <c>; charset</c> are ignored), or null.</summary>
     public static string? ExtensionFor(string? contentType)
     {
@@ -52,16 +78,12 @@ internal static class StorageKeys
     }
 
     /// <summary>
-    /// What a public image (<c>cutout.*</c>, <c>thumb.*</c>) says to every cache: its key is never written with different bytes once a client can see
-    /// it (a wardrobe item's images are final when it is Ready, a league copy has a random key), so a phone keeps it for a year and never asks again.
+    /// What a public image (<c>cutout.*</c>, <c>thumb.*</c>, a wardrobe item's or a league copy) says to every cache: a day, never <c>immutable</c> and never
+    /// longer (task B9). A public URL cannot be revoked, so the longest a deleted account's or item's photo can stay in a CDN or on another phone is the
+    /// time we told them to keep it; the app keeps its own image cache and clears it on sign-out. A league copy is also the picture of one day, deleted
+    /// when its outfit is withdrawn and after seven days.
     /// </summary>
-    public const string LongLivedCacheControl = "public, max-age=31536000, immutable";
-
-    /// <summary>
-    /// A league copy is the picture of one day's outfit and is deleted when the outfit is withdrawn or after seven days; a cache must not hold it
-    /// much longer than the day it is voted on, so it is cached for a day only.
-    /// </summary>
-    public const string LeagueCacheControl = "public, max-age=86400, immutable";
+    public const string PublicCacheControl = "public, max-age=86400";
 
     /// <summary>
     /// Everything that is not public (originals, a post's feed image and preview, a try-on cutout and render): served through presigned GETs, to the
@@ -69,17 +91,12 @@ internal static class StorageKeys
     /// </summary>
     public const string PrivateCacheControl = "private, no-store";
 
-    /// <summary>The <c>Cache-Control</c> an object is stored with, decided by its key like <see cref="IsPublic"/> (the league's copies live under <c>league/</c>).</summary>
+    /// <summary>The <c>Cache-Control</c> an object is stored with, decided by its key like <see cref="IsPublic"/>.</summary>
     public static string CacheControlFor(string key)
     {
         ArgumentNullException.ThrowIfNull(key);
 
-        if (!IsPublic(key))
-        {
-            return PrivateCacheControl;
-        }
-
-        return key.StartsWith("league/", StringComparison.Ordinal) ? LeagueCacheControl : LongLivedCacheControl;
+        return IsPublic(key) ? PublicCacheControl : PrivateCacheControl;
     }
 
     /// <summary>Whether the bucket policy lets anyone read the key: its file name is <c>cutout.*</c> or <c>thumb.*</c>.</summary>

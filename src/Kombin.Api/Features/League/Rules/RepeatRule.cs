@@ -4,7 +4,10 @@ using Kombin.Api.Persistence.Entities.Recommendation;
 
 namespace Kombin.Api.Features.League.Rules;
 
-/// <summary>An earlier entry of the player. <c>Competed</c>: it was <c>Competing</c> at its day's close (<c>daily_scores.competed</c>).</summary>
+/// <summary>
+/// An earlier entry of the player. <c>Competed</c>: it was <c>Competing</c> at its day's close (<c>daily_scores.competed</c>), or, while that day is not
+/// closed yet, it is <c>Competing</c> now.
+/// </summary>
 internal sealed record PastEntry(DateOnly Day, IReadOnlyList<Guid> PieceIds, bool Competed);
 
 /// <summary>

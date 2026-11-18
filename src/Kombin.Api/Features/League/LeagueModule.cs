@@ -2,7 +2,6 @@ using Hangfire;
 using Kombin.Api.Common.Auth;
 using Kombin.Api.Common.Hosting;
 using Kombin.Api.Common.RateLimiting;
-using Kombin.Api.Common.Results;
 using Kombin.Api.Common.Time;
 using Kombin.Api.Features.League.GetMe;
 using Kombin.Api.Features.League.GetResults;
@@ -56,7 +55,7 @@ internal static class LeagueModule
         var league = app.MapGroup("/api/v1/league")
             .RequireAuthorization()
             .WithTags("League")
-            .AddEndpointFilter<RouteGroupBuilder, LeagueEnabledFilter>();
+            .AddEndpointFilter<RouteGroupBuilder, FeatureEnabledFilter<LeagueOptions>>();
 
         GetLeagueMeEndpoint.Map(league);
         JoinLeagueEndpoint.Map(league);
@@ -75,7 +74,7 @@ internal static class LeagueModule
         var internalLeague = app.MapGroup("/api/v1/internal/league")
             .WithTags("League (internal)")
             .RequireInternalKey()
-            .AddEndpointFilter<RouteGroupBuilder, LeagueEnabledFilter>();
+            .AddEndpointFilter<RouteGroupBuilder, FeatureEnabledFilter<LeagueOptions>>();
         CloseDayEndpoint.Map(internalLeague);
         ReviewQueueEndpoint.Map(internalLeague);
         ReviewEntryEndpoint.Map(internalLeague);
@@ -112,11 +111,4 @@ internal static class LeagueModule
         jobs.AddOrUpdate<LeagueCloseJob>(LeagueCloseJob.JobId, job => job.RunAsync(CancellationToken.None), LeagueCloseJob.Cron, schedule);
         jobs.AddOrUpdate<LeaguePurgeJob>(LeaguePurgeJob.JobId, job => job.RunAsync(CancellationToken.None), LeaguePurgeJob.Cron, schedule);
     }
-}
-
-/// <summary>Answers 404 <c>League.Disabled</c> while <c>League:Enabled</c> is false (the default until the app screens ship).</summary>
-internal sealed class LeagueEnabledFilter(IOptionsMonitor<LeagueOptions> options) : IEndpointFilter
-{
-    public async ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next) =>
-        options.CurrentValue.Enabled ? await next(context) : LeagueErrors.Disabled.ToHttpResult();
 }

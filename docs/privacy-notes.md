@@ -37,6 +37,7 @@ What happens to every table that holds data about a user:
 | `notification.devices` (push tokens) | deactivated at the request, deleted |
 | `notification.notifications`, `notification_preferences` | deleted |
 | `wardrobe.items`, `wardrobe.wears` | deleted; the objects (original, cutout, thumbnail) are deleted from storage first |
+| `wardrobe.bulk_batches`, `wardrobe.bulk_pieces` ("Toplu ekle": the staging area of one photo of several garments, with the pieces vision cut out of it, their attributes and embeddings; counts and enums remain as a tombstone for 7 days) | deleted (cascade); the objects under `bulk/{user}/` (the room photo while a batch is `Failed`, the staged cutouts and thumbnails) are deleted from storage first, found by listing the prefix |
 | `recommendation.outfits`, `outfit_items`, `outfit_feedback` | deleted (budget outfits included) |
 | `recommendation.trips` (destination city, dates, plans per day, the packing plan) | deleted |
 | `social.posts`, `post_tags` | deleted; the objects (original, feed image, preview) are deleted from storage first |
@@ -52,7 +53,7 @@ What happens to every table that holds data about a user:
 | `league.engine_preferences` | not personal data (engine products and a weight, no user ID); untouched |
 | `tryon.renders` (mannequin drawings: they **reveal body proportions**; the cache key and a hash of the body values) | deleted (cascade); the images are deleted from storage first |
 | `tryon.garments` of the user's wardrobe items (what the vision service read from the photo: outline points, flags) | deleted (cascade with the wardrobe items); the prepared cutouts are deleted from storage first. Catalogue garments are catalogue data, untouched |
-| `tryon.reports` ("Yanlış görünüyor": which outfit or product, which garments, which renderer) | deleted (cascade) |
+| `tryon.reports` ("Yanlış görünüyor": which outfit or product, which garments, which renderer, which drawing) | deleted (cascade); `render_id` is a plain reference that is emptied when the drawing goes, never user data of its own |
 | `engagement.clicks` | **anonymised**: `user_id`, `persona_id` and (as a creator) `creator_id` become null; the rest stays (offer, product, seller, source, post ID, user agent, salted IP hash) as the revenue record |
 | `analytics.events` | **anonymised**: `user_id` becomes null; `anonymous_id` (a random install ID) stays (open question 12) |
 | `social.referral_events` | **kept** as the financial record: `creator_id` and `viewer_user_id` become null, the amounts stay |
@@ -70,8 +71,9 @@ cancelling inside the window, the admin buttons).
 | Data | Why | Where | Visible to | Retention |
 |---|---|---|---|---|
 | Audience (women/men/unisex), measurements, city, personas, swipes, sizes per brand | recommendations; the city fetches the weather | `profile.*` | the user only; the audience is copied onto posts for feed matching (never shown) | until account deletion (section 1a) |
-| Wardrobe photos: private original, public cutout and thumbnail, garment attributes, a CLIP embedding | the wardrobe and outfits | object storage `wardrobe/{user}/{item}/…`, `wardrobe.items` | the original: the user (15-minute presigned link); cutout/thumbnail: **anyone with the URL** (unguessable keys, public bucket policy); the URL is given to other users (a post's wardrobe tag, an outfit post) only after the safety filter allowed the cutout (`wardrobe.items.moderation_verdict`, security review M3) | archived items' images deleted after 30 days; abandoned uploads after 1 day |
+| Wardrobe photos: private original, public cutout and thumbnail, garment attributes, a CLIP embedding | the wardrobe and outfits | object storage `wardrobe/{user}/{item}/…`, `wardrobe.items` | the original: the user (15-minute presigned link); cutout/thumbnail: **anyone with the URL** (unguessable keys, public bucket policy); the URL is given to other users (a post's wardrobe tag, an outfit post) only after the safety filter allowed the cutout (`wardrobe.items.moderation_verdict`, security review M3) | archived items' images deleted after 30 days; abandoned uploads after 1 day. **Caches:** the public images are served with `Cache-Control: public, max-age=86400` (never `immutable`), so after a deletion a CDN or another phone may still show the photo for up to a day (a public URL cannot be revoked); the app clears its own image cache on sign-out; a CDN in front of the storage must not keep objects longer or must be purged (`docs/deploy.md`) |
 | Wear dates | wear tracking | `wardrobe.wears` | the user | until account deletion (section 1a) |
+| The room photo of a bulk add and the staged pieces (cutouts, thumbnails, embeddings) | "Toplu ekle" review screen | object storage `bulk/{user}/{batch}/…` (private by name: `original.*`, `staged.*`, `stagedthumb.*`), `wardrobe.bulk_batches`, `wardrobe.bulk_pieces` | the user only: a presigned GET valid for one hour in the answer to their own request | the room photo is deleted as soon as vision answered (kept only while the batch is `Failed`); everything is deleted at confirm, cancel and 24 hours after the batch was created; a tombstone (counts, no image, no piece) stays 7 days; all of it with the account |
 | Saved trips: name, destination city, dates, plans per day (office, evening, ...), the packing plan (wardrobe item IDs, the weather used) | "Valiz hazırlama" | `recommendation.trips` | the user only (`/me/trips` is scoped to the caller; another user's ID is 404) | until the user deletes the trip or the account (section 1a); a plan that is only planned, not saved, is not stored |
 | Budget outfits: the outfits suggested for a budget (pieces, prices at suggestion time) | "Bütçeye göre kombin" | `recommendation.outfits` (kind `Budget`), only for signed-in callers; the anonymous route stores nothing, and the budget amount itself is not stored | the user | as other outfits (section 1a) |
 
@@ -235,9 +237,9 @@ between a copy and the thumbnail a Social post shows for that piece (which carri
 - the size differs by at most a few hundred bytes from the source, so it narrows a search without deciding it.
 Catalog pieces are catalog images (the same for everyone who owns the product) and link to no one.
 
-The copies are served with `Cache-Control: public, max-age=86400, immutable` (a day, the day they are voted on; task B8): a voter's phone, or any cache
+The copies are served with `Cache-Control: public, max-age=86400` (a day, the day they are voted on; tasks B8 and B9): a voter's phone, or any cache
 between, may still hold a copy for up to a day after it was deleted on a withdrawal or a leave. That is the same picture the voter was shown, and the
-bound is a day, not a year (the wardrobe's own public images are cached for a year: they are final once the item is Ready).
+bound is a day, the same as for the wardrobe's own public images (below: they were cached for a year, `immutable`, until task B9).
 
 So the league's promise is **no name, no profile and no stable identifier in any response**, not that an outfit cannot be traced to its owner.
 Consent version `2026-11-v2` tells the player exactly that: "Parçalarını tanıyan biri kombinin sana ait olduğunu anlayabilir." Players who joined

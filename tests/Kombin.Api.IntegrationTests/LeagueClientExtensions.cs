@@ -38,7 +38,13 @@ internal static class LeagueClientExtensions
 
     public const string NextPair = "/api/v1/league/pairs/next";
 
-    private static int NextDayIndex = Random.Shared.Next(0, 3000);
+    /// <summary>
+    /// Days between two tests' days. A week that is not closed blocks the placement of players into the week after it (the gap before the week
+    /// close, task B9), and the week rows a test creates stay in the shared database: two tests in adjacent weeks would block each other.
+    /// </summary>
+    private const int Spacing = 14;
+
+    private static int NextDayIndex = Random.Shared.Next(0, 300);
 
     public static readonly string[] Outfit3 = ["ust-giyim/gomlek", "alt-giyim/pantolon", "ayakkabi/sneaker"];
 
@@ -65,18 +71,19 @@ internal static class LeagueClientExtensions
     }
 
     /// <summary>A day of the test's own.</summary>
-    public static DateOnly NewDay() => new DateOnly(2040, 1, 1).AddDays(Interlocked.Increment(ref NextDayIndex) * 3);
+    public static DateOnly NewDay() => new DateOnly(2040, 1, 1).AddDays(Interlocked.Increment(ref NextDayIndex) * Spacing);
 
     /// <summary>
     /// The first of at least <paramref name="days"/> consecutive days of the test's own (the hourly close looks at a whole window of days, so
-    /// a test of it needs every day in that window to itself). <see cref="NewDay"/>'s days are three apart; this takes a run of them.
+    /// a test of it needs every day in that window to itself). <see cref="NewDay"/>'s days are <see cref="Spacing"/> apart; this takes a run of them,
+    /// with at least two empty weeks on each side of the weeks it plays.
     /// </summary>
     public static DateOnly NewBlock(int days)
     {
-        var steps = (days / 3) + 2;
+        var steps = (days / Spacing) + 3;
         var last = Interlocked.Add(ref NextDayIndex, steps);
 
-        return new DateOnly(2040, 1, 1).AddDays((last - steps + 1) * 3);
+        return new DateOnly(2040, 1, 1).AddDays((last - steps + 1) * Spacing);
     }
 
     /// <summary>The first Monday of a run of three weeks of the test's own.</summary>

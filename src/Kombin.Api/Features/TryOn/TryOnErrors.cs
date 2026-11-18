@@ -12,5 +12,7 @@ internal static class TryOnErrors
 
     public static readonly Error UnknownGarment = Error.Validation("TryOn.UnknownGarment", "Bildirilen parça bu kombinde yok.");
 
+    public static readonly Error RenderNotFound = Error.NotFound("TryOn.RenderNotFound", "Bildirilen manken görünümü bulunamadı.");
+
     public static readonly Error RendererUnavailable = Error.Unavailable("TryOn.RendererUnavailable", "Manken görünümü şu an hazırlanamıyor. Biraz sonra yeniden dene.");
 }

@@ -291,6 +291,60 @@ public sealed class LeagueEntryTests(ApiFactory factory)
         Assert.All(today.GetProperty("pieces").EnumerateArray(), piece => Assert.NotNull(piece.GetProperty("imageUrl").GetString()));
     }
 
+    /// <summary>
+    /// Task B9: the repeat rule reads what competed from the day's result rows, which a late close has not written yet. For a day that is not closed,
+    /// an entry that is <c>Competing</c> counts (the close writes <c>competed</c> for every one of them), so a close running past midnight cannot
+    /// let yesterday's outfit compete again.
+    /// </summary>
+    [Fact]
+    public async Task AnOutfitThatCompetedYesterdayStillCountsWhenYesterdaysCloseRunsLate()
+    {
+        var day = NewBlock(2).AddDays(1);
+        var yesterday = day.AddDays(-1);
+        using var late = await factory.CreatePlayerAsync(day, Ct);
+        using var withdrawn = await factory.CreatePlayerAsync(day, Ct);
+        var lateOutfit = await factory.SeedOutfitAsync(late.Id, Ct);
+        var withdrawnOutfit = await factory.SeedOutfitAsync(withdrawn.Id, Ct);
+
+        // Yesterday's 21:00 has passed and its close has not run (no result rows, the day is open in the table): one player's outfit was
+        // Competing, the other's was withdrawn.
+        await factory.WithDbAsync(async db =>
+        {
+            await db.Database.ExecuteSqlAsync(
+                $"INSERT INTO league.days (day, closes_at, ranked_count, engine_count, pair_count, bt_iterations, bt_converged, close_ms) VALUES ({yesterday}, {Time(yesterday, 21)}, 0, 0, 0, 0, false, 0) ON CONFLICT (day) DO NOTHING",
+                Ct);
+            foreach (var (user, outfit, status) in new[] { (late, lateOutfit, LeagueEntryStatus.Competing), (withdrawn, withdrawnOutfit, LeagueEntryStatus.Withdrawn) })
+            {
+                db.LeagueEntries.Add(new LeagueEntry
+                {
+                    Day = yesterday,
+                    UserId = user.Id,
+                    Kind = LeagueEntryKind.Human,
+                    Audience = Audience.Unisex,
+                    PieceIds = [.. outfit.ItemIds.Order()],
+                    PieceSetHash = new string('d', LeagueEntry.PieceSetHashLength),
+                    Status = status,
+                });
+            }
+
+            await db.SaveChangesAsync(Ct);
+            return 0;
+        });
+
+        // The same outfits are worn again just after midnight, while yesterday is still not closed.
+        late.Client.At(Time(day, 0, 30));
+        withdrawn.Client.At(Time(day, 0, 30));
+        await late.Client.WearOutfitAsync(lateOutfit.OutfitId, Ct);
+        await withdrawn.Client.WearOutfitAsync(withdrawnOutfit.OutfitId, Ct);
+        await RunAsync(Time(day, 0, 31), late.Id, withdrawn.Id);
+
+        var repeated = await factory.EntryAsync(late.Id, day, Ct);
+        Assert.Equal((LeagueEntryStatus.NotCompeting, LeagueEntryReason.RecentlyCompeted), (repeated!.Status, repeated.Reason));
+
+        // A withdrawn entry never blocked: yesterday's outfit may compete today.
+        Assert.Equal(LeagueEntryStatus.Competing, (await factory.EntryAsync(withdrawn.Id, day, Ct))!.Status);
+    }
+
     [Fact]
     public async Task ABirthYearSetAfterJoiningThatKeepsThePlayerOutStopsTheEntry()
     {

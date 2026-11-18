@@ -1,14 +1,18 @@
+using Kombin.Api.Common.Hosting;
+using Kombin.Api.Common.Results;
 using Microsoft.Extensions.Options;
 
 namespace Kombin.Api.Features.TryOn;
 
 /// <summary><c>TryOn:*</c>, "Manken üstünde gör" (<c>docs/design/try-on.md</c>). Every number of the feature is here.</summary>
-internal sealed class TryOnOptions
+internal sealed class TryOnOptions : IFeatureOptions
 {
     public const string SectionName = "TryOn";
 
     /// <summary>Off by default: the routes answer 404 <c>TryOn.Disabled</c> and <c>tryon-prepare</c> does nothing.</summary>
     public bool Enabled { get; set; }
+
+    static Error IFeatureOptions.Disabled => TryOnErrors.Disabled;
 
     /// <summary>Above this BMI the outfit's edges run off the picture (the service's <c>MAX_BMI</c>): the action is hidden.</summary>
     public double MaxBmi { get; set; } = 36;

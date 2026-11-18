@@ -1,3 +1,5 @@
+using Kombin.Api.Common.Hosting;
+using Kombin.Api.Common.Results;
 using Microsoft.Extensions.Options;
 
 namespace Kombin.Api.Features.League;
@@ -7,12 +9,14 @@ namespace Kombin.Api.Features.League;
 /// constants: the numbers come from small simulations and are revisited after the first month. <c>LeagueOptionsTests</c> pins the defaults
 /// to the design note.
 /// </summary>
-internal sealed class LeagueOptions
+internal sealed class LeagueOptions : IFeatureOptions
 {
     public const string SectionName = "League";
 
     /// <summary>Off until the app screens ship: every league route answers 404 <c>League.Disabled</c> and no league job runs.</summary>
     public bool Enabled { get; set; }
+
+    static Error IFeatureOptions.Disabled => LeagueErrors.Disabled;
 
     /// <summary>The day closes (votes stop, results are computed) at this Istanbul time.</summary>
     public TimeOnly DayClosesAt { get; set; } = new(21, 0);

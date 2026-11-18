@@ -97,6 +97,7 @@ public sealed class RateLimitTests(ApiFactory factory)
         Assert.Equal((60, 3600), (limits.Budget.Authenticated.PermitLimit, limits.Budget.Authenticated.WindowSeconds));
         Assert.Equal((30, 3600), (limits.Trips.PermitLimit, limits.Trips.WindowSeconds));
         Assert.Equal((120, 300), (limits.League.PermitLimit, limits.League.WindowSeconds));
+        Assert.Equal((120, 300), (limits.TryOn.PermitLimit, limits.TryOn.WindowSeconds));
         Assert.Equal((60, 3600), (limits.Uploads.PermitLimit, limits.Uploads.WindowSeconds));
         Assert.Equal((600, 300), (limits.Events.PermitLimit, limits.Events.WindowSeconds));
         Assert.Equal((120, 60), (limits.Go.PermitLimit, limits.Go.WindowSeconds));
@@ -276,6 +277,28 @@ public sealed class RateLimitTests(ApiFactory factory)
         // The rest of the league is under the global fallback only.
         using var me = await client.GetAsync("/api/v1/league/me", Ct);
         Assert.Equal(HttpStatusCode.OK, me.StatusCode);
+    }
+
+    [Fact]
+    public async Task TheTryOnDrawingAndItsReportsShareOneBucketPerUser()
+    {
+        using var host = Limited(("RateLimits:TryOn:PermitLimit", "2"));
+        using var client = ClientAt(host);
+        var tokens = await client.RegisterAndReadAsync(cancellationToken: Ct);
+        client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", tokens.AccessToken);
+
+        using (var draw = await client.GetAsync($"/api/v1/me/tryon?outfitId={Guid.NewGuid()}", Ct))
+        {
+            Assert.Equal(HttpStatusCode.NotFound, draw.StatusCode);
+        }
+
+        using (var report = await client.PostAsJsonAsync("/api/v1/me/tryon/reports", new { outfitId = Guid.NewGuid(), garmentIds = new[] { Guid.NewGuid() }, renderer = "x" }, Ct))
+        {
+            Assert.Equal(HttpStatusCode.NotFound, report.StatusCode);
+        }
+
+        await AssertRateLimitedAsync(await client.GetAsync($"/api/v1/me/tryon?outfitId={Guid.NewGuid()}&check=true", Ct));
+        await AssertRateLimitedAsync(await client.PostAsJsonAsync("/api/v1/me/tryon/reports", new { outfitId = Guid.NewGuid(), garmentIds = new[] { Guid.NewGuid() }, renderer = "x" }, Ct));
     }
 
     [Fact]

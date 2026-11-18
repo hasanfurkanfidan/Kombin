@@ -15,7 +15,9 @@ namespace Kombin.Api.Features.League.GetTable;
 /// <c>TierDown</c>: the leagues above and below it (null at Diamond / Bronze). <c>TodayPoints</c>: today's total once today is closed
 /// (<c>TodayIsFinal</c>), else the usage points earned so far today. <c>PromoteCount</c> / <c>RelegateCount</c>: the bands as they stand
 /// (<c>min(5, floor(competed / 3))</c>). <c>Rows</c>: <c>{ rank, points, isMe, alias }</c> in table order, nothing else; the app shows "Sen" for
-/// <c>isMe</c>. Between Sunday's close and Monday 00:00 it is last week's final table.
+/// <c>isMe</c>. <c>State</c>: Open (the week runs), Ending (the week is over but its close has not run, so the next groups are not formed: this is
+/// last week's table as the day closes left it, at any hour of Sunday evening or Monday if the close is late) or Final (closed: between
+/// Sunday's close and Monday 00:00 it is last week's final table).
 /// </summary>
 internal sealed record LeagueTableResponse(
     DateOnly WeekStart,
@@ -28,7 +30,8 @@ internal sealed record LeagueTableResponse(
     LeagueTier? TierUp,
     LeagueTier? TierDown,
     int Size,
-    IReadOnlyList<LeagueTableRow> Rows);
+    IReadOnlyList<LeagueTableRow> Rows,
+    LeagueWeekState State);
 
 internal static class GetTableEndpoint
 {
@@ -41,8 +44,9 @@ internal static class GetTableEndpoint
             .ProducesProblem(StatusCodes.Status404NotFound);
 
     /// <summary>
-    /// The table of the week of today (Istanbul). A joined player who is in no group yet is placed first (the mid-week rule). Errors: 403
-    /// <c>League.NotJoined</c>; 404 <c>League.NoGroup</c> (no group this week, e.g. joined after Sunday's close: their group starts Monday).
+    /// The table of the week of today (Istanbul). A joined player who is in no group yet is placed first (the mid-week rule), except while the week
+    /// before is not closed: then nobody is placed, and a player who had a group in that week sees it (<c>state</c> Ending). Errors: 403
+    /// <c>League.NotJoined</c>; 404 <c>League.NoGroup</c> (no group at all, e.g. joined after Sunday's close: their group starts when the week is closed).
     /// </summary>
     private static async Task<IResult> Handle(
         ICurrentUser currentUser, KombinDbContext db, IClock clock, IOptions<LeagueOptions> options, CancellationToken cancellationToken)
@@ -58,7 +62,7 @@ internal static class GetTableEndpoint
         await LeagueGroups.PlaceOneAsync(db, settings, userId, now, cancellationToken);
 
         var today = Istanbul.Today(now);
-        var view = await LeagueTables.ForMemberAsync(db, settings, userId, LeagueDays.WeekStart(today), cancellationToken);
+        var view = await LeagueTables.ForMemberNowAsync(db, settings, userId, now, cancellationToken);
         if (view is null)
         {
             return LeagueErrors.NoGroup.ToHttpResult();
@@ -77,7 +81,8 @@ internal static class GetTableEndpoint
             view.Tier == LeagueTier.Diamond ? null : WeeklyTable.Up(view.Tier),
             view.Tier == LeagueTier.Bronze ? null : WeeklyTable.Down(view.Tier),
             view.Rows.Count,
-            view.Rows));
+            view.Rows,
+            view.State));
     }
 
     /// <summary>

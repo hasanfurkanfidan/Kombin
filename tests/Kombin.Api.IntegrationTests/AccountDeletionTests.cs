@@ -14,6 +14,7 @@ using Kombin.Api.Persistence.Entities.Profile;
 using Kombin.Api.Persistence.Entities.Recommendation;
 using Kombin.Api.Persistence.Entities.Social;
 using Kombin.Api.Persistence.Entities.TryOn;
+using Kombin.Api.Persistence.Entities.Wardrobe;
 using Microsoft.EntityFrameworkCore;
 
 namespace Kombin.Api.IntegrationTests;
@@ -472,6 +473,9 @@ public sealed class AccountDeletionTests(ApiFactory factory)
         // "Manken üstünde gör": a prepared garment of the subject's photo item, a drawing (it reveals body proportions) and a report, set up directly.
         var tryOnKeys = await SeedTryOnAsync(ownerId, itemId, outfitId);
 
+        // "Toplu ekle": a batch with two staged pieces (rows only: the staged objects and the prefix delete come with PR 2).
+        await SeedBulkAsync(ownerId);
+
         // --- Before: the subject has rows everywhere. ---
         var before = await CountsAsync(ownerId);
         Assert.All(before, entry => Assert.True(entry.Value > 0, $"{entry.Key} should have rows before the deletion."));
@@ -675,6 +679,8 @@ public sealed class AccountDeletionTests(ApiFactory factory)
         ["notification.notification_preferences"] = await db.NotificationPreferences.CountAsync(row => row.UserId == userId, Ct),
         ["wardrobe.items"] = await db.WardrobeItems.CountAsync(row => row.UserId == userId, Ct),
         ["wardrobe.wears"] = await db.WardrobeWears.CountAsync(row => row.UserId == userId, Ct),
+        ["wardrobe.bulk_batches"] = await db.BulkBatches.CountAsync(row => row.UserId == userId, Ct),
+        ["wardrobe.bulk_pieces"] = await db.BulkPieces.CountAsync(row => row.UserId == userId, Ct),
         ["recommendation.outfits"] = await db.Outfits.CountAsync(row => row.UserId == userId, Ct),
         ["recommendation.outfit_items"] = await db.OutfitItems.CountAsync(row => db.Outfits.Any(outfit => outfit.Id == row.OutfitId && outfit.UserId == userId), Ct),
         ["recommendation.outfit_feedback"] = await db.OutfitFeedback.CountAsync(row => row.UserId == userId, Ct),
@@ -700,6 +706,19 @@ public sealed class AccountDeletionTests(ApiFactory factory)
         ["tryon.garments"] = await db.TryOnGarments.CountAsync(row => db.WardrobeItems.Any(item => item.Id == row.WardrobeItemId && item.UserId == userId), Ct),
         ["tryon.renders"] = await db.TryOnRenders.CountAsync(row => row.UserId == userId, Ct),
         ["tryon.reports"] = await db.TryOnReports.CountAsync(row => row.UserId == userId, Ct),
+    });
+
+    /// <summary>The subject's bulk-add batch (a photo of the room, two staged pieces) as rows; no objects yet.</summary>
+    private Task<int> SeedBulkAsync(Guid userId) => factory.WithDbAsync(async db =>
+    {
+        var batch = new BulkBatch { UserId = userId, Status = BulkBatchStatus.Ready, ExpiresAt = TestClock.UtcNow.AddHours(24) };
+        db.BulkBatches.Add(batch);
+        db.BulkPieces.AddRange(
+            new BulkPiece { BatchId = batch.Id, UserId = userId, SortOrder = 0, PreTicked = true },
+            new BulkPiece { BatchId = batch.Id, UserId = userId, SortOrder = 1, Reasons = ["touching"] });
+        await db.SaveChangesAsync(Ct);
+
+        return 0;
     });
 
     /// <summary>The subject's try-on rows and their two stored objects (the prepared cutout and the drawing); returns the object keys.</summary>

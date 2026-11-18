@@ -4,6 +4,7 @@ using Kombin.Api.Common.Http;
 using Kombin.Api.Common.Time;
 using Kombin.Api.Features.Wardrobe.AddFromProduct;
 using Kombin.Api.Features.Wardrobe.ArchiveItem;
+using Kombin.Api.Features.Wardrobe.BulkAdd;
 using Kombin.Api.Features.Wardrobe.CreateUploadUrl;
 using Kombin.Api.Features.Wardrobe.GetGaps;
 using Kombin.Api.Features.Wardrobe.GetItem;
@@ -34,6 +35,8 @@ internal static class WardrobeModule
         services.AddScoped<WardrobeAnalyzeJob>();
         services.AddScoped<WardrobeCleanupJob>();
 
+        services.AddBulkAddFeature();
+
         return services;
     }
 
@@ -54,6 +57,8 @@ internal static class WardrobeModule
         GetStatsEndpoint.Map(wardrobe);
         GetGapsEndpoint.Map(wardrobe);
         GetSummaryEndpoint.Map(wardrobe);
+
+        wardrobe.MapBulkAddEndpoints();
 
         return app;
     }

@@ -28,9 +28,10 @@ internal sealed record LeagueTodayResponse(
 
 /// <summary>
 /// The caller's week in their group: place, group size, week points so far (the best five closed days), points to the promotion line ("5. sıraya
-/// 17 puan"; null inside the band or without one) and when the week ends. Null for a player in no group this week.
+/// 17 puan"; null inside the band or without one) and when the week ends. <c>State</c>: Open (running), Ending (the week is over and its close has
+/// not run yet: this is last week's table until the new groups are formed, never an error) or Final (closed). Null for a player in no group.
 /// </summary>
-internal sealed record LeagueWeekResponse(int GroupRank, int GroupSize, int Points, int? PointsToPromotion, DateTimeOffset EndsAt);
+internal sealed record LeagueWeekResponse(int GroupRank, int GroupSize, int Points, int? PointsToPromotion, DateTimeOffset EndsAt, LeagueWeekState State);
 
 /// <summary>
 /// The caller's league state. <c>Joined</c>: in the league now. <c>ConsentRequired</c>: the join screen must be shown (never joined, left, or
@@ -78,9 +79,9 @@ internal static partial class GetLeagueMeEndpoint
     private static async Task<LeagueWeekResponse?> WeekAsync(KombinDbContext db, LeagueOptions options, Guid userId, DateTimeOffset now, CancellationToken cancellationToken)
     {
         await LeagueGroups.PlaceOneAsync(db, options, userId, now, cancellationToken);
-        var view = await LeagueTables.ForMemberAsync(db, options, userId, LeagueDays.WeekStart(Istanbul.Today(now)), cancellationToken);
+        var view = await LeagueTables.ForMemberNowAsync(db, options, userId, now, cancellationToken);
 
-        return view is null ? null : new LeagueWeekResponse(view.MyRank, view.Rows.Count, view.MyPoints, view.PointsToPromotion, view.EndsAt);
+        return view is null ? null : new LeagueWeekResponse(view.MyRank, view.Rows.Count, view.MyPoints, view.PointsToPromotion, view.EndsAt, view.State);
     }
 
     private static async Task<LeagueTodayResponse> TodayAsync(

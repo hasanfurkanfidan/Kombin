@@ -24,6 +24,8 @@ internal static class RateLimitPolicies
     public const string Trips = "trips";
 
     public const string League = "league";
+
+    public const string TryOn = "tryon";
 }
 
 /// <summary>Who a request counts against: the signed-in user's ID, else the client address (after forwarded headers, so the real one behind the proxy).</summary>
@@ -44,7 +46,7 @@ internal static class RateLimitKeys
 
 /// <summary>
 /// ASP.NET Core's built-in rate limiter, in memory (per instance), fixed windows. Policies: <c>auth</c> (per IP), <c>lens</c> and <c>budget</c>
-/// (per user, else per IP, different limits), <c>uploads</c>, <c>events</c>, <c>trips</c>, <c>league</c> (per user, else per IP), <c>go</c> (per IP) and a
+/// (per user, else per IP, different limits), <c>uploads</c>, <c>events</c>, <c>trips</c>, <c>league</c>, <c>tryon</c> (per user, else per IP), <c>go</c> (per IP) and a
 /// global fallback (per IP) under all of them. A rejected request is a 429 problem document with <c>errorCode: "RateLimited"</c> and a <c>Retry-After</c> header. Limits are read from
 /// <see cref="RateLimitOptions"/> when a caller's limiter is first created, so configuration applied after Program.cs still wins.
 /// </summary>
@@ -90,6 +92,7 @@ internal static class RateLimitingSetup
                     limits => RateLimitKeys.User(context) is null ? limits.Budget.Anonymous : limits.Budget.Authenticated));
             options.AddPolicy(RateLimitPolicies.Trips, context => Policy(context, "trips:" + RateLimitKeys.UserOrClient(context), limits => limits.Trips));
             options.AddPolicy(RateLimitPolicies.League, context => Policy(context, "league:" + RateLimitKeys.UserOrClient(context), limits => limits.League));
+            options.AddPolicy(RateLimitPolicies.TryOn, context => Policy(context, "tryon:" + RateLimitKeys.UserOrClient(context), limits => limits.TryOn));
         });
 
         return services;

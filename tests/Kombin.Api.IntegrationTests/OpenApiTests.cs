@@ -95,9 +95,9 @@ public sealed class OpenApiTests(ApiFactory factory)
         Assert.Contains("LeagueReviewItem", paths.GetProperty("/api/v1/internal/league/review-queue").GetProperty("get").GetProperty("responses").GetProperty("200").GetRawText(), StringComparison.Ordinal);
         Assert.Contains("ReviewEntryResponse", paths.GetProperty("/api/v1/internal/league/entries/{entryId}/review").GetProperty("post").GetProperty("responses").GetProperty("200").GetRawText(), StringComparison.Ordinal);
 
-        Assert.Equal(["endsAt", "promoteCount", "relegateCount", "rows", "size", "tier", "tierDown", "tierUp", "todayIsFinal", "todayPoints", "weekStart"], Properties("LeagueTableResponse"));
+        Assert.Equal(["endsAt", "promoteCount", "relegateCount", "rows", "size", "state", "tier", "tierDown", "tierUp", "todayIsFinal", "todayPoints", "weekStart"], Properties("LeagueTableResponse"));
         Assert.Equal(["alias", "isMe", "points", "rank"], Properties("LeagueTableRow"));
-        Assert.Equal(["endsAt", "groupRank", "groupSize", "points", "pointsToPromotion"], Properties("LeagueWeekResponse"));
+        Assert.Equal(["endsAt", "groupRank", "groupSize", "points", "pointsToPromotion", "state"], Properties("LeagueWeekResponse"));
         Assert.Equal(["countingReports", "day", "entryId", "pieces", "reports", "status", "underReview"], Properties("LeagueReviewItem"));
         Assert.Equal(["entryId", "resultChanged", "status"], Properties("ReviewEntryResponse"));
         Assert.Contains("leagueResults", Properties("PreferencesResponse"));

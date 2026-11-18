@@ -120,6 +120,13 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
         // Wardrobe
         ["POST /api/v1/me/wardrobe/items/upload-url"] = Exempt("Creates an item of the caller; the storage key is built by the server."),
         ["POST /api/v1/me/wardrobe/items/from-product"] = Exempt("Creates an item of the caller from a catalog product (public ID)."),
+
+        // Bulk add (task BA2, PR 1: switched off in the test host, so the routes answer 404 BulkDisabled; PR 2 and 3 turn these into real probes).
+        ["POST /api/v1/me/wardrobe/bulk/upload-url"] = Exempt("Creates a batch of the caller; the storage key is built by the server."),
+        ["POST /api/v1/me/wardrobe/bulk/{id:guid}/process"] = Probe(w => new HttpRequestMessage(HttpMethod.Post, $"/api/v1/me/wardrobe/bulk/{w.ItemId}/process"), [HttpStatusCode.NotFound]),
+        ["GET /api/v1/me/wardrobe/bulk/{id:guid}"] = Probe(w => new HttpRequestMessage(HttpMethod.Get, $"/api/v1/me/wardrobe/bulk/{w.ItemId}"), [HttpStatusCode.NotFound]),
+        ["POST /api/v1/me/wardrobe/bulk/{id:guid}/confirm"] = Probe(w => Json(HttpMethod.Post, $"/api/v1/me/wardrobe/bulk/{w.ItemId}/confirm", new { pieces = Array.Empty<object>() }), [HttpStatusCode.NotFound]),
+        ["DELETE /api/v1/me/wardrobe/bulk/{id:guid}"] = Probe(w => new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/me/wardrobe/bulk/{w.ItemId}"), [HttpStatusCode.NotFound]),
         ["GET /api/v1/me/wardrobe/items"] = ScopedRead("/api/v1/me/wardrobe/items"),
         ["GET /api/v1/me/wardrobe/stats"] = ScopedRead("/api/v1/me/wardrobe/stats"),
         ["GET /api/v1/me/wardrobe/gaps"] = ScopedRead("/api/v1/me/wardrobe/gaps"),

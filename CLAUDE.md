@@ -433,13 +433,14 @@ External Python workers (a separate repo) push the catalog through the internal 
   policy (`docker/minio/public-read.json`, applied by the `minio-init` container) makes `*/cutout.*` and `*/thumb.*` anonymously readable;
   everything else, originals included, is private and served through a presigned GET (social posts' `feed.*` and `preview.*` too: a
   followers-only photo must not be readable by URL). Never store anything private under those names.
-  **Cache headers** (task B8): `S3ObjectStorage.PutAsync` stores every object with `StorageKeys.CacheControlFor(key)`, decided by the key like visibility:
-  a public image (`cutout.*`, `thumb.*`) `public, max-age=31536000, immutable` (a wardrobe image is final once its item is Ready), a league copy
-  (`league/`) `public, max-age=86400, immutable` (the picture of one day, deleted on withdrawal and after 7 days), everything else `private, no-store`; a
-  presigned GET carries `response-cache-control=private, no-store` so a private link is never kept by a shared cache whatever the object was stored with.
-  A new key name that is public must be added to `CacheControlFor`'s reasoning (`StorageCacheControlTests` fails when public and cache disagree). Objects
-  from before: Caddy's `storage.$DOMAIN` block sets the header when the store sent none, and `scripts/minio-cache-control.sh` rewrites the metadata in the
-  development MinIO (once). An object written under the same key with other bytes after a client could see it would break `immutable`: do not.
+  **Cache headers** (tasks B8, B9): `S3ObjectStorage.PutAsync` stores every object with `StorageKeys.CacheControlFor(key)`, decided by the key like visibility:
+  a public image (`cutout.*`, `thumb.*`, a wardrobe item's or a league copy) `public, max-age=86400` (a day, **never `immutable` and never longer**: a public
+  URL cannot be revoked, so the time we tell caches to keep it is how long a deleted photo can survive; the app keeps its own image cache and clears it on
+  sign-out), everything else `private, no-store`; a presigned GET carries `response-cache-control=private, no-store` so a private link is never kept by a shared
+  cache whatever the object was stored with. A new key name that is public must be added to `CacheControlFor`'s reasoning (`StorageCacheControlTests` fails when
+  public and cache disagree, or a public image is cached for more than a day). Objects from before: Caddy's `storage.$DOMAIN` block replaces the header of public
+  image names with the same value, and `scripts/minio-cache-control.sh` rewrites the metadata in the development MinIO (once). A CDN in front of the storage must
+  not keep objects longer than a day or must be purged on deletion (`docs/deploy.md`).
   Settings `Storage:Endpoint/PresignEndpoint/Bucket/AccessKey/SecretKey/PublicBaseUrl/ForcePathStyle`, validated when the store is first
   used (not at start-up). `PresignEndpoint` exists because a presigned URL is signed for its host: compose's API talks to `minio:9000`
   while the app uploads to `STORAGE_PUBLIC_URL`.
@@ -671,7 +672,7 @@ External Python workers (a separate repo) push the catalog through the internal 
   (days and weeks) and `league-purge`, Notification's `league-results`, and the `-- league:` first-month metric blocks of `docs/metrics.sql`
   (run by hand, `LeagueMetricsSqlTests` runs them). The admin page for the review queue is `/admin/league` (task B8, below).
 - **Off by default.** `League:Enabled` (env `League__Enabled`) is false until the app screens ship: the routes stay mapped (OpenAPI, the
-  authorization matrix) but `LeagueEnabledFilter` answers 404 `League.Disabled` first. `ApiFactory` switches it on; a test that needs it off
+  authorization matrix) but `FeatureEnabledFilter<LeagueOptions>` (`Common/Hosting`, shared with try-on and bulk add) answers 404 `League.Disabled` first. `ApiFactory` switches it on; a test that needs it off
   builds its own host.
 - **Every number is a setting** (`League:*`, `LeagueOptions`, validated at start with every problem listed; `LeagueOptionsTests` pins the
   defaults to the note). A new number of the league is a setting there and a row in the note's settings table, never a constant.
@@ -686,7 +687,7 @@ External Python workers (a separate repo) push the catalog through the internal 
   `Worn`; saving never enters. `EntryMaterializer` turns it into the player's one entry of the day (joined under the current consent, not disabled,
   no deletion pending, before the close), in the order of the pure `EntryEligibility` (age, `IncompleteOutfit`: a piece not owned or fewer than
   `MinPieces` non-accessory pieces, `PieceUnavailable`: archived, gone or without an image, `RecentlyCompeted`: the pure `RepeatRule` over
-  entries that competed at their close; a catalog piece's identity there is its product, `RepeatRule.Identity`, `UnsafePiece`, `Pending` while a
+  entries that competed at their close (for a day whose close has not run yet, e.g. a late one past midnight, a `Competing` entry counts: task B9); a catalog piece's identity there is its product, `RepeatRule.Identity`, `UnsafePiece`, `Pending` while a
   piece has no verdict). The entry follows the latest wear and every change (a birth year, an archived or deleted piece; a dismissed outfit makes
   it `NotCompeting`/`NotWorn`) until it is first served (`locked_at`), withdrawn and removed are final; one player's resolutions and `POST /league/leave`
   share an advisory lock (`EntryMaterializer.LockPlayerDayAsync`), the standing is checked again under it, and the row is read `FOR NO KEY UPDATE`.
@@ -763,9 +764,15 @@ External Python workers (a separate repo) push the catalog through the internal 
   cryptographically random, unique in the group, never last week's: the one random part). `league-close` closes the weeks of its window after the
   days; the internal day close does not. `CloseWeekAsync(weekStart, now, players, ct)`: tests always pass their players (idleness would otherwise reach
   every player of the shared database). Placement (`LeagueGroups.PlaceAsync`, under the week's advisory lock): on join, on `GET /league/me` and
-  `/table`, and by the day close for every player with a result; leaving takes the player off the current week's group.
+  `/table`, and by the day close for every player with a result; leaving takes the player off the current week's group. **Nobody is placed while the
+  week before is not closed** (task B9, `LeagueGroups.PreviousWeekPendingAsync`: its row exists, is open and the hourly job can still close it, `CloseCatchUpDays`
+  after its end; no row = the league's first week): the week close forms the groups, at the tiers the week decided, and a placement before it would
+  use the old tier, be skipped by the close and fill groups by arrival order. In that gap (Sunday 21:00 until the close succeeded, even into Monday) `GET /league/me`
+  and `/table` show the week that ended (`LeagueTables.ForMemberNowAsync`) with `state: Ending`; never an error for a player who had a group; a player
+  who joined in the gap has no table yet (`/me` week null, `/table` 404 `League.NoGroup`) and is placed after the close.
 - **The table** (`GET /league/table`, `LeagueTables`): rows `{ rank, points, isMe, alias }` and nothing else, ever (`LeagueAnonymityTests`); an open
-  week computed on read, a closed week as stored and renumbered 1..n. `week` in `/league/me` and in the results comes from the same reader.
+  week computed on read, a closed week as stored and renumbered 1..n; `state` (`Open`, `Ending`: over but not closed, `Final`: closed) is on `/table` and on
+  `week` of `/me`. `week` in `/league/me` and in the results comes from the same reader.
 - **Style score** (pure `StyleScore`, at every week close, `league.style_scores`): no endpoint and no screen read it.
 - **Review** (`LeagueEntryReviewer`, the one home of the decision; `GET /internal/league/review-queue`, `POST /internal/league/entries/{id}/review`
   `{ decision: Restore | Remove }`): every decision writes an `admin.audit_log` row (the entity; League never names the Admin feature). The queue is
@@ -826,9 +833,15 @@ External Python workers (a separate repo) push the catalog through the internal 
   only (`Ready` has no `imageUrl`, `garments` or `renderer`). It runs the readiness rule, asks for unprepared pieces like a real request, and reads the
   render cache for a remembered refusal (`TryOnRenderer.CheckAsync`); it never calls the renderer, never touches `TryOnRenderGate` and leaves `last_used_at`
   alone. **`renderer`** is on the Ready answer (the renderer that drew it) because the app sends it back with a report and only the answer that was
-  drawn knows it; the report endpoint does not look it up (a subject can have several renders over time).
+  drawn knows it. The report endpoint checks it (task B9, below).
 - **Response IDs:** `garments[].id` and a report's `garmentIds` are the pieces' IDs as the outfit carries them (wardrobe item or product), never a
   garment row ID; reports store the resolved `tryon.garments` rows.
+- **Reports are about a real drawing** (task B9): `POST /me/tryon/reports` finds the caller's newest render (an image, not a refusal) by exactly the
+  `renderer` sent (the Ready answer's) whose `garments` hold every reported piece and that belongs to the subject (an outfit: every piece it was drawn with
+  is one of the outfit's; a product: it was drawn with the product); none = 404 `TryOn.RenderNotFound`, so a made-up renderer name, an outfit never drawn
+  or a piece without a drawing is no report. **One report per user and drawing** (`reports.render_id`, unique with the user; null once the drawing is
+  deleted, the report stays): a second report of the same drawing answers 204 and stores nothing; other measurements are another drawing. Both routes share
+  the `tryon` rate-limit policy (120 per 5 min per user) on top of `TryOnRenderGate`.
 - **Boundaries:** three documented seams (allow-list lines `Seam`): Catalog's `CatalogImageFetcher` (the guarded fetcher), Profile's `SizeHints`
   (the reference size) and Recommendation's `HowToWear` / `OutfitStore` ("Dolabımla dene" with `withWardrobe=true`: the first how-to-wear outfit of
   the caller's own pieces only; none → the product alone, so `Unavailable`). Nothing may reference TryOn.
@@ -870,7 +883,7 @@ External Python workers (a separate repo) push the catalog through the internal 
 - **Rate limiting** is ASP.NET Core's built-in `RateLimiter` (fixed windows, **in memory: per instance**, a second API instance would double every limit),
   set up in `Common/RateLimiting`. Policies (`RateLimitPolicies`, limits in `RateLimits:*`, defaults pinned by `RateLimitTests`): `auth` 10 per 5 min per IP
   (login, register, external, refresh, cancel-deletion and `DELETE /me`: one shared bucket); `lens` 20 per hour per IP when anonymous, 60 per hour per user
-  when signed in; `budget` the same shape for both budget routes (own buckets); `trips` 30 per hour per user (plan, save and re-plan: one bucket); `league` 120 per 5 min per user (next pair, vote and report: one bucket); `uploads` 60 per hour per user (wardrobe and post upload-url, one bucket); `events` 600 per 5 min (per user, else per IP); `go` 120 per
+  when signed in; `budget` the same shape for both budget routes (own buckets); `trips` 30 per hour per user (plan, save and re-plan: one bucket); `league` 120 per 5 min per user (next pair, vote and report: one bucket); `tryon` 120 per 5 min per user (the try-on drawing, its `check=true` and its reports: one bucket, on top of `TryOnRenderGate`); `uploads` 60 per hour per user (wardrobe and post upload-url, one bucket); `events` 600 per 5 min (per user, else per IP); `go` 120 per
   min per IP; and a global fallback of 600 per min per IP under all of them (`/health*` exempt). Keys are the user ID when authenticated (the limiter
   runs after `UseAuthentication`), else the client address as resolved by the forwarded headers. A rejection is 429 `application/problem+json` with
   `errorCode: "RateLimited"`, `retryAfterSeconds`, the correlation ID and a `Retry-After` header. `RateLimits:Enabled=false` turns everything off:
