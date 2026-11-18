@@ -103,6 +103,9 @@ internal sealed record VisionCall<T>(T? Value, string? Error, bool IsTransient)
 
     public string? Detail { get; init; }
 
+    /// <summary>The <c>Retry-After</c> header of an error answer (<c>503 busy</c>), as a delay; null when the service sent none or it could not be read.</summary>
+    public TimeSpan? RetryAfter { get; init; }
+
     public static VisionCall<T> Ok(T value) => new(value, null, false);
 
     public static VisionCall<T> Permanent(string error) => new(null, error, false);
@@ -110,8 +113,8 @@ internal sealed record VisionCall<T>(T? Value, string? Error, bool IsTransient)
     public static VisionCall<T> Transient(string error) => new(null, error, true);
 
     /// <summary>An error answer of the service: transient or not as <see cref="VisionClient"/> classifies the status.</summary>
-    public static VisionCall<T> Answered(int status, string detail, bool isTransient) =>
-        new(null, $"vision_{status}: {detail}", isTransient) { Status = status, Detail = detail };
+    public static VisionCall<T> Answered(int status, string detail, bool isTransient, TimeSpan? retryAfter = null) =>
+        new(null, $"vision_{status}: {detail}", isTransient) { Status = status, Detail = detail, RetryAfter = retryAfter };
 }
 
 /// <summary>One photo for <c>/v1/garment/prepare</c>: its bytes and content type.</summary>
@@ -148,6 +151,26 @@ internal sealed record VisionRender(
     int Height,
     IReadOnlyList<VisionRenderedGarment> Garments,
     IReadOnlyList<string> DefaultedMeasurements);
+
+/// <summary>
+/// One garment of a <c>/v1/garment/bulk</c> answer: its <c>Box</c> on the photo (fractions, like <c>/v1/detect</c>), whether the review screen starts
+/// it ticked (<c>Reasons</c> is empty), the reason codes of a piece that is not, and <c>Analysis</c>, exactly the <c>/v1/garment/analyze</c> answer for
+/// the piece's cutout (a piece added in bulk is the same wardrobe record as one added alone).
+/// </summary>
+internal sealed record VisionBulkPiece(VisionRegionBox Box, bool PreTicked, IReadOnlyList<string> Reasons, VisionAnalysis Analysis);
+
+/// <summary>Garments the service saw together and did not cut apart: how many, and where (at least two per region).</summary>
+internal sealed record VisionUnseparated(int Count, IReadOnlyList<VisionRegionBox> Regions);
+
+/// <summary>
+/// The answer of <c>POST /v1/garment/bulk</c> (contract in <c>kombin-vision/docs/design/bulk-add-briefs.md</c>). <c>Refusal</c> is one of seven codes
+/// and then <c>Pieces</c> is empty; <c>StagesMs</c> are the service's own timings (<c>total</c> is the one the batch keeps).
+/// </summary>
+internal sealed record VisionBulk(
+    string? Refusal,
+    IReadOnlyList<VisionBulkPiece> Pieces,
+    VisionUnseparated? Unseparated,
+    IReadOnlyDictionary<string, double>? StagesMs);
 
 /// <summary>What <c>GET /health</c> of the vision service said, for the admin panel: <c>Detail</c> is the HTTP status or why it could not be asked.</summary>
 internal sealed record VisionHealth(bool IsHealthy, string? ClipModel, string Detail);
@@ -189,6 +212,13 @@ internal interface IVisionClient
 
     /// <summary>The try-on renderer behind <c>/v1/tryon/render</c> (<c>/health</c>'s <c>renderer</c>), or null when the service cannot be asked.</summary>
     Task<string?> GetRendererAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// <c>POST /v1/garment/bulk</c>: one photo of several garments laid out → the pieces for a review screen (bulk add). The service takes ~6 s a
+    /// photo and queues for up to 20 s, so <paramref name="timeout"/> is the caller's (the call is made from a background job); a busy service
+    /// answers <c>503 busy</c> with <c>Retry-After</c> (<see cref="VisionCall{T}.RetryAfter"/>).
+    /// </summary>
+    Task<VisionCall<VisionBulk>> BulkAsync(byte[] image, string contentType, TimeSpan timeout, CancellationToken cancellationToken);
 }
 
 internal sealed partial class VisionClient(HttpClient http, ILogger<VisionClient> logger) : IVisionClient
@@ -203,6 +233,8 @@ internal sealed partial class VisionClient(HttpClient http, ILogger<VisionClient
     // Like the model: the renderer changes only with a redeploy of the vision service (restart the API after one, as for a new CLIP model).
     private static string? CachedRenderer;
 
+    private static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(30);
+
     /// <summary>Sets the base address, key and timeout on the typed client.</summary>
     public static void Configure(IServiceProvider provider, HttpClient client)
     {
@@ -214,7 +246,9 @@ internal sealed partial class VisionClient(HttpClient http, ILogger<VisionClient
         }
 
         client.DefaultRequestHeaders.Add(KeyHeader, options.InternalKey);
-        client.Timeout = TimeSpan.FromSeconds(30);
+
+        // Every call carries its own timeout (30 s unless the caller says otherwise: the bulk analysis waits longer), so the client's is only a ceiling.
+        client.Timeout = Timeout.InfiniteTimeSpan;
     }
 
     public async Task<VisionResult> AnalyzeAsync(byte[] image, string contentType, CancellationToken cancellationToken)
@@ -268,6 +302,14 @@ internal sealed partial class VisionClient(HttpClient http, ILogger<VisionClient
         }, cancellationToken);
     }
 
+    public Task<VisionCall<VisionBulk>> BulkAsync(byte[] image, string contentType, TimeSpan timeout, CancellationToken cancellationToken) =>
+        PostAsync<VisionBulk>("v1/garment/bulk", content =>
+        {
+            var file = new ByteArrayContent(image);
+            file.Headers.ContentType = MediaTypeHeaderValue.Parse(contentType);
+            content.Add(file, "image", "upload");
+        }, cancellationToken, timeout);
+
     /// <summary>Posts the image as the multipart field <c>image</c> and reads the JSON answer; failures become values, never exceptions.</summary>
     private Task<VisionCall<T>> PostImageAsync<T>(string path, byte[] image, string contentType, CancellationToken cancellationToken)
         where T : class =>
@@ -282,7 +324,7 @@ internal sealed partial class VisionClient(HttpClient http, ILogger<VisionClient
     /// Posts a multipart body built by <paramref name="build"/> and reads the JSON answer; failures become values, never exceptions. Only the
     /// path and the service's error code are logged: a render spec carries body measurements, which never reach a log line.
     /// </summary>
-    private async Task<VisionCall<T>> PostAsync<T>(string path, Action<MultipartFormDataContent> build, CancellationToken cancellationToken)
+    private async Task<VisionCall<T>> PostAsync<T>(string path, Action<MultipartFormDataContent> build, CancellationToken cancellationToken, TimeSpan? timeout = null)
         where T : class
     {
         if (http.BaseAddress is null)
@@ -295,12 +337,15 @@ internal sealed partial class VisionClient(HttpClient http, ILogger<VisionClient
             using var content = new MultipartFormDataContent();
             build(content);
 
-            using var response = await http.PostAsync(new Uri(path, UriKind.Relative), content, cancellationToken);
-            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            limit.CancelAfter(timeout ?? DefaultTimeout);
+
+            using var response = await http.PostAsync(new Uri(path, UriKind.Relative), content, limit.Token);
+            var body = await response.Content.ReadAsStringAsync(limit.Token);
 
             if (!response.IsSuccessStatusCode)
             {
-                var call = VisionCall<T>.Answered((int)response.StatusCode, ReadDetail(body), IsTransient(response.StatusCode));
+                var call = VisionCall<T>.Answered((int)response.StatusCode, ReadDetail(body), IsTransient(response.StatusCode), ReadRetryAfter(response));
                 LogCallFailed(logger, path, call.Error!);
 
                 return call;
@@ -310,7 +355,7 @@ internal sealed partial class VisionClient(HttpClient http, ILogger<VisionClient
 
             return value is null ? VisionCall<T>.Transient("vision_empty_response") : VisionCall<T>.Ok(value);
         }
-        catch (Exception exception) when (exception is HttpRequestException or JsonException or TaskCanceledException or IOException)
+        catch (Exception exception) when (exception is HttpRequestException or JsonException or OperationCanceledException or IOException)
         {
             if (cancellationToken.IsCancellationRequested)
             {
@@ -353,13 +398,16 @@ internal sealed partial class VisionClient(HttpClient http, ILogger<VisionClient
 
         try
         {
-            using var response = await http.GetAsync(new Uri("health", UriKind.Relative), cancellationToken);
+            using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            limit.CancelAfter(DefaultTimeout);
+
+            using var response = await http.GetAsync(new Uri("health", UriKind.Relative), limit.Token);
             if (!response.IsSuccessStatusCode)
             {
                 return;
             }
 
-            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(limit.Token));
             if (document.RootElement.TryGetProperty("clipModel", out var model) && model.ValueKind == JsonValueKind.String)
             {
                 CachedEmbeddingModel = model.GetString();
@@ -370,7 +418,7 @@ internal sealed partial class VisionClient(HttpClient http, ILogger<VisionClient
                 CachedRenderer = renderer.GetString();
             }
         }
-        catch (Exception exception) when (exception is HttpRequestException or JsonException or TaskCanceledException or IOException)
+        catch (Exception exception) when (exception is HttpRequestException or JsonException or OperationCanceledException or IOException)
         {
             if (cancellationToken.IsCancellationRequested)
             {
@@ -388,7 +436,10 @@ internal sealed partial class VisionClient(HttpClient http, ILogger<VisionClient
 
         try
         {
-            using var response = await http.GetAsync(new Uri("health", UriKind.Relative), cancellationToken);
+            using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            limit.CancelAfter(DefaultTimeout);
+
+            using var response = await http.GetAsync(new Uri("health", UriKind.Relative), limit.Token);
             if (!response.IsSuccessStatusCode)
             {
                 return new VisionHealth(false, null, $"HTTP {(int)response.StatusCode}");
@@ -397,7 +448,7 @@ internal sealed partial class VisionClient(HttpClient http, ILogger<VisionClient
             string? model = null;
             try
             {
-                using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+                using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(limit.Token));
                 if (document.RootElement.TryGetProperty("clipModel", out var clip) && clip.ValueKind == JsonValueKind.String)
                 {
                     model = clip.GetString();
@@ -410,7 +461,7 @@ internal sealed partial class VisionClient(HttpClient http, ILogger<VisionClient
 
             return new VisionHealth(true, model, "HTTP 200");
         }
-        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or IOException)
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or IOException)
         {
             if (cancellationToken.IsCancellationRequested)
             {
@@ -423,6 +474,18 @@ internal sealed partial class VisionClient(HttpClient http, ILogger<VisionClient
 
     private static bool IsTransient(HttpStatusCode status) =>
         (int)status >= 500 || status is HttpStatusCode.Unauthorized or HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests;
+
+    /// <summary><c>Retry-After</c> as a delay: delta seconds or an HTTP date (then the time from now, never negative); null when absent.</summary>
+    private static TimeSpan? ReadRetryAfter(HttpResponseMessage response)
+    {
+        var header = response.Headers.RetryAfter;
+        if (header?.Delta is { } delta)
+        {
+            return delta < TimeSpan.Zero ? TimeSpan.Zero : delta;
+        }
+
+        return header?.Date is { } date ? TimeSpan.FromTicks(Math.Max(0, (date - DateTimeOffset.UtcNow).Ticks)) : null;
+    }
 
     /// <summary>The service answers errors as <c>{"detail": "unsupported_image"}</c>.</summary>
     private static string ReadDetail(string body)

@@ -1,0 +1,37 @@
+using Kombin.Api.Common.Results;
+
+namespace Kombin.Api.Features.Wardrobe.BulkAdd;
+
+/// <summary>
+/// The request errors of bulk add. Like the single add's they keep English <c>detail</c> and a stable <c>errorCode</c> (the app maps them); the
+/// sentences the user reads are <see cref="BulkAddCopy"/>'s. The daily limit's 429 (<see cref="DailyLimitCode"/>) is built where the limit is
+/// checked, in the shape of the rate limiter's (<c>retryAfterSeconds</c> and a <c>Retry-After</c> header).
+/// </summary>
+internal static class BulkAddErrors
+{
+    public const string DailyLimitCode = "Wardrobe.BulkDailyLimit";
+
+    /// <summary>The flag is off: every route answers this first.</summary>
+    public static readonly Error Disabled = Error.NotFound("Wardrobe.BulkDisabled", "Bulk add is not enabled.");
+
+    /// <summary>Also the answer for someone else's batch: whether it exists is none of the caller's business.</summary>
+    public static readonly Error NotFound = Error.NotFound("Wardrobe.BulkNotFound", "The batch does not exist.");
+
+    public static readonly Error UnknownPiece = Error.Validation("Wardrobe.BulkUnknownPiece", "A listed piece does not belong to this batch.");
+
+    public static readonly Error AlreadyConfirmed = Error.Conflict("Wardrobe.BulkAlreadyConfirmed", "The batch has already been confirmed.");
+
+    public static readonly Error NotReady = Error.Conflict("Wardrobe.BulkNotReady", "The batch has no pieces to confirm yet.");
+
+    public static readonly Error Expired = Error.Conflict("Wardrobe.BulkExpired", "The batch was cancelled or has expired.");
+
+    public static readonly Error TooManyOpen = Error.Conflict("Wardrobe.BulkTooManyOpen", "Too many batches are open; cancel one first.");
+
+    public static readonly Error StorageUnavailable = Error.Unavailable("Wardrobe.StorageUnavailable", "The photos could not be stored right now; try again.");
+
+    /// <summary>
+    /// What the routes answer with the flag on until PR 2 and PR 3 of the design note replace them. Nothing reaches it in production: the flag is
+    /// off by default.
+    /// </summary>
+    public static readonly Error NotImplementedYet = Error.Unavailable("Wardrobe.BulkNotImplemented", "Bulk add is not available yet.");
+}

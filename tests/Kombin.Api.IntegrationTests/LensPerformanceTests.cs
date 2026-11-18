@@ -165,6 +165,9 @@ public sealed class LensPerformanceTests(LensPerformanceTests.LensPerformanceFac
             throw new NotSupportedException();
 
         public Task<string?> GetRendererAsync(CancellationToken cancellationToken) => Task.FromResult<string?>(null);
+
+        public Task<VisionCall<VisionBulk>> BulkAsync(byte[] image, string contentType, TimeSpan timeout, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 
     /// <summary>A fourth API host on its own database, configured like <see cref="ApiFactory"/>.</summary>

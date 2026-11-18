@@ -4150,6 +4150,272 @@ namespace Kombin.Api.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Wardrobe.BulkBatch", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("AnalysisAttempts")
+                        .HasColumnType("integer")
+                        .HasColumnName("analysis_attempts");
+
+                    b.Property<int>("CategoryEdits")
+                        .HasColumnType("integer")
+                        .HasColumnName("category_edits");
+
+                    b.Property<int>("ColourEdits")
+                        .HasColumnType("integer")
+                        .HasColumnName("colour_edits");
+
+                    b.Property<DateTimeOffset?>("ConfirmedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("confirmed_at");
+
+                    b.PrimitiveCollection<Guid[]>("ConfirmedItemIds")
+                        .IsRequired()
+                        .HasColumnType("uuid[]")
+                        .HasColumnName("confirmed_item_ids");
+
+                    b.Property<bool>("Counted")
+                        .HasColumnType("boolean")
+                        .HasColumnName("counted");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<int>("CutOffCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("cut_off_count");
+
+                    b.Property<string>("EmbeddingModel")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("embedding_model");
+
+                    b.Property<DateTimeOffset?>("EndedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("ended_at");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("failure_code");
+
+                    b.Property<string>("FailureDetail")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("failure_detail");
+
+                    b.Property<DateTimeOffset?>("ObjectsDeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("objects_deleted_at");
+
+                    b.Property<string>("OriginalKey")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("original_key");
+
+                    b.Property<int>("PiecesPreTicked")
+                        .HasColumnType("integer")
+                        .HasColumnName("pieces_pre_ticked");
+
+                    b.Property<int>("PiecesShown")
+                        .HasColumnType("integer")
+                        .HasColumnName("pieces_shown");
+
+                    b.Property<int>("PiecesTicked")
+                        .HasColumnType("integer")
+                        .HasColumnName("pieces_ticked");
+
+                    b.Property<DateTimeOffset?>("ProcessRequestedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("process_requested_at");
+
+                    b.Property<string>("Refusal")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("refusal");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.Property<int>("TickedPreTicked")
+                        .HasColumnType("integer")
+                        .HasColumnName("ticked_pre_ticked");
+
+                    b.Property<int>("UnseparatedCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("unseparated_count");
+
+                    b.Property<string>("UnseparatedRegions")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("unseparated_regions");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<int?>("VisionMs")
+                        .HasColumnType("integer")
+                        .HasColumnName("vision_ms");
+
+                    b.HasKey("Id")
+                        .HasName("pk_bulk_batches");
+
+                    b.HasIndex("ExpiresAt")
+                        .HasDatabaseName("ix_bulk_batches_expires_at")
+                        .HasFilter("objects_deleted_at IS NULL");
+
+                    b.HasIndex("UserId", "CreatedAt")
+                        .HasDatabaseName("ix_bulk_batches_user_id_created_at");
+
+                    b.ToTable("bulk_batches", "wardrobe");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Wardrobe.BulkPiece", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AnalysisJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("analysis_json");
+
+                    b.Property<Guid>("BatchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("batch_id");
+
+                    b.Property<double>("BoxH")
+                        .HasColumnType("double precision")
+                        .HasColumnName("box_h");
+
+                    b.Property<double>("BoxW")
+                        .HasColumnType("double precision")
+                        .HasColumnName("box_w");
+
+                    b.Property<double>("BoxX")
+                        .HasColumnType("double precision")
+                        .HasColumnName("box_x");
+
+                    b.Property<double>("BoxY")
+                        .HasColumnType("double precision")
+                        .HasColumnName("box_y");
+
+                    b.Property<Guid?>("CategoryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("category_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CutoutKey")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("cutout_key");
+
+                    b.Property<Vector>("Embedding")
+                        .HasColumnType("vector(512)")
+                        .HasColumnName("embedding");
+
+                    b.Property<string>("EmbeddingModel")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("embedding_model");
+
+                    b.Property<short>("Formality")
+                        .HasColumnType("smallint")
+                        .HasColumnName("formality");
+
+                    b.Property<string>("Pattern")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("pattern");
+
+                    b.Property<bool>("PreTicked")
+                        .HasColumnType("boolean")
+                        .HasColumnName("pre_ticked");
+
+                    b.Property<string>("PrimaryColor")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("primary_color");
+
+                    b.PrimitiveCollection<string[]>("Reasons")
+                        .IsRequired()
+                        .HasColumnType("text[]")
+                        .HasColumnName("reasons");
+
+                    b.Property<short>("Seasons")
+                        .HasColumnType("smallint")
+                        .HasColumnName("seasons");
+
+                    b.Property<string>("SecondaryColor")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("secondary_color");
+
+                    b.Property<Guid?>("SimilarItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("similar_item_id");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort_order");
+
+                    b.Property<string>("ThumbKey")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("thumb_key");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.PrimitiveCollection<string[]>("Warnings")
+                        .IsRequired()
+                        .HasColumnType("text[]")
+                        .HasColumnName("warnings");
+
+                    b.HasKey("Id")
+                        .HasName("pk_bulk_pieces");
+
+                    b.HasIndex("CategoryId")
+                        .HasDatabaseName("ix_bulk_pieces_category_id");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_bulk_pieces_user_id");
+
+                    b.HasIndex("BatchId", "SortOrder")
+                        .IsUnique()
+                        .HasDatabaseName("ix_bulk_pieces_batch_id_sort_order");
+
+                    b.ToTable("bulk_pieces", "wardrobe", t =>
+                        {
+                            t.HasCheckConstraint("ck_bulk_pieces_formality", "formality BETWEEN 1 AND 5");
+                        });
+                });
+
             modelBuilder.Entity("Kombin.Api.Persistence.Entities.Wardrobe.WardrobeItem", b =>
                 {
                     b.Property<Guid>("Id")
@@ -5179,6 +5445,39 @@ namespace Kombin.Api.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_reports_users_user_id");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Wardrobe.BulkBatch", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_bulk_batches_users_user_id");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Wardrobe.BulkPiece", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.Wardrobe.BulkBatch", null)
+                        .WithMany()
+                        .HasForeignKey("BatchId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_bulk_pieces_bulk_batches_batch_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Catalog.Category", null)
+                        .WithMany()
+                        .HasForeignKey("CategoryId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_bulk_pieces_categories_category_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_bulk_pieces_users_user_id");
                 });
 
             modelBuilder.Entity("Kombin.Api.Persistence.Entities.Wardrobe.WardrobeItem", b =>

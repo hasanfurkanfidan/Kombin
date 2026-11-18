@@ -73,6 +73,10 @@ internal sealed class KombinDbContext(DbContextOptions<KombinDbContext> options)
 
     public DbSet<WardrobeWear> WardrobeWears => Set<WardrobeWear>();
 
+    public DbSet<BulkBatch> BulkBatches => Set<BulkBatch>();
+
+    public DbSet<BulkPiece> BulkPieces => Set<BulkPiece>();
+
     public DbSet<Outfit> Outfits => Set<Outfit>();
 
     public DbSet<OutfitItem> OutfitItems => Set<OutfitItem>();
