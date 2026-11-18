@@ -73,7 +73,7 @@ internal sealed class BulkBatch : BaseEntity
     /// <summary>What the service or the job said, for whoever looks at a failed batch; never shown to the user.</summary>
     public string? FailureDetail { get; set; }
 
-    /// <summary>Failed calls to the vision service for the current analysis.</summary>
+    /// <summary>Calls made to the vision service for the current analysis: 0 until <c>bulk-add-analyze</c> claims the batch (0 to 1, so a second run exits), 2 after its one retry. <c>process</c> resets it.</summary>
     public int AnalysisAttempts { get; set; }
 
     /// <summary>Garments the service saw together and did not cut apart.</summary>

@@ -9,7 +9,10 @@ using Microsoft.Extensions.Options;
 
 namespace Kombin.Api.IntegrationTests;
 
-/// <summary>"Toplu ekle" is off by default (task BA2, PR 1): every route answers 404 <c>Wardrobe.BulkDisabled</c>, and a bad setting refuses the start.</summary>
+/// <summary>
+/// "Toplu ekle" is off by default (task BA2, PR 1): every route answers 404 <c>Wardrobe.BulkDisabled</c>, and a bad setting refuses the start. The shared
+/// test host switches it on (like the league and try-on), so the switched-off answers are checked on a host of their own.
+/// </summary>
 public sealed class BulkAddDisabledTests(ApiFactory factory)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
@@ -29,8 +32,11 @@ public sealed class BulkAddDisabledTests(ApiFactory factory)
         new(route.Method, route.Path) { Content = route.Method == HttpMethod.Get || route.Method == HttpMethod.Delete ? null : JsonContent.Create(new { }) };
 
     [Fact]
-    public void TheFlagIsOffByDefaultInTheTestHost() =>
-        Assert.False(factory.Services.GetRequiredService<IOptions<BulkAddOptions>>().Value.Enabled);
+    public void TheFlagIsOffByDefaultAndTheTestHostSwitchesItOn()
+    {
+        Assert.False(new BulkAddOptions().Enabled);
+        Assert.True(factory.Services.GetRequiredService<IOptions<BulkAddOptions>>().Value.Enabled);
+    }
 
     [Fact]
     public void EveryBulkRouteIsMappedAndTheListAboveIsComplete()
@@ -57,11 +63,15 @@ public sealed class BulkAddDisabledTests(ApiFactory factory)
     public async Task EveryRouteAnswers404BulkDisabledToASignedInUser()
     {
         using var user = await factory.CreateUserAsync(Ct);
+        await using var off = factory.WithWebHostBuilder(builder => builder.ConfigureAppConfiguration((_, configuration) =>
+            configuration.AddInMemoryCollection([new KeyValuePair<string, string?>("BulkAdd:Enabled", "false")])));
+        using var client = off.CreateClient();
+        client.DefaultRequestHeaders.Authorization = user.Client.DefaultRequestHeaders.Authorization;
 
         foreach (var route in Routes)
         {
             using var request = Request(route);
-            using var response = await user.Client.SendAsync(request, Ct);
+            using var response = await client.SendAsync(request, Ct);
 
             Assert.True(response.StatusCode == HttpStatusCode.NotFound, $"{route.Method} {route.Path}: {(int)response.StatusCode}");
             var problem = await response.ReadProblemAsync(Ct);
@@ -85,19 +95,14 @@ public sealed class BulkAddDisabledTests(ApiFactory factory)
     }
 
     [Fact]
-    public async Task SwitchedOnTheFilterLetsTheRoutesThrough()
+    public async Task SwitchedOnConfirmAndCancelStayNotImplementedUntilPr3()
     {
-        // PR 1 has no behaviour yet: with the flag on the routes answer the placeholder, never the disabled answer. PR 2 and 3 replace it.
-        await using var on = factory.WithWebHostBuilder(builder => builder.ConfigureAppConfiguration((_, configuration) =>
-            configuration.AddInMemoryCollection([new KeyValuePair<string, string?>("BulkAdd:Enabled", "true")])));
         using var user = await factory.CreateUserAsync(Ct);
-        using var client = on.CreateClient();
-        client.DefaultRequestHeaders.Authorization = user.Client.DefaultRequestHeaders.Authorization;
 
-        foreach (var route in Routes)
+        foreach (var route in Routes.Where(route => route.Path.EndsWith("/confirm", StringComparison.Ordinal) || route.Method == HttpMethod.Delete))
         {
             using var request = Request(route);
-            using var response = await client.SendAsync(request, Ct);
+            using var response = await user.Client.SendAsync(request, Ct);
 
             Assert.True(response.StatusCode == HttpStatusCode.ServiceUnavailable, $"{route.Method} {route.Path}: {(int)response.StatusCode}");
             Assert.Equal("Wardrobe.BulkNotImplemented", (await response.ReadProblemAsync(Ct)).GetProperty("errorCode").GetString());

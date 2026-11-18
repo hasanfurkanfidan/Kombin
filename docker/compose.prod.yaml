@@ -83,6 +83,8 @@ services:
       Database__MigrateOnStartup: "false"
       Database__SeedOnStartup: "false"
       RateLimits__Enabled: "true"
+      # Bulk add stays off in production until the owner's photos pass the stop rule (docs/design/bulk-add.md); BULK_ADD_ENABLED=true switches it on.
+      BulkAdd__Enabled: ${BULK_ADD_ENABLED:-false}
       Proxy__TlsTerminated: "true"
       Proxy__KnownNetworks__0: ${BACKEND_SUBNET:-172.30.0.0/24}
       DataProtection__KeysPath: /keys

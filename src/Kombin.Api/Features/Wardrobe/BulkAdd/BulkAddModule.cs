@@ -1,5 +1,9 @@
 using Kombin.Api.Common.Hosting;
 using Kombin.Api.Common.Results;
+using Kombin.Api.Features.Wardrobe.BulkCreateUploadUrl;
+using Kombin.Api.Features.Wardrobe.BulkGet;
+using Kombin.Api.Features.Wardrobe.BulkProcess;
+using Kombin.Api.Features.Wardrobe.Jobs;
 using Microsoft.Extensions.Options;
 
 namespace Kombin.Api.Features.Wardrobe.BulkAdd;
@@ -15,14 +19,16 @@ internal static class BulkAddModule
         services.AddOptions<BulkAddOptions>().BindConfiguration(BulkAddOptions.SectionName).ValidateOnStart();
         services.AddSingleton<IValidateOptions<BulkAddOptions>, BulkAddOptionsValidator>();
 
+        services.AddScoped<BulkAddAnalyzeJob>();
+
         return services;
     }
 
     /// <summary>
     /// Always mapped (the OpenAPI document and the authorization matrix see the routes); with <c>BulkAdd:Enabled</c> false every one answers 404
     /// <c>Wardrobe.BulkDisabled</c> before anything else runs. <paramref name="wardrobe"/> is the <c>/api/v1/me/wardrobe</c> group, already
-    /// authorized. Task BA2 PR 1 maps the five routes with no behaviour (they answer <see cref="BulkAddErrors.NotImplementedYet"/> when the flag is
-    /// on); PR 2 and PR 3 replace them with the use cases of the design note, one <c>Endpoint.cs</c> each.
+    /// authorized. Task BA3 (PR 2) maps upload-url, process and the status; confirm and cancel still answer
+    /// <see cref="BulkAddErrors.NotImplementedYet"/> when the flag is on until PR 3 replaces them, one <c>Endpoint.cs</c> each.
     /// </summary>
     public static RouteGroupBuilder MapBulkAddEndpoints(this RouteGroupBuilder wardrobe)
     {
@@ -30,10 +36,11 @@ internal static class BulkAddModule
 
         var bulk = wardrobe.MapGroup("/bulk").AddEndpointFilter<RouteGroupBuilder, FeatureEnabledFilter<BulkAddOptions>>();
 
-        // PR 2: upload-url, process, status; PR 3: confirm, cancel.
-        bulk.MapPost("/upload-url", NotImplementedYet);
-        bulk.MapPost("/{id:guid}/process", (Guid id) => NotImplementedYet());
-        bulk.MapGet("/{id:guid}", (Guid id) => NotImplementedYet());
+        BulkCreateUploadUrlEndpoint.Map(bulk);
+        BulkProcessEndpoint.Map(bulk);
+        BulkGetEndpoint.Map(bulk);
+
+        // PR 3: confirm, cancel.
         bulk.MapPost("/{id:guid}/confirm", (Guid id) => NotImplementedYet());
         bulk.MapDelete("/{id:guid}", (Guid id) => NotImplementedYet());
 

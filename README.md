@@ -329,6 +329,10 @@ or a bad `sessionId`, `platform`, `appVersion`, `occurredAt` or `anonymousId`.
   | `league_join`, `league_leave`, `league_report`, `league_table_view` | - (Kombin Ligi: never a pair, entry, image or player identifier) |
   | `league_vote` | `choice` (`left`, `right` or `skip`), `counted` (`true` or `false`: whether the vote's response counted it) |
   | `league_results_view` | `status` (`Final`, `UnderReview` or `Removed`: the results' `status`) |
+  | `bulk_add_start` | `source` (`camera` or `library`) |
+  | `bulk_add_result` | `status` (`Ready`, `Refused`, `Failed`, `Timeout`), optional `refusal` (`closet`, `rail`, `pile`, `worn`, `nothing_found`, `too_dark`, `too_blurry`), optional `failure` (`VisionBusy`, `VisionUnavailable`, `PhotoUnreadable`, `AnalysisFailed`, `Interrupted`), `durationMs` (0-3,600,000), `pieces`, `preTicked`, `unseparated`, `duplicateHints` (each 0-12) |
+  | `bulk_add_confirm` | `shown`, `ticked`, `preTickedTicked`, `preTickedLeft`, `extraTicked`, `categoryEdits`, `colourEdits` (each 0-12), `durationMs` (0-3,600,000) |
+  | `bulk_add_cancel` | `stage` (`Processing` or `Review`) |
 
   Values are GUIDs, integers, booleans, enum names or short identifiers (letters, digits and `_ . : / -`), never free text.
 - **A wrong clock does not cost the event.** `occurredAt` more than 7 days old or more than 5 minutes ahead is replaced by the server's

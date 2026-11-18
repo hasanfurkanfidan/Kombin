@@ -126,6 +126,8 @@ services:
       Outbound__IpSalt: ${OUTBOUND_IP_SALT:-dev-only-ip-salt-change-me-0123456789abcdef}
       # Runs the Hangfire server and the recurring notification jobs in this container; the dashboard (/hangfire) exists in Development only.
       Hangfire__Enabled: ${HANGFIRE_ENABLED:-true}
+      # "Toplu ekle" (bulk add) is on in development only: the code default is off, and compose.prod.yaml sets it off unless BULK_ADD_ENABLED says otherwise.
+      BulkAdd__Enabled: ${BULK_ADD_ENABLED:-true}
       # Optional: only needed when "enhanced push security" is enforced for the Expo project.
       Expo__AccessToken: ${EXPO_ACCESS_TOKEN:-}
       # Object storage. The API talks to MinIO inside the network; presigned upload URLs and public image URLs use the address the app

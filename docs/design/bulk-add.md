@@ -262,6 +262,26 @@ Everything in section h's PR 1 row exists, with these differences from the plan,
   `StagedUrlLifetime`, the three numbers the job and cleanup sections name without a setting.
 - `FakeVisionClient.Bulk.cs` has the six planned flavours and three more (`bulk-unreachable`, `bulk-many-<n>`, `bulk-unseparated-<n>`, plus `bulk-bad-image`).
 
+### PR 2 as built (task BA3)
+
+`upload-url`, `process`, `GET /{id}`, `bulk-add-analyze`, the duplicate hint, both limits, the purger's prefix delete and the four analytics events exist;
+`confirm` and `DELETE` still answer 503 `Wardrobe.BulkNotImplemented` until PR 3. Differences from the plan, none of them a change of design:
+
+- **The claim uses `analysis_attempts`** (no column was added): 0 means "not claimed", the job moves it 0 to 1 with a conditional update (a second run, even a
+  simultaneous one, finds 0 rows and exits), 2 after the one retry; `process` resets it to 0. The photo's deletion on `Ready` and `Refused` keeps the key until
+  the object is really gone (a failed delete is logged and leaves the key; the batch's prefix sweeps, PR 3 and the purger, remove it).
+- **The daily allowance counts in-flight photos too**: the batches of the Istanbul day (by `process_requested_at`) that are `Counted` **or still `Processing`**,
+  the batch itself excluded, so eight simultaneous `process` calls cannot all slip under the limit; one that fails stops counting. The open-batch count and the
+  insert share a transaction under a per-user advisory lock (`bulk-open:{user}`), and a batch past its `expires_at` is not open even before the cleanup marks it.
+- **The job commits `Ready` under the batch row lock** (`SELECT ... FOR UPDATE`, the lock confirm and cancel will take) and writes nothing when the batch is no
+  longer `Processing`: staged objects of that run are deleted. Failures and refusals are conditional updates (`WHERE status = 'Processing'`).
+- **`upload-url` reuses the single add's request record and validator** (`CreateUploadUrlRequest`), so the types, the 8 MB rule and the messages are the same code.
+- **`GET` of a `Confirmed` batch already lists `items`** (from `confirmed_item_ids`, in order); nothing writes them until PR 3.
+- **The hint is stored by the job and checked again by the status answer** (the item must still be the caller's own, `Ready`, not archived, with a thumbnail).
+- **Tests**: `BulkAdd:Enabled` is on in `ApiFactory` (like the league and try-on) and `BulkAddDisabledTests` checks the off host on a host of its own;
+  `BulkAdd:BusyRetryMin/Max` are 0 there (the clamp is `BulkAddRulesTests`). Compose: `docker/compose.yaml` sets `BulkAdd__Enabled` to `${BULK_ADD_ENABLED:-true}`
+  (development), `docker/compose.prod.yaml` to `${BULK_ADD_ENABLED:-false}`; the code default stays false.
+
 ## The questions as asked
 
 1. **Delete the room photo as soon as vision answered**, not at confirm? **Yes** (kept only for a `Failed` batch so retry needs no re-upload).

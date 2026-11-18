@@ -31,6 +31,41 @@ public sealed class OpenApiTests(ApiFactory factory)
         Assert.True(seller.TryGetProperty("slug", out _));
     }
 
+    // Bulk add ("Toplu ekle", task BA3) is off by default, but its routes are mapped and documented so the app can be built against them.
+    [Fact]
+    public async Task TheBulkAddRoutesAreDocumentedWithTheirShapes()
+    {
+        var document = await DocumentAsync();
+        var paths = document.GetProperty("paths");
+
+        var upload = paths.GetProperty("/api/v1/me/wardrobe/bulk/upload-url").GetProperty("post");
+        Assert.Contains("BulkCreateUploadUrlResponse", upload.GetProperty("responses").GetProperty("201").GetRawText(), StringComparison.Ordinal);
+        Assert.Contains("CreateUploadUrlRequest", upload.GetProperty("requestBody").GetRawText(), StringComparison.Ordinal);
+        var process = paths.GetProperty("/api/v1/me/wardrobe/bulk/{id}/process").GetProperty("post").GetProperty("responses");
+        Assert.Contains("BulkProcessResponse", process.GetProperty("202").GetRawText(), StringComparison.Ordinal);
+        Assert.True(process.TryGetProperty("429", out _));
+        Assert.True(process.TryGetProperty("409", out _));
+        Assert.Contains("BulkBatchResponse", paths.GetProperty("/api/v1/me/wardrobe/bulk/{id}").GetProperty("get").GetProperty("responses").GetProperty("200").GetRawText(), StringComparison.Ordinal);
+
+        var schemas = document.GetProperty("components").GetProperty("schemas");
+        string[] Properties(string schema) => [.. schemas.GetProperty(schema).GetProperty("properties").EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal)];
+
+        Assert.Equal(["batchId", "expiresAt", "headers", "uploadUrl"], Properties("BulkCreateUploadUrlResponse"));
+        Assert.Equal(["batchId", "status"], Properties("BulkProcessResponse"));
+        Assert.Equal(["cutOff", "expiresAt", "failure", "id", "items", "pieces", "refusal", "status", "unseparated"], Properties("BulkBatchResponse"));
+        Assert.Equal(
+            ["box", "category", "categoryCandidates", "id", "imageUrl", "likelyDuplicate", "needsCategory", "pattern", "preTicked", "primaryColor", "reasons", "secondaryColor", "thumbUrl", "urlsExpireAt", "warnings"],
+            Properties("BulkPieceResponse"));
+        Assert.Equal(["h", "w", "x", "y"], Properties("BulkBox"));
+        Assert.Equal(["code", "message"], Properties("BulkReason"));
+        Assert.Equal(["code", "message"], Properties("BulkRefusal"));
+        Assert.Equal(["code", "message", "retryable"], Properties("BulkFailure"));
+        Assert.Equal(["itemId", "message", "thumbUrl"], Properties("BulkLikelyDuplicate"));
+        Assert.Equal(["count", "message", "regions"], Properties("BulkUnseparated"));
+        Assert.Equal(["count", "message"], Properties("BulkCutOff"));
+        Assert.Equal(["name", "slug"], Properties("BulkCategoryRef"));
+    }
+
     // The league is off by default, but its routes are mapped and documented so the app can be built against them.
     [Fact]
     public async Task TheLeagueRoutesAreDocumentedWithTheirShapes()

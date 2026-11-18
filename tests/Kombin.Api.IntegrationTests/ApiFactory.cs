@@ -164,6 +164,11 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
             ["League:Enabled"] = "true",
             // TryOn:Enabled is false by default too; the tests switch it on (TryOnTests checks the switched-off host).
             ["TryOn:Enabled"] = "true",
+            // Bulk add is off by default too; the tests switch it on (BulkAddDisabledTests checks the switched-off host). A busy vision service is
+            // asked again after no wait at all: BulkAddRulesTests pin the clamp, and the integration tests must not sleep.
+            ["BulkAdd:Enabled"] = "true",
+            ["BulkAdd:BusyRetryMin"] = "00:00:00",
+            ["BulkAdd:BusyRetryMax"] = "00:00:00",
         }));
     }
 }

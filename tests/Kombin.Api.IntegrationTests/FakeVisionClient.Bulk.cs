@@ -35,10 +35,29 @@ internal sealed partial class FakeVisionClient
     /// <summary>The thumbnail of piece <paramref name="index"/> (WEBP bytes of the fake).</summary>
     public static byte[] BulkThumbnail(string photoText, int index) => Encoding.UTF8.GetBytes($"bulk-thumb-webp:{index}:{photoText}");
 
+    private static readonly ConcurrentDictionary<string, Action> BulkHooks = new(StringComparer.Ordinal);
+
+    /// <summary>Runs <paramref name="hook"/> (once per call) while the fake answers a bulk photo with this text, e.g. to end the batch meanwhile; null removes it.</summary>
+    public static void OnBulk(string text, Action? hook)
+    {
+        if (hook is null)
+        {
+            BulkHooks.TryRemove(text, out _);
+        }
+        else
+        {
+            BulkHooks[text] = hook;
+        }
+    }
+
     public Task<VisionCall<VisionBulk>> BulkAsync(byte[] image, string contentType, TimeSpan timeout, CancellationToken cancellationToken)
     {
         var text = Encoding.UTF8.GetString(image);
         var calls = BulkCounts.AddOrUpdate(text, 1, (_, count) => count + 1);
+        if (BulkHooks.TryGetValue(text, out var hook))
+        {
+            hook();
+        }
 
         if (text.Contains("bulk-unreachable", StringComparison.Ordinal))
         {

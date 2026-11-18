@@ -368,6 +368,40 @@ public sealed class AccountDeletionTests(ApiFactory factory)
     }
 
     [Fact]
+    public async Task BulkAddObjectsAreFoundByTheirPrefixEvenWithoutARowAndAFailureToDeleteThemPostponesTheDeletion()
+    {
+        var (user, _) = await NewUserAsync();
+        using var _1 = user;
+        var keys = await SeedBulkAsync(user.Id);
+
+        // An object whose row is gone (a crashed delete): only the prefix finds it.
+        var orphan = StorageKeys.BuildBulk(user.Id, Guid.NewGuid(), Guid.NewGuid(), ImageVariant.Staged, "png");
+        factory.Storage.Upload(orphan, [9], "image/png");
+        using var requested = await DeleteMeAsync(user.Client, ApiClientExtensions.DefaultPassword);
+        await BackdateAsync(user.Id, 8);
+
+        var prefix = StorageKeys.BulkUserPrefix(user.Id);
+        factory.Storage.FailDeletesUnder(prefix);
+        var failed = await RunJobAsync(user.Id);
+
+        // Nothing was touched: the account, the batch and every object are there for the retry.
+        Assert.Equal((0, 1), (failed.AccountsDeleted, failed.Failures));
+        Assert.NotNull(await UserRowAsync(user.Id));
+        Assert.Equal(1, await factory.WithDbAsync(db => db.BulkBatches.CountAsync(row => row.UserId == user.Id, Ct)));
+        Assert.All(keys.Append(orphan), key => Assert.NotNull(factory.Storage.Find(key)));
+
+        factory.Storage.StopFailingDeletes(prefix);
+        var finished = await RunJobAsync(user.Id);
+
+        Assert.Equal((1, 0), (finished.AccountsDeleted, finished.Failures));
+        Assert.Equal(keys.Length + 1, finished.ObjectsDeleted);
+        Assert.Null(await UserRowAsync(user.Id));
+        Assert.All(keys.Append(orphan), key => Assert.Null(factory.Storage.Find(key)));
+        Assert.Equal(0, await factory.WithDbAsync(db => db.BulkBatches.CountAsync(row => row.UserId == user.Id, Ct)));
+        Assert.Equal(0, await factory.WithDbAsync(db => db.BulkPieces.CountAsync(row => row.UserId == user.Id, Ct)));
+    }
+
+    [Fact]
     public async Task ThePurgeEmptiesEveryTableOfTheUserAnonymisesTheRecordsAndLeavesOthersAlone()
     {
         var (subject, email) = await NewUserAsync();
@@ -473,8 +507,9 @@ public sealed class AccountDeletionTests(ApiFactory factory)
         // "Manken üstünde gör": a prepared garment of the subject's photo item, a drawing (it reveals body proportions) and a report, set up directly.
         var tryOnKeys = await SeedTryOnAsync(ownerId, itemId, outfitId);
 
-        // "Toplu ekle": a batch with two staged pieces (rows only: the staged objects and the prefix delete come with PR 2).
-        await SeedBulkAsync(ownerId);
+        // "Toplu ekle": a batch with two staged pieces, the room photo and four staged images, and a bystander's batch whose objects must stay.
+        var bulkKeys = await SeedBulkAsync(ownerId);
+        var bystanderBulkKeys = await SeedBulkAsync(bystander.Id);
 
         // --- Before: the subject has rows everywhere. ---
         var before = await CountsAsync(ownerId);
@@ -492,10 +527,12 @@ public sealed class AccountDeletionTests(ApiFactory factory)
 
         // --- After: nothing of the subject is left, in any table. ---
         Assert.Equal(1, summary.AccountsDeleted);
-        Assert.Equal(itemKeys.Length + postKeys.Length + 1 + tryOnKeys.Length, summary.ObjectsDeleted);
+        Assert.Equal(itemKeys.Length + postKeys.Length + 1 + tryOnKeys.Length + bulkKeys.Length, summary.ObjectsDeleted);
         Assert.All(await CountsAsync(ownerId), entry => Assert.True(entry.Value == 0, $"{entry.Key} still has {entry.Value} row(s) of the deleted user."));
-        Assert.All(itemKeys.Concat(postKeys).Append(league.ImageKey).Concat(tryOnKeys), key => Assert.Null(factory.Storage.Find(key)));
-        Assert.All(itemKeys.Concat(postKeys).Append(league.ImageKey).Concat(tryOnKeys), key => Assert.Contains(key, factory.Storage.Deleted));
+        Assert.All(itemKeys.Concat(postKeys).Append(league.ImageKey).Concat(tryOnKeys).Concat(bulkKeys), key => Assert.Null(factory.Storage.Find(key)));
+        Assert.DoesNotContain(factory.Storage.KeysOfUser(ownerId), key => key.StartsWith("bulk/", StringComparison.Ordinal));
+        Assert.All(bystanderBulkKeys, key => Assert.NotNull(factory.Storage.Find(key)));
+        Assert.All(itemKeys.Concat(postKeys).Append(league.ImageKey).Concat(tryOnKeys).Concat(bulkKeys), key => Assert.Contains(key, factory.Storage.Deleted));
 
         // The league of the others: the bystander's closed day and entry stay as they were; the engine's preference row has no user to lose.
         var bystanderScore = await factory.WithDbAsync(db => db.LeagueDailyScores.AsNoTracking().SingleAsync(row => row.UserId == bystander.Id && row.Day == league.Day, Ct));
@@ -708,17 +745,38 @@ public sealed class AccountDeletionTests(ApiFactory factory)
         ["tryon.reports"] = await db.TryOnReports.CountAsync(row => row.UserId == userId, Ct),
     });
 
-    /// <summary>The subject's bulk-add batch (a photo of the room, two staged pieces) as rows; no objects yet.</summary>
-    private Task<int> SeedBulkAsync(Guid userId) => factory.WithDbAsync(async db =>
+    /// <summary>
+    /// The subject's bulk-add batch as rows and objects: the room photo (a <c>Failed</c> batch keeps it) and, for two staged pieces, the cut-out and the
+    /// thumbnail under their private names. The keys are found by the prefix <c>bulk/{user}/</c>, not through the rows. Returns the object keys.
+    /// </summary>
+    private Task<string[]> SeedBulkAsync(Guid userId) => factory.WithDbAsync(async db =>
     {
         var batch = new BulkBatch { UserId = userId, Status = BulkBatchStatus.Ready, ExpiresAt = TestClock.UtcNow.AddHours(24) };
-        db.BulkBatches.Add(batch);
-        db.BulkPieces.AddRange(
+        var photo = StorageKeys.BuildBulk(userId, batch.Id, batch.Id, ImageVariant.Original, "jpg");
+        batch.OriginalKey = photo;
+        var pieces = new[]
+        {
             new BulkPiece { BatchId = batch.Id, UserId = userId, SortOrder = 0, PreTicked = true },
-            new BulkPiece { BatchId = batch.Id, UserId = userId, SortOrder = 1, Reasons = ["touching"] });
+            new BulkPiece { BatchId = batch.Id, UserId = userId, SortOrder = 1, Reasons = ["touching"] },
+        };
+        List<string> keys = [photo];
+        foreach (var piece in pieces)
+        {
+            piece.CutoutKey = StorageKeys.BuildBulk(userId, batch.Id, piece.Id, ImageVariant.Staged, "png");
+            piece.ThumbKey = StorageKeys.BuildBulk(userId, batch.Id, piece.Id, ImageVariant.StagedThumb, "webp");
+            keys.AddRange([piece.CutoutKey, piece.ThumbKey]);
+        }
+
+        foreach (var key in keys)
+        {
+            factory.Storage.Upload(key, [1, 2, 3], key.EndsWith(".png", StringComparison.Ordinal) ? "image/png" : "image/jpeg");
+        }
+
+        db.BulkBatches.Add(batch);
+        db.BulkPieces.AddRange(pieces);
         await db.SaveChangesAsync(Ct);
 
-        return 0;
+        return keys.ToArray();
     });
 
     /// <summary>The subject's try-on rows and their two stored objects (the prepared cutout and the drawing); returns the object keys.</summary>

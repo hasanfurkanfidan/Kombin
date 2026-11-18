@@ -5,6 +5,7 @@ using Kombin.Api.Common.Auth;
 using Kombin.Api.Persistence.Entities.Profile;
 using Kombin.Api.Persistence.Entities.Recommendation;
 using Kombin.Api.Persistence.Entities.Social;
+using Kombin.Api.Persistence.Entities.Wardrobe;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc.Abstractions;
 using Microsoft.AspNetCore.Routing;
@@ -121,12 +122,28 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
         ["POST /api/v1/me/wardrobe/items/upload-url"] = Exempt("Creates an item of the caller; the storage key is built by the server."),
         ["POST /api/v1/me/wardrobe/items/from-product"] = Exempt("Creates an item of the caller from a catalog product (public ID)."),
 
-        // Bulk add (task BA2, PR 1: switched off in the test host, so the routes answer 404 BulkDisabled; PR 2 and 3 turn these into real probes).
+        // Bulk add (task BA3): switched on in the test host. The owner has a Ready batch with a piece; the intruder aims its ID at every route.
         ["POST /api/v1/me/wardrobe/bulk/upload-url"] = Exempt("Creates a batch of the caller; the storage key is built by the server."),
-        ["POST /api/v1/me/wardrobe/bulk/{id:guid}/process"] = Probe(w => new HttpRequestMessage(HttpMethod.Post, $"/api/v1/me/wardrobe/bulk/{w.ItemId}/process"), [HttpStatusCode.NotFound]),
-        ["GET /api/v1/me/wardrobe/bulk/{id:guid}"] = Probe(w => new HttpRequestMessage(HttpMethod.Get, $"/api/v1/me/wardrobe/bulk/{w.ItemId}"), [HttpStatusCode.NotFound]),
-        ["POST /api/v1/me/wardrobe/bulk/{id:guid}/confirm"] = Probe(w => Json(HttpMethod.Post, $"/api/v1/me/wardrobe/bulk/{w.ItemId}/confirm", new { pieces = Array.Empty<object>() }), [HttpStatusCode.NotFound]),
-        ["DELETE /api/v1/me/wardrobe/bulk/{id:guid}"] = Probe(w => new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/me/wardrobe/bulk/{w.ItemId}"), [HttpStatusCode.NotFound]),
+        ["POST /api/v1/me/wardrobe/bulk/{id:guid}/process"] = Probe(
+            w => new HttpRequestMessage(HttpMethod.Post, $"/api/v1/me/wardrobe/bulk/{w.BulkBatchId}/process"),
+            [HttpStatusCode.NotFound],
+            async (w, f) =>
+            {
+                var batch = await f.WithDbAsync(db => db.BulkBatches.AsNoTracking().SingleAsync(row => row.Id == w.BulkBatchId, Ct));
+                Assert.Equal(BulkBatchStatus.Ready, batch.Status);
+                Assert.Null(batch.ProcessRequestedAt);
+            }),
+        ["GET /api/v1/me/wardrobe/bulk/{id:guid}"] = Probe(w => new HttpRequestMessage(HttpMethod.Get, $"/api/v1/me/wardrobe/bulk/{w.BulkBatchId}"), [HttpStatusCode.NotFound]),
+
+        // Confirm and cancel answer 503 BulkNotImplemented until PR 3 (the probe then expects 404 only, and checks that the batch and its piece are unchanged).
+        ["POST /api/v1/me/wardrobe/bulk/{id:guid}/confirm"] = Probe(
+            w => Json(HttpMethod.Post, $"/api/v1/me/wardrobe/bulk/{w.BulkBatchId}/confirm", new { pieces = new[] { new { id = w.BulkPieceId } } }),
+            [HttpStatusCode.NotFound, HttpStatusCode.ServiceUnavailable],
+            async (w, f) => Assert.True(await f.WithDbAsync(db => db.BulkPieces.AnyAsync(piece => piece.Id == w.BulkPieceId, Ct)))),
+        ["DELETE /api/v1/me/wardrobe/bulk/{id:guid}"] = Probe(
+            w => new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/me/wardrobe/bulk/{w.BulkBatchId}"),
+            [HttpStatusCode.NotFound, HttpStatusCode.ServiceUnavailable],
+            async (w, f) => Assert.True(await f.WithDbAsync(db => db.BulkBatches.AnyAsync(batch => batch.Id == w.BulkBatchId && batch.Status == BulkBatchStatus.Ready, Ct)))),
         ["GET /api/v1/me/wardrobe/items"] = ScopedRead("/api/v1/me/wardrobe/items"),
         ["GET /api/v1/me/wardrobe/stats"] = ScopedRead("/api/v1/me/wardrobe/stats"),
         ["GET /api/v1/me/wardrobe/gaps"] = ScopedRead("/api/v1/me/wardrobe/gaps"),
@@ -632,13 +649,33 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
             return await db.SaveChangesAsync(cancellation);
         });
 
+        var (bulkBatchId, bulkPieceId) = await factory.WithDbAsync(async db =>
+        {
+            var batch = new BulkBatch { UserId = owner.Id, Status = BulkBatchStatus.Ready, ExpiresAt = TestClock.UtcNow.AddHours(24), PiecesShown = 1 };
+            var piece = new BulkPiece
+            {
+                BatchId = batch.Id,
+                UserId = owner.Id,
+                BoxW = 0.3,
+                BoxH = 0.3,
+                PreTicked = true,
+                CutoutKey = $"bulk/{owner.Id:D}/{batch.Id:D}/x/staged.png",
+                ThumbKey = $"bulk/{owner.Id:D}/{batch.Id:D}/x/stagedthumb.webp",
+            };
+            db.BulkBatches.Add(batch);
+            db.BulkPieces.Add(piece);
+            await db.SaveChangesAsync(cancellation);
+
+            return (batch.Id, piece.Id);
+        });
+
         // A second session of the owner, whose refresh token the intruder tries to log out.
         using var login = await anonymous.LoginAsync(ownerEmail, ApiClientExtensions.DefaultPassword, cancellationToken: cancellation);
         var ownerRefresh = (await login.ReadTokensAsync(cancellation)).RefreshToken;
 
         return new World(
             owner.Id, ownerEmail, intruder, ownerPersona, itemId, product.ProductId, alertId, sizeId, sizePromptId, outfitId, notificationId, deviceToken,
-            privatePost, followersPost, draftPost, ownerRefresh, tripId, leagueDay, leagueEntryId, leaguePairId, resultsDay, resultsEntryId);
+            privatePost, followersPost, draftPost, ownerRefresh, tripId, leagueDay, leagueEntryId, leaguePairId, resultsDay, resultsEntryId, bulkBatchId, bulkPieceId);
     }
 
     internal sealed record World(
@@ -663,14 +700,16 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
         Guid LeagueEntryId,
         Guid LeaguePairId,
         DateOnly LeagueResultsDay,
-        Guid LeagueResultsEntryId)
+        Guid LeagueResultsEntryId,
+        Guid BulkBatchId,
+        Guid BulkPieceId)
     {
         /// <summary>What must never appear in an answer to user B. The product is public and the notification ID numeric, so neither is listed.</summary>
         public IReadOnlyList<string> OwnerSecrets =>
         [
             OwnerId.ToString(), OwnerEmail, OwnerPersonaId.ToString(), ItemId.ToString(), AlertId.ToString(), SizeId.ToString(), SizePromptId.ToString(), OutfitId.ToString(),
             OwnerDeviceToken, PrivatePostId.ToString(), FollowersPostId.ToString(), DraftPostId.ToString(), TripId.ToString(),
-            LeagueEntryId.ToString(), LeaguePairId.ToString(), LeagueResultsEntryId.ToString(),
+            LeagueEntryId.ToString(), LeaguePairId.ToString(), LeagueResultsEntryId.ToString(), BulkBatchId.ToString(), BulkPieceId.ToString(),
         ];
     }
 
