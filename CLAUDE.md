@@ -672,7 +672,7 @@ External Python workers (a separate repo) push the catalog through the internal 
   (days and weeks) and `league-purge`, Notification's `league-results`, and the `-- league:` first-month metric blocks of `docs/metrics.sql`
   (run by hand, `LeagueMetricsSqlTests` runs them). The admin page for the review queue is `/admin/league` (task B8, below).
 - **Off by default.** `League:Enabled` (env `League__Enabled`) is false until the app screens ship: the routes stay mapped (OpenAPI, the
-  authorization matrix) but `LeagueEnabledFilter` answers 404 `League.Disabled` first. `ApiFactory` switches it on; a test that needs it off
+  authorization matrix) but `FeatureEnabledFilter<LeagueOptions>` (`Common/Hosting`, shared with try-on and bulk add) answers 404 `League.Disabled` first. `ApiFactory` switches it on; a test that needs it off
   builds its own host.
 - **Every number is a setting** (`League:*`, `LeagueOptions`, validated at start with every problem listed; `LeagueOptionsTests` pins the
   defaults to the note). A new number of the league is a setting there and a row in the note's settings table, never a constant.

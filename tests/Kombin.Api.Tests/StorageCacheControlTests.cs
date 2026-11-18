@@ -103,6 +103,65 @@ public class StorageCacheControlTests
         Assert.Contains("response-cache-control=private%2C%20no-store", link.Replace("+", "%20", StringComparison.Ordinal), StringComparison.OrdinalIgnoreCase);
     }
 
+    // Bulk add (task BA2): a batch's keys are bulk/{user}/{batch}/{owner}/{variant}.{ext}, private by their file names like every key that is not cutout.* or thumb.*.
+    private static readonly Guid Batch = Guid.Parse("22222222-2222-2222-2222-222222222222");
+
+    private static readonly Guid Piece = Guid.Parse("33333333-3333-3333-3333-333333333333");
+
+    [Fact]
+    public void BulkKeysAreBulkUserBatchOwnerVariant()
+    {
+        Assert.Equal(
+            "bulk/3f2c8f0e-8f3e-4c1b-9a53-5d7b0b3a1c11/22222222-2222-2222-2222-222222222222/33333333-3333-3333-3333-333333333333/staged.png",
+            StorageKeys.BuildBulk(User, Batch, Piece, ImageVariant.Staged, "png"));
+        Assert.EndsWith("/33333333-3333-3333-3333-333333333333/stagedthumb.webp", StorageKeys.BuildBulk(User, Batch, Piece, ImageVariant.StagedThumb, ".WEBP"), StringComparison.Ordinal);
+
+        // The room photo is owned by the batch itself.
+        Assert.EndsWith("/22222222-2222-2222-2222-222222222222/22222222-2222-2222-2222-222222222222/original.jpg", StorageKeys.BuildBulk(User, Batch, Batch, ImageVariant.Original, "jpg"), StringComparison.Ordinal);
+        Assert.Throws<ArgumentException>(() => StorageKeys.BuildBulk(User, Batch, Piece, ImageVariant.Staged, " "));
+    }
+
+    [Fact]
+    public void EveryKeyOfABatchIsUnderItsPrefixAndEveryKeyOfAUserUnderTheirs()
+    {
+        var keys = new[]
+        {
+            StorageKeys.BuildBulk(User, Batch, Batch, ImageVariant.Original, "jpg"),
+            StorageKeys.BuildBulk(User, Batch, Piece, ImageVariant.Staged, "png"),
+            StorageKeys.BuildBulk(User, Batch, Piece, ImageVariant.StagedThumb, "webp"),
+        };
+
+        Assert.All(keys, key => Assert.StartsWith(StorageKeys.BulkBatchPrefix(User, Batch), key, StringComparison.Ordinal));
+        Assert.All(keys, key => Assert.StartsWith(StorageKeys.BulkUserPrefix(User), key, StringComparison.Ordinal));
+        Assert.EndsWith("/", StorageKeys.BulkBatchPrefix(User, Batch), StringComparison.Ordinal);
+        Assert.DoesNotContain(keys, key => key.StartsWith(StorageKeys.BulkBatchPrefix(User, Guid.NewGuid()), StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void NoBulkKeyIsPublicAndEveryOneIsStoredPrivateNoStore()
+    {
+        foreach (var variant in new[] { ImageVariant.Original, ImageVariant.Staged, ImageVariant.StagedThumb })
+        {
+            var key = StorageKeys.BuildBulk(User, Batch, Piece, variant, "png");
+
+            Assert.False(StorageKeys.IsPublic(key), key);
+            Assert.Equal(Private, StorageKeys.CacheControlFor(key));
+        }
+    }
+
+    [Fact]
+    public void AStagedNameIsNeverMistakenForAPublicOne()
+    {
+        // The bucket policy matches names that start with "cutout." or "thumb.": "staged" and "stagedthumb" must never do.
+        foreach (var name in new[] { "staged.png", "stagedthumb.webp", "original.jpg" })
+        {
+            Assert.False(StorageKeys.IsPublic($"bulk/{User:D}/{Batch:D}/{Piece:D}/{name}"), name);
+        }
+
+        Assert.True(StorageKeys.IsPublic($"wardrobe/{User:D}/{Piece:D}/cutout.png"));
+        Assert.True(StorageKeys.IsPublic($"wardrobe/{User:D}/{Piece:D}/thumb.webp"));
+    }
+
     /// <summary>The directives of a header value, sorted: the HTTP stack may reorder them.</summary>
     private static string Directives(string? header) =>
         string.Join(',', (header ?? string.Empty).Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).Order(StringComparer.Ordinal));

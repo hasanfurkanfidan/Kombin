@@ -36,7 +36,7 @@ work, it is moved to `Common` first (rule 1), never added as a line.
 
 ## a. Routes and shapes
 
-All under `/api/v1/me/wardrobe/bulk`, `RequireAuthorization`, behind `BulkAddEnabledFilter`. The upload is the single add's flow (presigned PUT, then
+All under `/api/v1/me/wardrobe/bulk`, `RequireAuthorization`, behind `FeatureEnabledFilter<BulkAddOptions>`. The upload is the single add's flow (presigned PUT, then
 `process`): the client code and the 8 MB rule are known, the API never holds the photo in a request, and the job needs the object in storage anyway.
 
 | Route | Does |
@@ -235,7 +235,7 @@ slot reserved for single adds. Until the verdict is `Allow` the item is not shar
 
 | PR | Content | Tests |
 |---|---|---|
-| **PR 1 Foundation** | `BulkAdd:*` options, flag filter (the third copy of League's and TryOn's: **extract `FeatureEnabledFilter` to `Common/Hosting` here**, after B9 is merged, touching their two filters), migration and entities, `StorageKeys.BuildBulk` and variants, `IVisionClient.BulkAsync` + fake (`FakeVisionClient.Bulk.cs`: flavours `bulk-3`, `bulk-refusal-<code>`, `bulk-busy`, `bulk-busy-twice`, `bulk-4xx`, `bulk-bad-embedding`), `BulkAddCopy`, errors, cascade lines | `BulkAddOptionsTests`, `BulkAddCopyTests`, `CopyGlossaryTests` lists, `StorageCacheControlTests` (`bulk/` keys private), `VisionClientBulkTests` (Retry-After parsing, 503 vs 4xx), `BulkPieceMirrorsItemTests`, `BulkAddDisabledTests` (404 on every route), `AccountDeletionTests` matrix lines |
+| **PR 1 Foundation** | `BulkAdd:*` options, flag filter (the third copy of League's and TryOn's: **extract `FeatureEnabledFilter` to `Common/Hosting` here**, after B9 is merged, touching their two filters), migration and entities, `StorageKeys.BuildBulk` and the `Staged` and `StagedThumb` variants, `IVisionClient.BulkAsync` + fake (`FakeVisionClient.Bulk.cs`: flavours `bulk-3`, `bulk-refusal-<code>`, `bulk-busy`, `bulk-busy-twice`, `bulk-4xx`, `bulk-bad-embedding`), `BulkAddCopy`, errors, cascade lines | `BulkAddOptionsTests`, `BulkAddCopyTests`, `CopyGlossaryTests` lists, `StorageCacheControlTests` (`bulk/` keys private), `VisionClientBulkTests` (Retry-After parsing, 503 vs 4xx), `BulkPieceMirrorsItemTests`, `BulkAddDisabledTests` (404 on every route), `AccountDeletionTests` matrix lines |
 | **PR 2 Start to status** | `upload-url`, `process`, `GET /{id}`, `bulk-add-analyze`, duplicate hint, limits, `AccountPurger` prefix delete, analytics catalog entries, `AuthorizationMatrixTests`, `OpenApiTests` | `BulkAddRulesTests` (pure: day allowance, clamp, counted, expiry, hint), `BulkAddStartTests`, `BulkAddAnalyzeJobTests` (ready, 7 refusals, busy then ok, busy twice, 4xx, bad answer, double run, interrupted, photo deleted on `Ready`/`Refused`, kept on `Failed`), `BulkAddStatusTests` (shape, presigned private thumbs, reasons, other user 404), `BulkAddLimitTests`, `BulkAddDuplicateHintTests` (own items only, other user's never), `AnalyticsValidatorTests`, `AccountDeletionTests` bulk objects |
 | **PR 3 Confirm, cancel, cleanup** | `confirm`, `DELETE`, `bulk-add-cleanup`, `bulk-add-moderate`, counters | `BulkAddConfirmTests` (item equals a single add's: same fields, keys, `ConfirmedAt`; edits; same ID as the piece; retry returns the stored result; two concurrent confirms; confirm vs cancel; storage failure writes nothing; unticked gone; staged objects gone; items public only by `cutout.*`/`thumb.*`), `BulkAddParityTests` (the same photo through single and bulk gives equal attributes), `BulkAddLeagueTests`, `BulkAddCleanupTests` (24 h, flag off still cleans, tombstones, orphaned objects), `BulkAddModerationTests` (`IsShareable` only after `Allow`) |
 | **PR 4 Docs and metrics** | `docs/metrics.sql` `-- bulk:` block, privacy notes, README, CLAUDE.md "Wardrobe rules" paragraph, security review line | `BulkMetricsSqlTests` (the block runs like `LeagueMetricsSqlTests`) |
@@ -247,33 +247,20 @@ README. `OutfitPerformanceTests` and the other latency budgets are untouched (no
 
 The note was accepted. Answers to the open questions: **1 yes** (the room photo is deleted as soon as vision answered; kept only for a `Failed` batch),
 **2 yes** (8 photos a day, 3 open batches, 12 pieces, 24 h), **3 yes as recommended** (a likely duplicate stays as vision ticked it, with the hint),
-**4 yes**, **5 yes**, **6 yes**, **7 yes, but later** (the third `FeatureEnabledFilter` is extracted once task B9 is committed; until then bulk add has a local
-`BulkAddEnabledFilter` with a TODO naming this question), **8 yes**, **9 not in v1**. Two additions, built where they belong: the review image (see Keys: a
+**4 yes**, **5 yes**, **6 yes**, **7 yes, but later** (done in the clean-up commit after B9: `FeatureEnabledFilter<TOptions>` in `Common/Hosting`, used by League, TryOn and bulk add), **8 yes**, **9 not in v1**. Two additions, built where they belong: the review image (see Keys: a
 second, larger staged variant, `imageUrl` in PR 2) and the `cutOff` sentence (see d: the column and the copy are in PR 1, the answer in PR 2).
 
 ### PR 1 as built (task BA2)
 
 Everything in section h's PR 1 row exists, with these differences from the plan, none of them a change of design:
 
-- **`BulkStorageKeys`** (`Common/Storage/BulkStorageKeys.cs`, with `BulkImageVariant`) instead of `StorageKeys.BuildBulk` and two new `ImageVariant`s, because
-  `StorageKeys.cs` was open in task B9 and may not be touched yet. Names and keys are the planned ones; moving them is a rename (a TODO in the file). The
-  `bulk/` keys are private by the same rule as every key (`IsPublic` looks at the file name), tested in `BulkStorageKeysTests`.
-- **The five routes are mapped now**, behind `BulkAddEnabledFilter`, so "404 on every route" and the authorization matrix are real. With the flag on they
+- **The five routes are mapped now**, behind `FeatureEnabledFilter<BulkAddOptions>`, so "404 on every route" and the authorization matrix are real. With the flag on they
   answer 503 `Wardrobe.BulkNotImplemented` until PR 2 and PR 3 replace them (they are `BulkAddModule`'s placeholders, not use cases).
 - **`IVisionClient.BulkAsync(image, contentType, timeout, ct)`** takes the timeout from the caller (`BulkAdd:VisionTimeout`, 60 s), so the vision client's own
   timeout is now a per-call one (30 s by default, unchanged for every other call) and `VisionCall<T>.RetryAfter` carries the parsed `Retry-After`.
 - Two columns the plan did not list: `cut_off_count` and `ended_at` (above). `BulkAdd:*` also holds `ReprocessAfter`, `InterruptedAfter` and
   `StagedUrlLifetime`, the three numbers the job and cleanup sections name without a setting.
 - `FakeVisionClient.Bulk.cs` has the six planned flavours and three more (`bulk-unreachable`, `bulk-many-<n>`, `bulk-unseparated-<n>`, plus `bulk-bad-image`).
-
-### Pending: the privacy notes lines (cannot be written yet)
-
-`docs/privacy-notes.md` was open in task B9, so PR 1 may not edit it, and CLAUDE.md's rule ("a new table that holds a user's data must be added there")
-is met by this text, to be pasted when B9 is committed (1a's table and 2's table; PR 2 changes the last row of 1a when `AccountPurger` learns the prefix):
-
-- **1a** (after the `wardrobe.items`, `wardrobe.wears` row): `| wardrobe.bulk_batches`, `wardrobe.bulk_pieces` ("Toplu ekle": the staging area of one photo of several garments, with the pieces vision cut out of it, their
-  attributes and embeddings; counts and enums remain as a tombstone for 7 days) | deleted (cascade); the objects under `bulk/{user}/` (the room photo while a batch is `Failed`, the staged cut-outs and thumbnails) are deleted from storage first, found by listing the prefix |`
-- **2** (the wardrobe table): `| The room photo of a bulk add and the staged pieces (cut-outs, thumbnails, embeddings) | "Toplu ekle" review screen | object storage `bulk/{user}/{batch}/...` (private by name: `original.*`, `staged.*`, `stagedthumb.*`), `wardrobe.bulk_batches`, `wardrobe.bulk_pieces` | the user only: a presigned GET valid for one hour in the answer to their own request | the room photo is deleted as soon as vision answered (kept only while the batch is `Failed`); everything is deleted at confirm, cancel and 24 hours after the batch was created; a tombstone (counts, no image, no piece) stays 7 days; all of it with the account |`
 
 ## The questions as asked
 

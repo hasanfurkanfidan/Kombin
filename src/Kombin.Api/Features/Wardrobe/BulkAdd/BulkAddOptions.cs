@@ -1,3 +1,5 @@
+using Kombin.Api.Common.Hosting;
+using Kombin.Api.Common.Results;
 using Microsoft.Extensions.Options;
 
 namespace Kombin.Api.Features.Wardrobe.BulkAdd;
@@ -6,12 +8,14 @@ namespace Kombin.Api.Features.Wardrobe.BulkAdd;
 /// <c>BulkAdd:*</c>, "Toplu ekle" (design: <c>docs/design/bulk-add.md</c>). Every number of the feature is here: a new number is a setting, never a
 /// constant. The defaults are the owner's answers to the design note's open questions 2 and 3.
 /// </summary>
-internal sealed class BulkAddOptions
+internal sealed class BulkAddOptions : IFeatureOptions
 {
     public const string SectionName = "BulkAdd";
 
     /// <summary>Off by default (the brief's stop rule is provisional): every route answers 404 <c>Wardrobe.BulkDisabled</c> and <c>bulk-add-analyze</c> does nothing.</summary>
     public bool Enabled { get; set; }
+
+    static Error IFeatureOptions.Disabled => BulkAddErrors.Disabled;
 
     /// <summary>Pieces kept from one photo, in reading order; the service sends at most 12 and the rest are cut off (and counted, so the app can say so).</summary>
     public int MaxPiecesPerPhoto { get; set; } = 12;

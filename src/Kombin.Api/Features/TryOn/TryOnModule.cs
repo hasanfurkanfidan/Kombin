@@ -1,7 +1,6 @@
 using Hangfire;
 using Kombin.Api.Common.Hosting;
 using Kombin.Api.Common.RateLimiting;
-using Kombin.Api.Common.Results;
 using Kombin.Api.Common.Time;
 using Kombin.Api.Features.TryOn.GetTryOn;
 using Kombin.Api.Features.TryOn.Jobs;
@@ -40,7 +39,7 @@ internal static class TryOnModule
             .RequireAuthorization()
             .RequireRateLimiting(RateLimitPolicies.TryOn)
             .WithTags("TryOn")
-            .AddEndpointFilter<RouteGroupBuilder, TryOnEnabledFilter>();
+            .AddEndpointFilter<RouteGroupBuilder, FeatureEnabledFilter<TryOnOptions>>();
 
         GetTryOnEndpoint.Map(tryOn);
         ReportTryOnEndpoint.Map(tryOn);
@@ -69,11 +68,4 @@ internal static class TryOnModule
         jobs.AddOrUpdate<TryOnPrepareJob>(
             TryOnPrepareJob.JobId, job => job.RunAsync(CancellationToken.None), TryOnPrepareJob.Cron, new RecurringJobOptions { TimeZone = Istanbul.Zone });
     }
-}
-
-/// <summary>Answers 404 <c>TryOn.Disabled</c> while <c>TryOn:Enabled</c> is false (the default).</summary>
-internal sealed class TryOnEnabledFilter(IOptionsMonitor<TryOnOptions> options) : IEndpointFilter
-{
-    public async ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next) =>
-        options.CurrentValue.Enabled ? await next(context) : TryOnErrors.Disabled.ToHttpResult();
 }

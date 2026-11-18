@@ -3,7 +3,9 @@ namespace Kombin.Api.Common.Storage;
 /// <summary>
 /// The renditions of one stored image. Only <c>Cutout</c> and <c>Thumb</c> are public; an original stays private, and so do a social post's
 /// <c>Feed</c> image and <c>Preview</c> (a followers-only post must not be readable by URL), which are served through presigned GETs, a try-on
-/// garment's <c>Prepared</c> cutout (read by the server only) and a try-on <c>Render</c> (it reveals body proportions: presigned GETs only).
+/// garment's <c>Prepared</c> cutout (read by the server only), a try-on <c>Render</c> (it reveals body proportions: presigned GETs only) and the two
+/// staged images of bulk add: <c>Staged</c> is a piece's cutout as vision sent it (the review image, the larger one) and <c>StagedThumb</c> its
+/// thumbnail (the grid); neither is <c>cutout.*</c> or <c>thumb.*</c>, so both are private and are copied to the item's public names at confirm.
 /// </summary>
 internal enum ImageVariant
 {
@@ -14,6 +16,8 @@ internal enum ImageVariant
     Preview,
     Prepared,
     Render,
+    Staged,
+    StagedThumb,
 }
 
 /// <summary>
@@ -42,6 +46,28 @@ internal static class StorageKeys
 
         return $"{area}/{userId:D}/{ownerId:D}/{variant.ToString().ToLowerInvariant()}.{extension.TrimStart('.').ToLowerInvariant()}";
     }
+
+    /// <summary>The storage area of bulk add ("Toplu ekle"): keys are <c>bulk/{userId}/{batchId}/{ownerId}/{variant}.{ext}</c>.</summary>
+    public const string BulkArea = "bulk";
+
+    /// <summary>
+    /// A bulk-add key: <c>bulk/{userId}/{batchId}/{ownerId}/{variant}.{ext}</c>. The batch is part of the path, so confirm, cancel, the cleanup and the
+    /// account purger delete a batch (or a user) by listing its prefix instead of trusting rows: a crashed delete or a lost row leaves nothing the next
+    /// run cannot find. The room photo is owned by the batch itself (<paramref name="ownerId"/> = <paramref name="batchId"/>, <c>Original</c>); a piece's
+    /// images are owned by the piece (<c>Staged</c>, <c>StagedThumb</c>). None of these names is public.
+    /// </summary>
+    public static string BuildBulk(Guid userId, Guid batchId, Guid ownerId, ImageVariant variant, string extension)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(extension);
+
+        return $"{BulkBatchPrefix(userId, batchId)}{ownerId:D}/{variant.ToString().ToLowerInvariant()}.{extension.TrimStart('.').ToLowerInvariant()}";
+    }
+
+    /// <summary>Everything of one bulk-add batch, with the trailing slash: the prefix to list and delete.</summary>
+    public static string BulkBatchPrefix(Guid userId, Guid batchId) => $"{BulkUserPrefix(userId)}{batchId:D}/";
+
+    /// <summary>Everything of one user's bulk adds, with the trailing slash: what the account purger deletes.</summary>
+    public static string BulkUserPrefix(Guid userId) => $"{BulkArea}/{userId:D}/";
 
     /// <summary>The file extension for an accepted image content type (parameters such as <c>; charset</c> are ignored), or null.</summary>
     public static string? ExtensionFor(string? contentType)
