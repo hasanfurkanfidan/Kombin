@@ -137,9 +137,9 @@ the caller's own pieces only; `withWardrobe=false` is the product alone, so `Una
 `Preparing` could never change), and then looks the exact inputs up in the render cache for a remembered refusal (`Unavailable`,
 `RendererRefused`); it never calls the renderer, never touches `TryOnRenderGate`, never writes a render and leaves `last_used_at` alone. One shape
 instead of a second route or record: the app already parses it, and the answers are the three statuses it already handles. `renderer` is on the
-Ready answer, not looked up by the report endpoint, because a report names a subject (an outfit or a product) and a user can hold several
-renders of it over time (another body, another garment version): only the answer that was drawn knows which renderer drew it, and the app
-reports what it saw.
+Ready answer because a report names a subject (an outfit or a product) and a user can hold several renders of it over time (another body, another
+garment version): only the answer that was drawn knows which renderer drew it, and the app reports what it saw. The report endpoint then checks
+that name against the caller's own renders (task B9, below).
 
 Render request: `body` from `UserProfile` (`women` / `men` / `unisex`, height, weight, chest, waist, hip; no shoulder measurement exists),
 per garment `family, landmarks, reliable, source, flags` from the row, `cut` = the piece's `ProductFit` (none when `Unknown`), `size` = the
@@ -149,7 +149,13 @@ its suggestion; the cutouts as `garment` files in the outfit's order; width `Try
 
 `POST /api/v1/me/tryon/reports` `{ outfitId | productId, garmentIds, renderer }` ("Yanlış görünüyor") → 204. The IDs are the response's
 garment IDs; each must be a piece of that outfit (or the product, or one of the caller's own wardrobe items for "Dolabımla dene") with a
-garment row, else 400 `TryOn.UnknownGarment`. The same report again (user, subject, renderer) stores nothing new. No review screen yet:
+garment row, else 400 `TryOn.UnknownGarment`. **A report must be about a real drawing of the caller** (task B9): the endpoint finds the caller's newest
+render (an image, not a refusal) by exactly that `renderer` whose `garments` hold every reported piece and that belongs to the subject (an outfit: every
+piece the render was drawn with is a piece of the outfit; a product: the render was drawn with the product), else 404 `TryOn.RenderNotFound` (a made-up
+renderer name, an outfit never drawn, someone else's outfit: 404 as before). **One report per user and drawing** (`reports.render_id`, unique with the
+user; null once the drawing is deleted and the report stays): a second report of the same drawing, for other garments or by a double tap, answers 204 and
+stores nothing; other measurements are another drawing and can be reported again. Before this the duplicate check read the client's free-text renderer,
+so any new name made a new report. Both routes share the `tryon` rate-limit policy (120 per 5 minutes per user) on top of the render gate. No review screen yet:
 `docs/metrics.sql`'s `-- tryon: tryon_reported_garments` lists reported garments by count.
 
 ## Cache key and invalidation

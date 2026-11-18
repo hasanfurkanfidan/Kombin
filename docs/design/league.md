@@ -588,6 +588,15 @@ down to Bronze.
 it has fewer than `League:GroupMaxSize` (35), else in a new group, with an alias free in that group. Their week points are the best 5 of the days they have; nothing is prorated,
 because "İki gün oynamamak bir şey kaybettirmez" already covers a late start.
 
+**The gap before the week close** (task B9): between Sunday's 21:00 and the moment the week close has succeeded (normally minutes; a failed close is
+retried by the next hourly run, into Monday and beyond), nobody is placed into the new week by hand, whoever they are. A placement then would use the
+tier the week is about to change, the close would skip the player (it forms groups for players *not yet placed*), and the early groups would fill by
+arrival order instead of the close's balanced cut. So `PlaceAsync` places nobody while the week before has an open row the hourly job can still close
+(`League:CloseCatchUpDays` after its end; no row at all is the league's first week), and the week close forms the groups. In the gap `GET /league/me`'s
+`week` and `GET /league/table` show the week that ended with `state: "Ending"` (`Open` while a week runs, `Final` once closed): last week's table as the
+day closes left it, never an error and never a group of one. A player who joined inside the gap has no table yet (`week` null, `/table` 404
+`League.NoGroup`, the existing "no group yet") and is placed, with the new tier rule for a late arrival, by the first call after the close.
+
 **Live rank** (screens 02, 04, 05): computed on read from the closed days of the current week, so it moves at each 21:00 close and is never
 stored before Sunday.
 
@@ -936,7 +945,7 @@ The league blocks take `:day_start` / `:day_end` (dates) and return named counts
 - **When weeks close**: `league-close`, after the days of its window, closes every week whose Sunday is in the window (seven days closed, Sunday's
   21:00 passed), oldest first; a failure stops the run and the next hour retries. The internal day-close endpoint closes the day only (not the
   week), so an operator's hand close never runs the week's idleness over the whole database by surprise; the next hourly run closes the week.
-- **Who is in a group**: a player is placed (the mid-week rule) when they join, when they open `GET /league/me` or `GET /league/table`, and by
+- **Who is in a group**: a player is placed (the mid-week rule, except while the week before is not closed: see "The gap before the week close") when they join, when they open `GET /league/me` or `GET /league/table`, and by
   the day close for every player with a result that day who is in no group of that week (someone who only wore an outfit). The week close forms
   the next week's groups from the players with a result row in the closing week, at their new tier; anyone already placed there (a join after
   Sunday's close) keeps their group. Leaving takes the player off the current week's group (a closed week keeps its final table); joining again
