@@ -1,5 +1,6 @@
 using Hangfire;
 using Kombin.Api.Common.Hosting;
+using Kombin.Api.Common.RateLimiting;
 using Kombin.Api.Common.Results;
 using Kombin.Api.Common.Time;
 using Kombin.Api.Features.TryOn.GetTryOn;
@@ -31,12 +32,13 @@ internal static class TryOnModule
 
     /// <summary>
     /// Always mapped (the OpenAPI document and the authorization matrix see the routes); with <c>TryOn:Enabled</c> false they answer 404
-    /// <c>TryOn.Disabled</c> before anything else runs. Renders are limited by <see cref="TryOnRenderGate"/>, not the rate limiter: cache hits are free.
+    /// <c>TryOn.Disabled</c> before anything else runs. New renders are limited by <see cref="TryOnRenderGate"/> (cache hits and checks are free); the routes also share the <c>tryon</c> rate-limit policy, which only stops a client in a loop.
     /// </summary>
     public static IEndpointRouteBuilder MapTryOnEndpoints(this IEndpointRouteBuilder app)
     {
         var tryOn = app.MapGroup("/api/v1/me/tryon")
             .RequireAuthorization()
+            .RequireRateLimiting(RateLimitPolicies.TryOn)
             .WithTags("TryOn")
             .AddEndpointFilter<RouteGroupBuilder, TryOnEnabledFilter>();
 
