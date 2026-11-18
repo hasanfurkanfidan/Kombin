@@ -7,7 +7,8 @@ namespace Kombin.Api.Tests;
 /// 141 references in 37 feature pairs: 90 Seam, 51 Legacy; task L2 moved the Istanbul zone and the Hangfire flag to Common, leaving 129 in 33
 /// pairs: 90 Seam, 39 Legacy; task L3 added the league's two seams: 132 in 36 pairs (the list held 34 pairs before, not 33), 93 Seam, 39 Legacy; task P3 moved
 /// the vision client to Common/Vision, which removed eight Legacy references and the Admin-Wardrobe pair, and added try-on's three seams: 130 in 38
-/// pairs, 99 Seam, 31 Legacy). <see cref="Kind.Seam"/>: fine as it is. <see cref="Kind.Legacy"/>: accepted for now; the reason says where the
+/// pairs, 99 Seam, 31 Legacy; task B8 added the founder's league review page, whose four references to the League's review seams make it 134 in 39
+/// pairs, 103 Seam, 31 Legacy). <see cref="Kind.Seam"/>: fine as it is. <see cref="Kind.Legacy"/>: accepted for now; the reason says where the
 /// code belongs. The list only shrinks: do not add a line to make the test pass (CLAUDE.md, "Feature boundaries"). Grouped by the using feature.
 /// </summary>
 internal static class FeatureBoundaryAllowList
@@ -23,6 +24,7 @@ internal static class FeatureBoundaryAllowList
         // -- Admin ------------------------------------------------------------------------------------------------------------------
         new("Admin", "Catalog", Kind.Seam, UseCases, "Jobs.ProductEmbeddingJob", "Embeddings.EmbeddingRunLock"),
         new("Admin", "Identity", Kind.Seam, UseCases, "AccountAccess", "AccountDeletion", "AccountDeletionRules", "AccountPurger", "PurgeStatus"),
+        new("Admin", "League", Kind.Seam, "Documented: the review page calls the league's review use case and reads its queue, like the internal endpoints (League rules, Review; Admin rules).", "LeagueEntryReviewer", "LeagueReviewDecision", "LeagueReviewOutcome", "LeagueReviewQueue"),
         new("Admin", "Social", Kind.Seam, UseCases, "Review.PostReviewer", "Review.ReviewEndpoint", "ReviewDecision", "Creators.CreatorInvites", "Creators.PutCreatorRequest"),
         new("Admin", "Social", Kind.Seam, "The panel shows the numbers and limits the feature's own rules use, read from the one place they are defined.", "ReportRules", "SocialLimits", "CreatorEarnings", "CreatorOptions"),
 

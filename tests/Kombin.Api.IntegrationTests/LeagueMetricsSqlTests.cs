@@ -11,7 +11,7 @@ public sealed partial class LeagueMetricsSqlTests(ApiFactory factory)
 {
     private static readonly string[] Expected =
     [
-        "league_comparisons", "league_join_rate", "league_usage_effect", "league_unmatched_pairs", "league_style_threshold", "league_engine_win_rate",
+        "league_events", "league_comparisons", "league_join_rate", "league_usage_effect", "league_unmatched_pairs", "league_style_threshold", "league_engine_win_rate",
     ];
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

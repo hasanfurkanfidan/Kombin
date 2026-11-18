@@ -182,7 +182,7 @@ public sealed class LeagueEntryTests(ApiFactory factory)
         Assert.All(entry.Pieces, piece => Assert.Null(piece.ImageKey));
         var today = await TodayAsync(player.Client);
         Assert.Equal("UnsafePiece", today.GetProperty("entry").GetProperty("reason").GetString());
-        Assert.Equal(JsonValueKind.Null, today.GetProperty("entry").GetProperty("message").ValueKind);
+        Assert.Equal(LeagueCopy.UnsafePiece, today.GetProperty("entry").GetProperty("message").GetString());
     }
 
     [Fact]
@@ -232,6 +232,7 @@ public sealed class LeagueEntryTests(ApiFactory factory)
 
         Assert.Equal(LeagueEntryReason.IncompleteOutfit, (await factory.EntryAsync(player.Id, day, Ct))!.Reason);
         Assert.Equal(LeagueEntryReason.IncompleteOutfit, (await factory.EntryAsync(other.Id, day, Ct))!.Reason);
+        Assert.Equal(LeagueCopy.IncompleteOutfit, (await TodayAsync(player.Client)).GetProperty("entry").GetProperty("message").GetString());
     }
 
     [Fact]
@@ -247,6 +248,7 @@ public sealed class LeagueEntryTests(ApiFactory factory)
         await RunAsync(Time(day, 10, 1), player.Id);
 
         Assert.Equal(LeagueEntryReason.PieceUnavailable, (await factory.EntryAsync(player.Id, day, Ct))!.Reason);
+        Assert.Equal(LeagueCopy.PieceUnavailable, (await TodayAsync(player.Client)).GetProperty("entry").GetProperty("message").GetString());
     }
 
     [Fact]
@@ -305,6 +307,7 @@ public sealed class LeagueEntryTests(ApiFactory factory)
         await RunAsync(Time(day, 10, 1), player.Id);
 
         Assert.Equal(LeagueEntryReason.AgeRestricted, (await factory.EntryAsync(player.Id, day, Ct))!.Reason);
+        Assert.Equal(LeagueCopy.AgeRestricted, (await TodayAsync(player.Client)).GetProperty("entry").GetProperty("message").GetString());
     }
 
     [Fact]
@@ -512,6 +515,7 @@ public sealed class LeagueEntryTests(ApiFactory factory)
         Assert.Equal(LeagueEntryReason.AgeRestricted, (await factory.EntryAsync(aged.Id, day, Ct))!.Reason);
         Assert.Equal(LeagueEntryReason.PieceUnavailable, (await factory.EntryAsync(archiving.Id, day, Ct))!.Reason);
         Assert.Equal(("NotCompeting", "NotWorn"), (today.GetProperty("status").GetString(), today.GetProperty("reason").GetString()));
+        Assert.Equal(LeagueCopy.NotWorn, today.GetProperty("message").GetString());
         foreach (var player in new[] { aged, archiving, dismissing })
         {
             var entry = (await factory.EntryAsync(player.Id, day, Ct))!;

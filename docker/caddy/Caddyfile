@@ -74,7 +74,22 @@ storage.{$DOMAIN} {
 		respond "Not found" 404
 	}
 
+	# Cache-Control for the public images (cutout.*, thumb.*) that were stored before the API set it on upload (task B8). `?Cache-Control` sets
+	# the header only when the store did not send one, so objects written by the new API keep their own value. A league copy is the picture
+	# of one day (deleted on withdrawal and after 7 days): a day. Only GET and HEAD, and only the exact public file names; everything else
+	# (originals, post images, try-on renders, presigned links) is left to the store, which answers `private, no-store` for presigned GETs.
+	@leagueImages {
+		method GET HEAD
+		path_regexp ^/[^/]+/league/[^/]+/[^/]+/(cutout|thumb)\.[A-Za-z0-9]+$
+	}
+	@publicImages {
+		method GET HEAD
+		path_regexp ^/[^/]+/wardrobe/[^/]+/[^/]+/(cutout|thumb)\.[A-Za-z0-9]+$
+	}
+
 	handle {
+		header @leagueImages ?Cache-Control "public, max-age=86400, immutable"
+		header @publicImages ?Cache-Control "public, max-age=31536000, immutable"
 		reverse_proxy minio:9000
 	}
 }

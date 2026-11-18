@@ -33,7 +33,7 @@ Bradley–Terry, turned into daily points (votes up to 70, usage up to 30) and w
 **Not in v1** (rules, section 7), and the backend adds no table, column or endpoint for them: günlük görev, bütçe modu, hakem (isabet) puanı,
 seri ve rozetler, arkadaş tablosu, ayna fotoğrafı günü, "makineyi yendin" mesajı, kazanan kombinden kazanç payı, sonuç dışında bildirim.
 Also not in v1 because nothing asks for it: a separate outfit builder (the rules: "Ayrıca kombin kurma ekranı yok"), comments, people photos,
-searching for an outfit, an admin page for the league (the internal endpoints come first, as the Admin rules require), real names in the
+searching for an outfit, real names in the
 group table (section 4), an estimate of how many voters "agree" (section 7), occasion or audience labels on a pair (the rules: the pairing is
 silent).
 
@@ -622,7 +622,7 @@ User-facing words are rendered by the app; the backend returns codes, except the
 
 | Endpoint | Request | Response | Errors |
 |---|---|---|---|
-| `GET /league/me` | | `{ joined, consentRequired, consent: { version, text }, tier, joinedAt, today: { day, closesAt, entry: { status, reason, message, pieces[] } \| null, servedPairs, countedVotes, target: 10, limit: 30 }, week: { groupRank, groupSize, points, pointsToPromotion, endsAt } \| null }`; `message` is "Bu kombin yakın zamanda yarıştı, bugün yarışmıyor." for `RecentlyCompeted`. PR 1 returns the first five fields; `today` and `week` come with entries (PR 2) and groups (PR 4) | 404 `League.Disabled` |
+| `GET /league/me` | | `{ joined, consentRequired, consent: { version, text }, tier, joinedAt, today: { day, closesAt, entry: { status, reason, message, pieces[] } \| null, servedPairs, countedVotes, target: 10, limit: 30 }, week: { groupRank, groupSize, points, pointsToPromotion, endsAt } \| null }`; `message` is the Turkish line for the entry's `reason` (`LeagueCopy`: one for each of `RecentlyCompeted`, `UnsafePiece`, `IncompleteOutfit`, `PieceUnavailable`, `AgeRestricted`, `NotWorn`, task B8) and for `Removed`, null otherwise (RecentlyCompeted: "Bu kombin yakın zamanda yarıştı, bugün yarışmıyor."). PR 1 returns the first five fields; `today` and `week` come with entries (PR 2) and groups (PR 4) | 404 `League.Disabled` |
 | `POST /league/join` | `{ consentVersion }` | 200 = `GET /league/me` (joining again with the current version is a no-op, 200) | 400 `League.ConsentVersionInvalid` (not the current version), 403 `League.AgeRestricted` |
 | `POST /league/leave` | | 204 | 403 `League.NotJoined` |
 | `DELETE /league/me/entry` | | 204 | 403 `League.NotJoined`, 404 `League.NoEntryToday`, 409 `League.DayClosed` |
@@ -685,8 +685,7 @@ of a real player and reusing it would add a Social reference. Social's "once per
 author. At `League:Reports:HideAt` (3, as `Reports:HideAt` in Social) counting reports the entry leaves the pool at once (`status` stays,
 `counting_reports ≥ 3` is in the pairing filter). Every reported entry is in `GET /internal/league/review-queue`; `Restore` clears the count and
 puts it back, `Remove` sets `Removed` (out of ranking, no vote points, counts against creator eligibility for 90 days). A removal changes
-nothing outside the league: the pieces' `moderation_verdict` and Social's decisions stay as they are (owner's decision). An admin page is later
-work.
+nothing outside the league: the pieces' `moderation_verdict` and Social's decisions stay as they are (owner's decision). The founder's page for it is `/admin/league` (task B8).
 
 **Known risk: engine outfits can be told apart.** Engine entries show catalogue packshots, human entries wardrobe cut-outs, so a voter may
 recognise an engine outfit and vote differently on it. v1 does not try to hide it (no image processing, no mixing). Engine entries are never
@@ -957,8 +956,11 @@ The league blocks take `:day_start` / `:day_end` (dates) and return named counts
 - **Style score**: computed at every week close for every player with a result in the 90 days before the week's end (or a score row): only ranked
   days not under review whose day ranked at least 30 outfits; `qualifying_weeks` and the never-cleared `league_eligible_at` as section 11 says;
   "no entry removed in the last 90 days" means an entry with status `Removed`.
-- **The review queue** has no admin page (section 13: "An admin page is later work"); the internal endpoints call `LeagueEntryReviewer`, which
-  writes the `admin.audit_log` row (actor `internal-key` for the internal route) in its own transaction, so a page can call it later unchanged.
+- **The review queue** has an admin page since task B8, `/admin/league` (Restore and Remove through `LeagueEntryReviewer`, which writes the
+  `admin.audit_log` row in its own transaction: actor `internal-key` for the internal route, the admin's e-mail for the page). The queue itself is
+  `LeagueReviewQueue`, read by both. The page shows what the voters saw (the pieces' image copies), the day, the status, the report count and
+  reasons and the under-review mark; **no owner and no reporter**, because the decision is about the picture and the league's promise is no name, no
+  profile and no stable identifier. It names four League types from Admin: one `Seam` line in the allow-list.
 - **The result push** (`league-results`, every 5 minutes): only for days closed in the last 12 hours (21:00 to 09:00; later, "Bugünkü kombinin"
   would be wrong), once per player and day (`daily_scores.notified_at` set in the same transaction as the notification row, dedupe key
   `league:{day}`), through the alert dispatcher's rules (preference, device, quiet hours); never for a player who left, is disabled or whose

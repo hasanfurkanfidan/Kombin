@@ -68,7 +68,7 @@ fully qualified name, `using static`, an alias; also in `.cshtml`) and fails for
 list of what existed in task B7 (141 references in 37 feature pairs, 90 of them `Seam` = fine as it is and 51 `Legacy` = would be shared code
 today, with a line saying where it belongs; task L2 moved the Istanbul zone and the Hangfire flag to `Common` and left 129 in 34 pairs, 39 `Legacy`; task L3 added the league's two
 `Seam`s: 132 in 36 pairs; task P3 moved the vision client to `Common/Vision`, which removed eight `Legacy` references and the Admin-Wardrobe pair, and added
-try-on's three `Seam` lines: 130 in 38 pairs, 99 `Seam`, 31 `Legacy`). It forbids nothing that exists; it stops the list from growing, and `TheAllowListHoldsNoReferenceThatNoLongerExists`
+try-on's three `Seam` lines: 130 in 38 pairs, 99 `Seam`, 31 `Legacy`; task B8 added the admin league page's `Seam`: 134 in 39 pairs, 103 `Seam`, 31 `Legacy`). It forbids nothing that exists; it stops the list from growing, and `TheAllowListHoldsNoReferenceThatNoLongerExists`
 makes it shrink: remove a reference and the test tells you to delete the line.
 
 **Sharing code between features.**
@@ -433,6 +433,13 @@ External Python workers (a separate repo) push the catalog through the internal 
   policy (`docker/minio/public-read.json`, applied by the `minio-init` container) makes `*/cutout.*` and `*/thumb.*` anonymously readable;
   everything else, originals included, is private and served through a presigned GET (social posts' `feed.*` and `preview.*` too: a
   followers-only photo must not be readable by URL). Never store anything private under those names.
+  **Cache headers** (task B8): `S3ObjectStorage.PutAsync` stores every object with `StorageKeys.CacheControlFor(key)`, decided by the key like visibility:
+  a public image (`cutout.*`, `thumb.*`) `public, max-age=31536000, immutable` (a wardrobe image is final once its item is Ready), a league copy
+  (`league/`) `public, max-age=86400, immutable` (the picture of one day, deleted on withdrawal and after 7 days), everything else `private, no-store`; a
+  presigned GET carries `response-cache-control=private, no-store` so a private link is never kept by a shared cache whatever the object was stored with.
+  A new key name that is public must be added to `CacheControlFor`'s reasoning (`StorageCacheControlTests` fails when public and cache disagree). Objects
+  from before: Caddy's `storage.$DOMAIN` block sets the header when the store sent none, and `scripts/minio-cache-control.sh` rewrites the metadata in the
+  development MinIO (once). An object written under the same key with other bytes after a client could see it would break `immutable`: do not.
   Settings `Storage:Endpoint/PresignEndpoint/Bucket/AccessKey/SecretKey/PublicBaseUrl/ForcePathStyle`, validated when the store is first
   used (not at start-up). `PresignEndpoint` exists because a presigned URL is signed for its host: compose's API talks to `minio:9000`
   while the app uploads to `STORAGE_PUBLIC_URL`.
@@ -662,7 +669,7 @@ External Python workers (a separate repo) push the catalog through the internal 
   `GET /league/results?day=`, `GET /league/results/latest`, `GET /league/table`, `POST /internal/league/days/{date}/close`,
   `GET /internal/league/review-queue`, `POST /internal/league/entries/{entryId}/review`; the jobs `league-entries`, `league-fill`, `league-close`
   (days and weeks) and `league-purge`, Notification's `league-results`, and the `-- league:` first-month metric blocks of `docs/metrics.sql`
-  (run by hand, `LeagueMetricsSqlTests` runs them). Not built: an admin page for the review queue (the note: later work).
+  (run by hand, `LeagueMetricsSqlTests` runs them). The admin page for the review queue is `/admin/league` (task B8, below).
 - **Off by default.** `League:Enabled` (env `League__Enabled`) is false until the app screens ship: the routes stay mapped (OpenAPI, the
   authorization matrix) but `LeagueEnabledFilter` answers 404 `League.Disabled` first. `ApiFactory` switches it on; a test that needs it off
   builds its own host.
@@ -707,6 +714,15 @@ External Python workers (a separate repo) push the catalog through the internal 
   entries a run from Recommendation's `CatalogOutfitSampler` (seed = day number + bucket; existing piece sets skipped), catalog products only,
   never ranked or listed. `engine_fill_at:{day}` is written to `league.state`. Both jobs are registered by `UseLeagueJobs` (after
   `UseIdentityJobs`) only when `Hangfire:Enabled` and `League:Enabled` are true (removed otherwise), and do nothing while the league is off.
+- **The server writes every message** (task B8): `LeagueCopy` is the one place for the league's Turkish lines, pinned by `LeagueCopyTests` (and scanned
+  by `CopyGlossaryTests`). `GET /league/me`'s `today.entry.message` has one line for each `NotCompeting` reason (`RecentlyCompeted`, `UnsafePiece`,
+  `IncompleteOutfit`, `PieceUnavailable`, `AgeRestricted`, `NotWorn`) and one for `Removed`; `GET /league/results`' `message` has the review's two
+  (`UnderReview`, `Removed`). A new reason or status is a new line there and a case in the test, never a sentence the app invents. The lines name no number
+  that is a setting.
+- **Analytics events** (task B8): `league_join`, `league_leave`, `league_vote { choice: left|right|skip, counted }`, `league_report`,
+  `league_results_view { status: Final|UnderReview|Removed }`, `league_table_view`, in `AnalyticsEventCatalog` (the statuses are spelled out: Analytics does not
+  name the league's types, `AnalyticsValidatorTests` pins them). No pair, entry, image or player identifier, no rank or points, in any payload;
+  `docs/metrics.sql`'s `-- league: league_events` block counts them (by hand).
 - **Anonymity is the contract: no name, no profile, no stable identifier in any response** (never describe it as "cannot be linked": the
   copies are the owner's pictures, and someone who knows the pieces can tell; the consent says so). No league response may ever carry another player's user ID, name, e-mail, entry ID or wardrobe storage key;
   group tables show a generated per-week alias. Wardrobe keys contain the owner's ID (`StorageKeys.Build`), so a competing entry's thumbnails
@@ -752,7 +768,11 @@ External Python workers (a separate repo) push the catalog through the internal 
   week computed on read, a closed week as stored and renumbered 1..n. `week` in `/league/me` and in the results comes from the same reader.
 - **Style score** (pure `StyleScore`, at every week close, `league.style_scores`): no endpoint and no screen read it.
 - **Review** (`LeagueEntryReviewer`, the one home of the decision; `GET /internal/league/review-queue`, `POST /internal/league/entries/{id}/review`
-  `{ decision: Restore | Remove }`): every decision writes an `admin.audit_log` row (the entity; League never names the Admin feature).
+  `{ decision: Restore | Remove }`): every decision writes an `admin.audit_log` row (the entity; League never names the Admin feature). The queue is
+  `LeagueReviewQueue` (pieces as the voters saw them, report counts and reasons, the under-review mark), read by the internal endpoint and by the
+  founder's **`/admin/league`** page: the page lists it with Restore and Remove, calls `LeagueEntryReviewer` with the admin's e-mail as the actor (the
+  reviewer audits, the page does not write a second row) and shows **no owner and no reporter** (the decision is about the picture; the league promises
+  its players no name, no profile and no stable identifier). Admin names four League types, one documented seam (allow-list line `Seam`).
 - **The result push** is Notification's `league-results` job (reads `league.daily_scores`, calls no league code; see Notification rules).
 - **`league-purge`** (daily 04:15, `[DisableConcurrentExecution(60)]`, `[AutomaticRetry(Attempts = 0)]`, tests call `PurgeAsync(now, days, sweepOrphans, ct)`
   with their own days): copies 7 days after their day, pairs and voter counters 30 days and entries 90 days after a **closed** day, and objects under
@@ -802,6 +822,11 @@ External Python workers (a separate repo) push the catalog through the internal 
   body values never in a log line or an analytics event (the vision client logs only the path and the service's code). `AccountPurger` deletes the
   render images and the prepared cutouts of the user's wardrobe items; the rows cascade (`AccountDeletionTests`' matrix, `docs/privacy-notes.md` 1a
   and 6c).
+- **`check=true`** (task B8, additive): `GET /me/tryon?...&check=true` answers "would this be available?" with the same `TryOnResponse`, status and reason
+  only (`Ready` has no `imageUrl`, `garments` or `renderer`). It runs the readiness rule, asks for unprepared pieces like a real request, and reads the
+  render cache for a remembered refusal (`TryOnRenderer.CheckAsync`); it never calls the renderer, never touches `TryOnRenderGate` and leaves `last_used_at`
+  alone. **`renderer`** is on the Ready answer (the renderer that drew it) because the app sends it back with a report and only the answer that was
+  drawn knows it; the report endpoint does not look it up (a subject can have several renders over time).
 - **Response IDs:** `garments[].id` and a report's `garmentIds` are the pieces' IDs as the outfit carries them (wardrobe item or product), never a
   garment row ID; reports store the resolved `tryon.garments` rows.
 - **Boundaries:** three documented seams (allow-list lines `Seam`): Catalog's `CatalogImageFetcher` (the guarded fetcher), Profile's `SizeHints`
@@ -814,7 +839,7 @@ External Python workers (a separate repo) push the catalog through the internal 
 
 - **What exists:** the founder's panel, server-rendered Razor Pages under `/admin` in the API project (`Features/Admin`, pages in
   `Features/Admin/Pages`; Razor's root is `/Features`, so every page names its own `@page "/admin/..."` route, and `Features/Legal/Pages` shares the root), schema `admin` (`audit_log`). Pages:
-  dashboard, review, creators, catalog, users, audit; login and logout. No SPA, no JS framework (one inline script for `data-confirm` dialogs).
+  dashboard, review, league (the league's review queue), creators, catalog, users, audit; login and logout. No SPA, no JS framework (one inline script for `data-confirm` dialogs).
   README, "Admin panel", lists them.
 - **Separate from the app's auth.** Accounts are `Admin:Users` (`{ Email, PasswordHash }`, config, never `identity.users`), checked by
   `AdminCredentials` with the Identity hasher (PBKDF2; `dotnet run --project src/Kombin.Api -- hash-password` or `scripts/admin-hash.sh|.ps1`
@@ -958,7 +983,7 @@ and saved trips) and
 Social (versioned posting consent, photo and outfit posts with moderation, metadata stripping and confirmed shoppable tags, likes, follows,
 blocks, reports and review, the feed, try-with-wardrobe, creators with click attribution and earnings estimates) and Lens (visual search:
 catalog embeddings and their job, photo search with family, floor and audience guardrails, wardrobe matches) and Admin (the founder's
-panel: review queue, creators, catalog and backfill, user disable, audit log, dashboard) and League (Kombin Ligi: schema, settings, consent,
+panel: review queue, league review, creators, catalog and backfill, user disable, audit log, dashboard) and League (Kombin Ligi: schema, settings, consent,
 join and leave, the worn outfit's entry with its image copies, engine outfits, pairing, voting, reports and withdrawing, the day close with
 Bradley–Terry and the daily points, the results, the purge, weeks with groups, aliases, promotion and relegation, the table, the style score, the
 review queue and the evening result push; off by default) and TryOn ("Manken üstünde gör": prepared garments, the readiness rule, cached

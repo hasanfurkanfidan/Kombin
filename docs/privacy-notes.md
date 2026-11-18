@@ -178,6 +178,7 @@ The founder's server-rendered panel (`/admin`). Admin accounts are configuration
 | A user's e-mail, display name, sign-in methods, counts of personas, wardrobe items, posts and blocks, creator handle | `/admin/users` | e-mail addresses appear **only** on this page (the creator invite page prints them masked, `f***@gmail.com`); no measurements, no city, no sizes, no wardrobe photos, no list of what the user owns |
 | Post photos waiting for review | `/admin/review` | the **feed-size** rendition only, a 1-hour presigned link; never the original (which is stripped of metadata anyway); author shown by display name and ID |
 | Report reasons and moderation scores | `/admin/review` | reporters are never shown, only the reasons and counts |
+| Reported Kombin Ligi outfits (task B8) | `/admin/league` | the pieces **as the voters saw them** (the league's own image copies: random keys, no user ID), the day, the status, the number of reports and the reasons given, whether the owner's result is held back, an outfit ID (shortened). **No owner** (no ID, name or address), **no reporter**, no wardrobe key, no product or brand name: the decision is about the picture, and the league promises its players no name, no profile and no stable identifier. The decision writes the audit row (`league.entry.restore` / `.remove`, the entry ID and the day) |
 | What an admin did | `admin.audit_log` (admin e-mail, action, target ID, short summary, time) | no personal data of app users in the summary: IDs, handles, enum names and the removal reason the author was shown; kept indefinitely (open question below) |
 
 Disabling an account (soft) revokes its refresh tokens and refuses sign-in; it deletes nothing. The account's posts stay visible according to
@@ -190,7 +191,9 @@ Allow-listed events only (`AnalyticsEventCatalog`); values are IDs, numbers and 
 their `user_id` (section 1a). Social events: `post_view`,
 `post_tag_tap`, `post_like`, `post_create_start/done`, `post_report`, `creator_profile_view`, `try_with_wardrobe` — post and creator IDs,
 counts and enums; **no captions, handles or labels**. Visual-search events: counts, durations, result positions and match levels, **no
-image data**. Keys named like personal data are refused on every event. Anonymous events are linked to
+image data**. League events (`league_join`, `league_leave`, `league_vote` with the side chosen and whether it counted, `league_report`,
+`league_results_view` with the result's state, `league_table_view`): **no pair, entry, image or player identifier, no rank or points** in any payload. Keys
+named like personal data are refused on every event. Anonymous events are linked to
 the account after sign-in (`IAnalyticsIdentityLinker`). **Retention:** raw events are deleted 180 days after they were received (`analytics-retention`, nightly, `Analytics:RetentionDays`); the weekly aggregates (`analytics.weekly_metrics`, no personal data) stay. At most 5,000 events per user or device a day are stored (security review M6).
 
 ## 6a. Rate limiting and server logs (Task 16-A)
@@ -231,6 +234,10 @@ between a copy and the thumbnail a Social post shows for that piece (which carri
   the API (the vision service could re-encode, at one call per piece per day; not done in v1);
 - the size differs by at most a few hundred bytes from the source, so it narrows a search without deciding it.
 Catalog pieces are catalog images (the same for everyone who owns the product) and link to no one.
+
+The copies are served with `Cache-Control: public, max-age=86400, immutable` (a day, the day they are voted on; task B8): a voter's phone, or any cache
+between, may still hold a copy for up to a day after it was deleted on a withdrawal or a leave. That is the same picture the voter was shown, and the
+bound is a day, not a year (the wardrobe's own public images are cached for a year: they are final once the item is Ready).
 
 So the league's promise is **no name, no profile and no stable identifier in any response**, not that an outfit cannot be traced to its owner.
 Consent version `2026-11-v2` tells the player exactly that: "Parçalarını tanıyan biri kombinin sana ait olduğunu anlayabilir." Players who joined

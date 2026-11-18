@@ -7,7 +7,7 @@ using Amazon.S3.Model;
 namespace Kombin.Api.Common.Storage;
 
 /// <summary>
-/// <see cref="IObjectStorage"/> over the S3 API, which MinIO, AWS S3 and Cloudflare R2 all speak. A singleton: the clients are
+/// <see cref="IObjectStorage"/> over the S3 API (objects are stored with the <c>Cache-Control</c> of <see cref="StorageKeys.CacheControlFor"/>), which MinIO, AWS S3 and Cloudflare R2 all speak. A singleton: the clients are
 /// thread-safe and keep their connections. Presigning uses a second client bound to <see cref="StorageOptions.PresignEndpoint"/>;
 /// presigning is local computation, that client never makes a call.
 /// </summary>
@@ -22,6 +22,12 @@ internal sealed class S3ObjectStorage : IObjectStorage, IDisposable
     private readonly Protocol _presignProtocol;
 
     public S3ObjectStorage(StorageOptions options)
+        : this(options, null)
+    {
+    }
+
+    /// <summary>For tests: <paramref name="httpClientFactory"/> replaces the SDK's HTTP client, so the requests it would send can be read.</summary>
+    internal S3ObjectStorage(StorageOptions options, HttpClientFactory? httpClientFactory)
     {
         ArgumentNullException.ThrowIfNull(options);
 
@@ -37,8 +43,8 @@ internal sealed class S3ObjectStorage : IObjectStorage, IDisposable
         _presignProtocol = new Uri(presignEndpoint).Scheme == Uri.UriSchemeHttp ? Protocol.HTTP : Protocol.HTTPS;
 
         var credentials = new BasicAWSCredentials(options.AccessKey, options.SecretKey);
-        _client = new AmazonS3Client(credentials, CreateConfig(options.Endpoint, options));
-        _presigner = new AmazonS3Client(credentials, CreateConfig(presignEndpoint, options));
+        _client = new AmazonS3Client(credentials, CreateConfig(options.Endpoint, options, httpClientFactory));
+        _presigner = new AmazonS3Client(credentials, CreateConfig(presignEndpoint, options, httpClientFactory));
     }
 
     public async Task PutAsync(string key, byte[] content, string contentType, CancellationToken cancellationToken)
@@ -46,7 +52,15 @@ internal sealed class S3ObjectStorage : IObjectStorage, IDisposable
         using var stream = new MemoryStream(content, writable: false);
 
         await _client.PutObjectAsync(
-            new PutObjectRequest { BucketName = _options.Bucket, Key = key, InputStream = stream, ContentType = contentType, AutoCloseStream = false },
+            new PutObjectRequest
+            {
+                BucketName = _options.Bucket,
+                Key = key,
+                InputStream = stream,
+                ContentType = contentType,
+                AutoCloseStream = false,
+                Headers = { CacheControl = StorageKeys.CacheControlFor(key) },
+            },
             cancellationToken);
     }
 
@@ -106,6 +120,10 @@ internal sealed class S3ObjectStorage : IObjectStorage, IDisposable
             Verb = HttpVerb.GET,
             Expires = DateTime.UtcNow.Add(lifetime),
             Protocol = _presignProtocol,
+
+            // Whatever the object was stored with (an object from before the header existed has none), a private link is never cached by a shared
+            // cache: the store puts this header on the response.
+            ResponseHeaderOverrides = new ResponseHeaderOverrides { CacheControl = StorageKeys.PrivateCacheControl },
         });
 
     public string GetPublicUrl(string key) => $"{_options.PublicBaseUrl.TrimEnd('/')}/{key}";
@@ -153,8 +171,9 @@ internal sealed class S3ObjectStorage : IObjectStorage, IDisposable
         _presigner.Dispose();
     }
 
-    private static AmazonS3Config CreateConfig(string endpoint, StorageOptions options) => new()
+    private static AmazonS3Config CreateConfig(string endpoint, StorageOptions options, HttpClientFactory? httpClientFactory) => new()
     {
+        HttpClientFactory = httpClientFactory,
         ServiceURL = endpoint,
         ForcePathStyle = options.ForcePathStyle,
         AuthenticationRegion = options.Region,

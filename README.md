@@ -326,6 +326,9 @@ or a bad `sessionId`, `platform`, `appVersion`, `occurredAt` or `anonymousId`.
   | `lens_search` | `regionCount` (0-6), `resultCount` (0-72), `durationMs` (0-600000), `source` (`camera` or `gallery`) |
   | `lens_result_tap` | `productId`, `position` (0-11, in the region's rail), `similarity` (`close` or `similar`, the result's `level`) |
   | `lens_add_to_wardrobe` | `family` (optional: `Top`, `Bottom`, `Outerwear`, `Shoes`, `Bag`, `Accessory`; absent for the whole photo) |
+  | `league_join`, `league_leave`, `league_report`, `league_table_view` | - (Kombin Ligi: never a pair, entry, image or player identifier) |
+  | `league_vote` | `choice` (`left`, `right` or `skip`), `counted` (`true` or `false`: whether the vote's response counted it) |
+  | `league_results_view` | `status` (`Final`, `UnderReview` or `Removed`: the results' `status`) |
 
   Values are GUIDs, integers, booleans, enum names or short identifiers (letters, digits and `_ . : / -`), never free text.
 - **A wrong clock does not cost the event.** `occurredAt` more than 7 days old or more than 5 minutes ahead is replaced by the server's
@@ -427,7 +430,12 @@ wants when tapping a garment; wear tracking stays in the data for the engine.
   would gain. It is null when those slots all have 3 companions, or when nothing in the catalog fits.
 
 **Storage** is any S3-compatible store (MinIO in compose). Keys are `wardrobe/{userId}/{itemId}/{original|cutout|thumb}.{ext}`; the bucket
-policy (`docker/minio/public-read.json`) makes `cutout.*` and `thumb.*` publicly readable, originals are private. Settings:
+policy (`docker/minio/public-read.json`) makes `cutout.*` and `thumb.*` publicly readable, originals are private. **Cache headers:** the API
+stores every object with a `Cache-Control` decided by its key (`StorageKeys.CacheControlFor`): a public wardrobe image (a key that is final once the
+item is Ready) `public, max-age=31536000, immutable`, a league copy (the picture of one day, deleted when withdrawn or after 7 days) `public,
+max-age=86400, immutable`, everything else `private, no-store`; and a presigned GET asks the store to answer `private, no-store` whatever the object
+was stored with, so a private link (a try-on render, a post photo) is never kept by a shared cache. Public images written before this are covered
+by the Caddy rule for `storage.$DOMAIN` (production) and, in the development MinIO, by `scripts/minio-cache-control.sh` (run it once). Settings:
 `Storage:Endpoint` (what the API talks to), `Storage:PresignEndpoint` (what the app uploads to; defaults to `Endpoint`),
 `Storage:PublicBaseUrl` (bucket included), `Storage:Bucket`, `Storage:AccessKey`, `Storage:SecretKey`, `Storage:ForcePathStyle`. In compose,
 `STORAGE_PUBLIC_URL` (default `http://localhost:9000`) sets both public addresses; use `http://<your LAN IP>:9000` for a phone.
@@ -557,13 +565,13 @@ weeks, the group table, the review queue and the evening result push. Signed in.
 
 | Method | Route | Success | Errors |
 |---|---|---|---|
-| GET | `/league/me` | 200 `{ joined, consentRequired, consent { version, text }, tier, joinedAt, today, week }` (`tier` null before the first join). `today`: `{ day, closesAt, entry, servedPairs, countedVotes, target: 10, limit: 30 }`, `entry` null or `{ status, reason, message, pieces: [{ slot, imageUrl }] }` (status `Pending`, `Competing`, `NotCompeting`, `Withdrawn`, `Removed`; reason `RecentlyCompeted`, `UnsafePiece`, `IncompleteOutfit`, `PieceUnavailable`, `AgeRestricted`; `message` is "Bu kombin yakın zamanda yarıştı, bugün yarışmıyor." for `RecentlyCompeted`). `week` is null until the weekly leagues | |
+| GET | `/league/me` | 200 `{ joined, consentRequired, consent { version, text }, tier, joinedAt, today, week }` (`tier` null before the first join). `today`: `{ day, closesAt, entry, servedPairs, countedVotes, target: 10, limit: 30 }`, `entry` null or `{ status, reason, message, pieces: [{ slot, imageUrl }] }` (status `Pending`, `Competing`, `NotCompeting`, `Withdrawn`, `Removed`; reason `RecentlyCompeted`, `UnsafePiece`, `IncompleteOutfit`, `PieceUnavailable`, `AgeRestricted`, `NotWorn`; `message` is the Turkish line to show, one per reason and one for `Removed` (`LeagueCopy`, pinned by `LeagueCopyTests`), null for `Pending`, `Competing` and `Withdrawn`). `week` is null until the weekly leagues | |
 | POST | `/league/join` | 200, same shape. Body `{ consentVersion }` (the current one); idempotent | 400 `League.ConsentVersionInvalid`; 403 `League.AgeRestricted` (a known birth year that does not make the caller certainly 18: `year − birthYear <= 18`) |
 | POST | `/league/leave` | 204: no outfit enters from now on, today's is withdrawn; a later join keeps the tier | 403 `League.NotJoined` |
 | DELETE | `/league/me/entry` | 204: today's outfit leaves the pool, final for the day (again: 204) | 403 `League.NotJoined`; 404 `League.NoEntryToday`; 409 `League.DayClosed` |
 | GET | `/league/pairs/next` | 200 `{ pair: { id, left: { pieces: [{ slot, imageUrl }] }, right, sequence } \| null, reason: null \| "DailyLimit" \| "NoPairs", countedToday, servedToday, target, limit, closesAt }`; an unanswered pair is returned again | 403 `League.NotJoined`; 409 `League.DayClosed` |
 | POST | `/league/pairs/{pairId}/vote` | 200 `{ counted, chosenWinRate, chosenGames, countedToday, servedToday, target, limit }`. Body `{ choice: "left" \| "right" \| "skip", decisionMs }`; the same vote again returns the result | 400; 404 `League.PairNotFound`; 409 `League.AlreadyVoted`, `League.DayClosed` |
-| GET | `/league/results?day=yyyy-MM-dd` | 200 `{ day, status, message, entry: { pieces } \| null, competed, ranked, rank, rankedCount, comparisons, points: { votes, voting, worn, pieces, total }, piecePointsAvailable, week }` for the caller's own closed day. `status`: `Final`, `UnderReview` (reported, waiting for a review: `ranked`, `rank`, `points.votes` null, `total` = usage points, `message` "Kombinin inceleniyor. Sonuç inceleme bitince görünecek.") or `Removed` (taken out by a review after the close: no rank, 0 vote points) | 400 `League.InvalidDay`; 404 `League.ResultsNotReady` (not closed, or no entry and no points that day) |
+| GET | `/league/results?day=yyyy-MM-dd` | 200 `{ day, status, message, entry: { pieces } \| null, competed, ranked, rank, rankedCount, comparisons, points: { votes, voting, worn, pieces, total }, piecePointsAvailable, week }` for the caller's own closed day. `status`: `Final`, `UnderReview` (reported, waiting for a review: `ranked`, `rank`, `points.votes` null, `total` = usage points, `message` "Kombinin inceleniyor. Sonuç inceleme bitince görünecek.") or `Removed` (taken out by a review after the close: no rank, 0 vote points, `message` "Kombinin incelendi ve yarıştan çıkarıldı, bu yüzden sıralaman ve oy puanın yok. Diğer puanların duruyor.") | 400 `League.InvalidDay`; 404 `League.ResultsNotReady` (not closed, or no entry and no points that day) |
 | GET | `/league/results/latest` | 200 same shape, the caller's latest closed day with a result | 404 `League.ResultsNotReady` |
 | GET | `/league/table` | 200 `{ weekStart, endsAt, tier, todayPoints, todayIsFinal, promoteCount, relegateCount, tierUp, tierDown, size, rows: [{ rank, points, isMe, alias }] }`: the caller's group this week (last week's final table between Sunday's close and Monday 00:00); the rows carry the weekly alias only | 403 `League.NotJoined`; 404 `League.NoGroup` |
 | GET | `/internal/league/review-queue` | 200 `[{ entryId, day, status, countingReports, reports, underReview, pieces }]` (internal key): reported outfits not removed, oldest report first, at most 100 | 401 |
@@ -601,12 +609,16 @@ drawing on a mannequin proportioned from the user's measurements, never a pictur
 
 | Method | Path | Success | Errors |
 |---|---|---|---|
-| GET | `/me/tryon?outfitId=…` or `/me/tryon?productId=…&withWardrobe=true` | 200 `{ status, imageUrl, garments: [{ id, fitLevel }], defaultedMeasurements, reason }`. `status`: `Ready` (`imageUrl` a presigned GET valid for one hour; `garments` the drawn pieces by the ID the outfit gives them, `fitLevel` `Tight` / `TrueToSize` / `Loose` / null; `defaultedMeasurements` e.g. `["chest", "hip", "shoulder"]`), `Preparing` (a garment is being prepared, or a drawing of the caller is running: ask again), `Unavailable` (hide the action; `reason`: `BodyOutOfRange`, `UnknownCategory`, `NoTop`, `NoBottom`, `PersonInPhoto`, `PieceNotReady`, `FoldedSleeves`, `RendererRefused`) | 400 (`outfitId` xor `productId`; `withWardrobe` with `productId` only); 404 `TryOn.OutfitNotFound` (also another user's outfit), `TryOn.ProductNotFound`, `TryOn.Disabled`; 429 `RateLimited` (`retryAfterSeconds`, `Retry-After`); 503 `TryOn.RendererUnavailable` |
+| GET | `/me/tryon?outfitId=…` or `/me/tryon?productId=…&withWardrobe=true` | 200 `{ status, imageUrl, garments: [{ id, fitLevel }], defaultedMeasurements, reason, renderer }`. `status`: `Ready` (`imageUrl` a presigned GET valid for one hour; `renderer` the name of the renderer that drew it, which the app sends back as `renderer` of a report; `garments` the drawn pieces by the ID the outfit gives them, `fitLevel` `Tight` / `TrueToSize` / `Loose` / null; `defaultedMeasurements` e.g. `["chest", "hip", "shoulder"]`), `Preparing` (a garment is being prepared, or a drawing of the caller is running: ask again), `Unavailable` (hide the action; `reason`: `BodyOutOfRange`, `UnknownCategory`, `NoTop`, `NoBottom`, `PersonInPhoto`, `PieceNotReady`, `FoldedSleeves`, `RendererRefused`) | 400 (`outfitId` xor `productId`; `withWardrobe` with `productId` only); 404 `TryOn.OutfitNotFound` (also another user's outfit), `TryOn.ProductNotFound`, `TryOn.Disabled`; 429 `RateLimited` (`retryAfterSeconds`, `Retry-After`); 503 `TryOn.RendererUnavailable` |
 | POST | `/me/tryon/reports` | 204 ("Yanlış görünüyor"). Body `{ outfitId \| productId, garmentIds, renderer }`: the `garments[].id` of the answer (1-10) and the renderer (`mannequin-v5`); the same report again stores nothing | 400 (validation, `TryOn.UnknownGarment`: not a drawn piece of that outfit or product); 404 `TryOn.OutfitNotFound`, `TryOn.ProductNotFound`, `TryOn.Disabled` |
 
 - **When it is shown** (`TryOnReadiness`): a top (or outerwear) and a bottom, every core piece (top, outerwear, trousers, skirt, shoes) prepared
   with `reliable = true`, the outermost upper garment allowed to be outermost (no sleeves folded across the front), and a BMI of at most 36 (no
   weight: the audience's default). Bags and belts never block. A wardrobe photo of someone wearing the garment is never prepared.
+- `check=true` asks only "would this be available?": the same record with the status and reason and nothing else (`Ready` has no `imageUrl`, `garments`
+  or `renderer`). Nothing is drawn, the hourly render limit is neither spent nor looked at (so the app may check on every screen), and a piece that
+  is not prepared yet is still asked for, so `Preparing` turns into `Ready` or `Unavailable` on a later check. It answers what a real request would,
+  including a refusal the renderer already gave for these exact inputs (`Unavailable`, `RendererRefused`).
 - `withWardrobe=true` ("Dolabımla dene") draws the product with the first how-to-wear outfit made of the caller's own pieces only; with none (a
   shirt and no trousers) it is the product alone, so `Unavailable`. Without `withWardrobe` it is the product alone.
 - A drawing is cached per user under a key of the renderer, the body, every garment (row, version, preparation time, size, the size hint's size,
@@ -629,13 +641,14 @@ Retailer photos over 8 MB are scaled to 1600 px with SkiaSharp (MIT) before they
 
 The founder's tool, so nobody needs SQL: server-rendered Razor Pages under `/admin` in the API itself (`Features/Admin/Pages`), plain HTML and
 a little CSS, readable on a phone. It has its own sign-in and **never** uses the app's JWTs; every action goes through the same use-case classes
-the API's internal endpoints call (`PostReviewer`, `CreatorInvites`, `AccountAccess`, `ProductEmbeddingJob`), and every action writes a row to
+the API's internal endpoints call (`PostReviewer`, `LeagueEntryReviewer`, `CreatorInvites`, `AccountAccess`, `ProductEmbeddingJob`), and every action writes a row to
 `admin.audit_log`.
 
 | Page | What it does |
 |---|---|
 | `/admin` | today / last-7-days numbers (new users, posts created and gone live, buy clicks and clicks by source, price alerts triggered, lens searches, sellers with a fresh offer, products with and without an embedding); each number has a `<details>` block with the SQL it comes from. Health strip: the last run and result of every Hangfire recurring job, the vision service's `/health`, the database size |
 | `/admin/review` | posts `NeedsReview` and `Hidden`, oldest first: feed image (signed, 1 h), author, caption, moderation labels and scores, report reasons. **Yayınla** (approve), **Engelle** (block, with a reason from a list plus your own words, which the author sees) and **Gizli tut** (keep; moves it to the back of the queue) |
+| `/admin/league` | Kombin Ligi outfits reported since their last review, oldest report first (the queue of `GET /internal/league/review-queue`): the pieces as the voters saw them (the league's image copies), the day, the status, how many reports and how many count toward hiding it, the reasons, and whether the owner's result is held back. **Restore** (the reports stop counting) and **Remove** (final). No owner and no reporter is shown: the decision is about the picture, and the league promises its players no name, no profile and no stable identifier. The decision is `LeagueEntryReviewer`'s, which writes the audit row |
 | `/admin/creators` | creators with posts, 30-day clicks and an *estimated* earnings figure; invite (find a user by e-mail, handle or ID, then set handle, bio and link) and revoke |
 | `/admin/catalog` | sellers (country, active, newest offer seen, products, offers, the raw website URL), embedding counts with the failed and unusable products, **Run backfill now** (queues `ProductEmbeddingJob.BackfillAsync`, the same `EmbedAsync` as `POST /internal/catalog/embeddings/run`, on the Hangfire server), and a read-only product lookup by ID or slug with its offers (raw seller URLs, marked) and price history |
 | `/admin/users` | search by e-mail or ID: sign-in methods, personas, wardrobe items, posts and blocks; **Disable account** / **Re-enable**; whether the account is pending deletion, with **Delete now** and **Cancel deletion**. No password reset, no impersonation. E-mail addresses appear on this page only |

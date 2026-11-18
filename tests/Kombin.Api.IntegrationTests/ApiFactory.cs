@@ -52,6 +52,10 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     // One PBKDF2 hash for the whole run: hashing is deliberately slow.
     private static readonly string AdminPasswordHash = AdminHashCommand.Hash(AdminPassword);
 
+    // Set once the host has been built. When start-up fails (the container, the migrations, the host), the fixture is still disposed, and
+    // WebApplicationFactory.DisposeAsync throws a NullReferenceException on a host that never existed, which buries the real error.
+    private bool _hostBuilt;
+
     public async ValueTask InitializeAsync()
     {
         await _postgres.StartAsync();
@@ -59,12 +63,23 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         // Build the host (and apply migrations) once, up front. Otherwise test classes running in parallel each
         // trigger the lazy startup and race to migrate the same database.
         _ = Services;
+        _hostBuilt = true;
     }
 
     public override async ValueTask DisposeAsync()
     {
-        await base.DisposeAsync();
-        await _postgres.DisposeAsync();
+        try
+        {
+            if (_hostBuilt)
+            {
+                await base.DisposeAsync();
+            }
+        }
+        finally
+        {
+            await _postgres.DisposeAsync();
+        }
+
         GC.SuppressFinalize(this);
     }
 

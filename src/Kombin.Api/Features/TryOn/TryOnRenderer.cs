@@ -62,12 +62,10 @@ internal sealed partial class TryOnRenderer(
 
     private sealed record Sent(TryOnPiece Piece, TryOnGarment Row, string? Size, string? ReferenceSize, string? Cut);
 
-    public async Task<RenderResult> RenderAsync(Guid userId, TryOnBody body, IReadOnlyList<TryOnPiece> pieces, DateTimeOffset now, CancellationToken cancellationToken)
+    /// <summary>The pieces that are sent (bags and belts without an answer are left out), the renderer's name and the cache key of this exact drawing.</summary>
+    private async Task<(List<Sent> Sent, string Renderer, string Key)> PlanAsync(Guid userId, TryOnBody body, IReadOnlyList<TryOnPiece> pieces, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(body);
-        ArgumentNullException.ThrowIfNull(pieces);
-
-        // Bags and belts without an answer are left out; every core piece is prepared and reliable, or the request would not be here.
+        // Every core piece is prepared and reliable, or the request would not be here.
         var sent = new List<Sent>();
         foreach (var piece in pieces.Where(piece => piece.Row is { Status: TryOnGarmentStatus.Prepared, CutoutKey: not null }))
         {
@@ -79,13 +77,39 @@ internal sealed partial class TryOnRenderer(
                 piece.Fit == ProductFit.Unknown ? null : piece.Fit.ToString()));
         }
 
-        var settings = options.Value;
         var renderer = await vision.GetRendererAsync(cancellationToken) ?? "unknown";
         var key = TryOnCacheKey.For(
             renderer,
             body,
             [.. sent.Select(garment => new CacheKeyGarment(garment.Row.Id, garment.Row.PrepareVersion, garment.Row.PreparedAt, garment.Row.PreparedHash, garment.Size, garment.ReferenceSize, garment.Cut))],
-            settings.RenderWidth);
+            options.Value.RenderWidth);
+
+        return (sent, renderer, key);
+    }
+
+    /// <summary>
+    /// What a drawing would be, without drawing it (<c>GET /me/tryon?check=true</c>): <see cref="RenderVerdict.Refused"/> when the renderer already
+    /// refused these exact inputs (remembered under the cache key, so a real request would answer the same), else <see cref="RenderVerdict.Rendered"/>.
+    /// Reads the cache only: nothing is drawn, no limit is spent or looked at, and the render's <c>last_used_at</c> is left alone.
+    /// </summary>
+    public async Task<RenderVerdict> CheckAsync(Guid userId, TryOnBody body, IReadOnlyList<TryOnPiece> pieces, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        ArgumentNullException.ThrowIfNull(pieces);
+
+        var (_, _, key) = await PlanAsync(userId, body, pieces, cancellationToken);
+        var refused = await db.TryOnRenders.AsNoTracking().AnyAsync(render => render.UserId == userId && render.CacheKey == key && render.Refusal != null, cancellationToken);
+
+        return refused ? RenderVerdict.Refused : RenderVerdict.Rendered;
+    }
+
+    public async Task<RenderResult> RenderAsync(Guid userId, TryOnBody body, IReadOnlyList<TryOnPiece> pieces, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        ArgumentNullException.ThrowIfNull(pieces);
+
+        var (sent, renderer, key) = await PlanAsync(userId, body, pieces, cancellationToken);
+        var settings = options.Value;
 
         var cached = await db.TryOnRenders.SingleOrDefaultAsync(render => render.UserId == userId && render.CacheKey == key, cancellationToken);
         if (cached is not null)

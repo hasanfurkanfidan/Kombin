@@ -1,0 +1,63 @@
+@page "/admin/league"
+@model Kombin.Api.Features.Admin.Pages.LeagueModel
+@{
+    ViewData["Title"] = "League review";
+}
+<h1>League review</h1>
+<p class="muted">
+    Kombin Ligi outfits that players reported since their last review, oldest report first. You see what the voters saw: the pieces as the league's
+    own image copies, how many reports there are and why. You do not see whose outfit it is or who reported it: the decision is about the picture,
+    and the league promises its players no name, no profile and no stable identifier. Every decision is written to the audit log.
+</p>
+
+@if (Model.Entries.Count == 0)
+{
+    <div class="card">Nothing to review.</div>
+}
+
+@foreach (var entry in Model.Entries)
+{
+    <div class="card">
+        <div>
+            <span class="pill">@entry.Status</span>
+            @if (entry.UnderReview)
+            {
+                <span class="pill warn">Under review: the owner's result is held back</span>
+            }
+            <span class="muted">· day @entry.Day · outfit <code title="@entry.Id">@entry.Id.ToString()[..8]</code></span>
+        </div>
+        <div style="margin-top:6px">
+            Reports: <strong>@entry.Reports</strong> since the last review
+            (<strong>@entry.CountingReports</strong> count toward hiding it) —
+            @string.Join(", ", entry.Reasons.Select(reason => $"{reason.Key} ×{reason.Value}"))
+        </div>
+
+        @if (entry.Pieces.Count == 0)
+        {
+            <p class="muted">No images: the league's copies of this outfit are gone.</p>
+        }
+        else
+        {
+            <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:8px">
+                @foreach (var piece in entry.Pieces)
+                {
+                    <figure style="margin:0; width:130px">
+                        <a href="@piece.ImageUrl" target="_blank" rel="noreferrer noopener"><img src="@piece.ImageUrl" alt="@piece.Slot piece" loading="lazy" style="width:100%; max-height:170px; object-fit:contain; background:var(--bg); border-radius:6px"></a>
+                        <figcaption class="muted" style="font-size:12px">@piece.Slot</figcaption>
+                    </figure>
+                }
+            </div>
+        }
+
+        <div class="actions">
+            <form method="post" asp-page-handler="Restore" data-confirm="Put this outfit back? Its reports stop counting.">
+                <input type="hidden" name="id" value="@entry.Id">
+                <button class="primary" type="submit">Restore</button>
+            </form>
+            <form method="post" asp-page-handler="Remove" data-confirm="Remove this outfit from the league? It is final: it loses that day's vote points and its owner is told it was taken out.">
+                <input type="hidden" name="id" value="@entry.Id">
+                <button class="danger" type="submit">Remove</button>
+            </form>
+        </div>
+    </div>
+}

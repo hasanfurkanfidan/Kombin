@@ -158,7 +158,7 @@ public sealed class OpenApiTests(ApiFactory factory)
         var get = paths.GetProperty("/api/v1/me/tryon").GetProperty("get");
         // [AsParameters] records are documented by property name (OutfitId), like the other query records; binding ignores the case.
         Assert.Equal(
-            ["outfitid", "productid", "withwardrobe"],
+            ["check", "outfitid", "productid", "withwardrobe"],
             get.GetProperty("parameters").EnumerateArray().Select(parameter => parameter.GetProperty("name").GetString()!.ToLowerInvariant()).Order(StringComparer.Ordinal));
         Assert.Contains("TryOnResponse", get.GetProperty("responses").GetProperty("200").GetRawText(), StringComparison.Ordinal);
         Assert.All(["400", "404", "429", "503"], status => Assert.True(get.GetProperty("responses").TryGetProperty(status, out _), status));
@@ -168,7 +168,7 @@ public sealed class OpenApiTests(ApiFactory factory)
         string[] Properties(string schema) => [.. schemas.GetProperty(schema).GetProperty("properties").EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal)];
         string?[] Values(string schema) => [.. schemas.GetProperty(schema).GetProperty("enum").EnumerateArray().Select(value => value.GetString())];
 
-        Assert.Equal(["defaultedMeasurements", "garments", "imageUrl", "reason", "status"], Properties("TryOnResponse"));
+        Assert.Equal(["defaultedMeasurements", "garments", "imageUrl", "reason", "renderer", "status"], Properties("TryOnResponse"));
         Assert.Equal(["fitLevel", "id"], Properties("TryOnGarmentResponse"));
         Assert.Equal(["garmentIds", "outfitId", "productId", "renderer"], Properties("ReportTryOnRequest"));
         Assert.Equal(["Ready", "Preparing", "Unavailable"], Values("TryOnStatus"));

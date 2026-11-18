@@ -150,6 +150,27 @@ FROM (
 -- The league schema is never granted to metabase_ro: run these as the operator.
 -- ============================================================================================================================================
 
+-- league: league_events
+-- What the app reported about the league in the window (the league_* events of the analytics allow-list; no identifiers in any payload): how many
+-- people joined, left, voted (and how many of their votes the server counted), reported an outfit, opened the results (by state) and the table.
+-- An actor is the user, else the anonymous id, like every other metric; the events are a client's report, so the tables of the league schema stay
+-- the truth for points and ranks and these counts tell how the screens were used.
+SELECT count(*) FILTER (WHERE e.name = 'league_join')                                             AS join_events,
+       count(*) FILTER (WHERE e.name = 'league_leave')                                            AS leave_events,
+       count(*) FILTER (WHERE e.name = 'league_vote')                                             AS vote_events,
+       count(*) FILTER (WHERE e.name = 'league_vote' AND e.properties->>'counted' = 'true')       AS counted_vote_events,
+       count(*) FILTER (WHERE e.name = 'league_vote' AND e.properties->>'choice' = 'skip')        AS skip_events,
+       count(DISTINCT COALESCE(e.user_id::text, e.anonymous_id)) FILTER (WHERE e.name = 'league_vote') AS voters,
+       count(*) FILTER (WHERE e.name = 'league_report')                                           AS report_events,
+       count(*) FILTER (WHERE e.name = 'league_results_view')                                     AS results_views,
+       count(*) FILTER (WHERE e.name = 'league_results_view' AND e.properties->>'status' = 'UnderReview') AS results_under_review_views,
+       count(DISTINCT COALESCE(e.user_id::text, e.anonymous_id)) FILTER (WHERE e.name = 'league_results_view') AS results_viewers,
+       count(*) FILTER (WHERE e.name = 'league_table_view')                                       AS table_views
+FROM analytics.events e
+WHERE e.name LIKE 'league\_%'
+  AND e.occurred_at >= :day_start::date::timestamp AT TIME ZONE 'Europe/Istanbul'
+  AND e.occurred_at < :day_end::date::timestamp AT TIME ZONE 'Europe/Istanbul';
+
 -- league: league_comparisons
 -- Counted comparisons per competing outfit (target: average 20, minimum 8) and the outfits that were not ranked (target: under 5 %).
 SELECT avg(s.comparisons)::numeric(10, 2)       AS average_comparisons,
