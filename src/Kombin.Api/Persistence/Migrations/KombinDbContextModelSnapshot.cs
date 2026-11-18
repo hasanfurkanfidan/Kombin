@@ -4120,6 +4120,10 @@ namespace Kombin.Api.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("product_id");
 
+                    b.Property<Guid?>("RenderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("render_id");
+
                     b.Property<string>("Renderer")
                         .IsRequired()
                         .HasMaxLength(40)
@@ -4133,11 +4137,12 @@ namespace Kombin.Api.Persistence.Migrations
                     b.HasKey("Id")
                         .HasName("pk_reports1");
 
-                    b.HasIndex("UserId", "OutfitId", "ProductId", "Renderer")
-                        .IsUnique()
-                        .HasDatabaseName("ix_reports_user_id_outfit_id_product_id_renderer");
+                    b.HasIndex("RenderId")
+                        .HasDatabaseName("ix_reports_render_id");
 
-                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("UserId", "OutfitId", "ProductId", "Renderer"), false);
+                    b.HasIndex("UserId", "RenderId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_reports_user_id_render_id");
 
                     b.ToTable("reports", "tryon", t =>
                         {
@@ -5162,6 +5167,12 @@ namespace Kombin.Api.Persistence.Migrations
 
             modelBuilder.Entity("Kombin.Api.Persistence.Entities.TryOn.TryOnReport", b =>
                 {
+                    b.HasOne("Kombin.Api.Persistence.Entities.TryOn.TryOnRender", null)
+                        .WithMany()
+                        .HasForeignKey("RenderId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_reports_renders_render_id");
+
                     b.HasOne("Kombin.Api.Persistence.Entities.Identity.User", null)
                         .WithMany()
                         .HasForeignKey("UserId")

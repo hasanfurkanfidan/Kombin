@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text.Json;
 using Kombin.Api.Common.Auth;
 using Kombin.Api.Common.Results;
 using Kombin.Api.Common.Time;
@@ -10,7 +12,7 @@ namespace Kombin.Api.Features.TryOn.ReportTryOn;
 
 /// <summary>
 /// "Yanlış görünüyor": exactly one of <c>OutfitId</c> and <c>ProductId</c> (what <c>GET /me/tryon</c> was asked with), the <c>GarmentIds</c> of
-/// its answer (the pieces' IDs) and the <c>Renderer</c> that drew it.
+/// its answer (the pieces' IDs, every one of them in the drawing) and the <c>Renderer</c> that drew it (<c>renderer</c> of the Ready answer).
 /// </summary>
 internal sealed record ReportTryOnRequest(Guid? OutfitId, Guid? ProductId, IReadOnlyList<Guid>? GarmentIds, string? Renderer);
 
@@ -21,7 +23,7 @@ internal static class ReportTryOnEndpoint
     public static void Map(RouteGroupBuilder group) =>
         group.MapPost("/reports", Handle)
             .WithName("ReportTryOn")
-            .WithDescription("\"Yanlış görünüyor\": a mannequin drawing looks wrong. Stored for review (a garment shown from the back, most often); the same report twice is stored once.")
+            .WithDescription("\"Yanlış görünüyor\": a mannequin drawing looks wrong. It must be about one of the caller's own drawings of that outfit or product, by the renderer the Ready answer named (else 404 TryOn.RenderNotFound). Stored for review (a garment shown from the back, most often); one report per drawing, the same drawing again stores nothing.")
             .WithValidation<ReportTryOnRequest>()
             .Produces(StatusCodes.Status204NoContent)
             .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -73,11 +75,16 @@ internal static class ReportTryOnEndpoint
             return TryOnErrors.UnknownGarment.ToHttpResult();
         }
 
-        var renderer = request.Renderer!.Trim();
-        var exists = await db.TryOnReports.AnyAsync(
-            report => report.UserId == userId && report.OutfitId == request.OutfitId && report.ProductId == request.ProductId && report.Renderer == renderer,
-            cancellationToken);
-        if (exists)
+        // The report must be about one of the caller's own drawings of that subject, by the renderer that drew it: a made-up renderer name, an
+        // outfit never drawn or someone else's drawing is not a report.
+        var render = await FindRenderAsync(db, userId, request.Renderer!.Trim(), given, request.ProductId, allowed, cancellationToken);
+        if (render is null)
+        {
+            return TryOnErrors.RenderNotFound.ToHttpResult();
+        }
+
+        // One report per user and drawing: a second one (other garments, a double tap) changes nothing.
+        if (await db.TryOnReports.AnyAsync(report => report.UserId == userId && report.RenderId == render.Id, cancellationToken))
         {
             return TypedResults.NoContent();
         }
@@ -88,7 +95,8 @@ internal static class ReportTryOnEndpoint
             OutfitId = request.OutfitId,
             ProductId = request.ProductId,
             GarmentIds = [.. pieces.Select(piece => piece.Row!.Id).Distinct()],
-            Renderer = renderer,
+            RenderId = render.Id,
+            Renderer = render.Renderer,
             CreatedAt = clock.UtcNow,
         });
 
@@ -102,5 +110,46 @@ internal static class ReportTryOnEndpoint
         }
 
         return TypedResults.NoContent();
+    }
+
+    private sealed record Drawing(Guid Id, string Renderer);
+
+    /// <summary>
+    /// The caller's newest drawing (an image, not a refusal) by <paramref name="renderer"/> that holds every reported piece and belongs to the subject:
+    /// for an outfit every piece it was drawn with is one of the outfit's, for a product it is drawn with the product.
+    /// </summary>
+    private static async Task<Drawing?> FindRenderAsync(
+        KombinDbContext db, Guid userId, string renderer, IReadOnlyList<Guid> given, Guid? productId, IReadOnlyList<PieceRef> allowed, CancellationToken cancellationToken)
+    {
+        var candidates = db.TryOnRenders.AsNoTracking().Where(render => render.UserId == userId && render.ImageKey != null && render.Renderer == renderer);
+        foreach (var id in given)
+        {
+            var needle = string.Create(CultureInfo.InvariantCulture, $"[{{\"id\":\"{id:D}\"}}]");
+            candidates = candidates.Where(render => EF.Functions.JsonContains(render.GarmentsJson, needle));
+        }
+
+        var rows = await candidates
+            .OrderByDescending(render => render.LastUsedAt)
+            .Select(render => new { render.Id, render.Renderer, render.GarmentsJson })
+            .ToListAsync(cancellationToken);
+
+        var subject = allowed.Select(piece => piece.Id).ToHashSet();
+        foreach (var row in rows)
+        {
+            var drawn = DrawnIds(row.GarmentsJson);
+            if (productId is { } product ? drawn.Contains(product) : drawn.IsSubsetOf(subject))
+            {
+                return new Drawing(row.Id, row.Renderer);
+            }
+        }
+
+        return null;
+    }
+
+    private static HashSet<Guid> DrawnIds(string garmentsJson)
+    {
+        using var document = JsonDocument.Parse(garmentsJson);
+
+        return [.. document.RootElement.EnumerateArray().Select(garment => garment.GetProperty("id").GetGuid())];
     }
 }

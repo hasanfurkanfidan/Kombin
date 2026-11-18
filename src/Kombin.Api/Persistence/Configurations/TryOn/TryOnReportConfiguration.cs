@@ -15,8 +15,13 @@ internal sealed class TryOnReportConfiguration : IEntityTypeConfiguration<TryOnR
         builder.Property(report => report.Id).UseIdentityAlwaysColumn();
         builder.Property(report => report.Renderer).HasMaxLength(TryOnRender.MaxRendererLength);
 
-        // The same report twice (user, subject, renderer) is stored once; the outfit has no foreign key (like a wear's outfit).
-        builder.HasIndex(report => new { report.UserId, report.OutfitId, report.ProductId, report.Renderer }).IsUnique().AreNullsDistinct(false);
+        // One report per user and drawing; the outfit has no foreign key (like a wear's outfit). A deleted drawing leaves its reports (render_id null).
+        builder.HasIndex(report => new { report.UserId, report.RenderId }).IsUnique();
+
+        builder.HasOne<TryOnRender>()
+            .WithMany()
+            .HasForeignKey(report => report.RenderId)
+            .OnDelete(DeleteBehavior.SetNull);
 
         builder.HasOne<User>()
             .WithMany()
