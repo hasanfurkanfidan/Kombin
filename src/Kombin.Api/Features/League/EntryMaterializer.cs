@@ -171,7 +171,11 @@ internal sealed partial class EntryMaterializer(
             cancellationToken);
     }
 
-    /// <summary>The player's entries within the longest repeat window before <paramref name="day"/>, and whether each competed at its close.</summary>
+    /// <summary>
+    /// The player's entries within the longest repeat window before <paramref name="day"/>, and whether each competed at its close. A day whose close
+    /// has not run yet (a late close, past midnight) has no result rows: there a <c>Competing</c> entry counts, as the close would write it
+    /// <c>competed</c> (task B9).
+    /// </summary>
     private async Task<List<PastEntry>> EarlierEntriesAsync(Guid userId, DateOnly day, CancellationToken cancellationToken)
     {
         var settings = options.Value;
@@ -184,7 +188,8 @@ internal sealed partial class EntryMaterializer(
             {
                 entry.Day,
                 entry.PieceIds,
-                Competed = db.LeagueDailyScores.Any(score => score.UserId == userId && score.Day == entry.Day && score.EntryId == entry.Id && score.Competed),
+                Competed = db.LeagueDailyScores.Any(score => score.UserId == userId && score.Day == entry.Day && score.EntryId == entry.Id && score.Competed)
+                    || (entry.Status == LeagueEntryStatus.Competing && !db.LeagueDays.Any(closed => closed.Day == entry.Day && closed.ClosedAt != null)),
             })
             .ToListAsync(cancellationToken);
 
