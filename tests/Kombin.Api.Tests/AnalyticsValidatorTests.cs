@@ -1,6 +1,8 @@
 using System.Text.Json;
 using Kombin.Api.Features.Analytics;
 using Kombin.Api.Features.Analytics.RecordEvents;
+using Kombin.Api.Features.Wardrobe.BulkAdd;
+using Kombin.Api.Persistence.Entities.Wardrobe;
 
 namespace Kombin.Api.Tests;
 
@@ -38,6 +40,53 @@ public class AnalyticsValidatorTests
         }
 
         Assert.Equal(3, Enum.GetNames<Kombin.Api.Features.League.GetResults.LeagueResultStatus>().Length);
+    }
+
+    [Fact]
+    public void TheBulkAddEventsAreCatalogued()
+    {
+        Assert.Null(Reject("bulk_add_start", """{"source":"camera"}"""));
+        Assert.Null(Reject("bulk_add_start", """{"source":"library"}"""));
+        Assert.Null(Reject("bulk_add_cancel", """{"stage":"Review"}"""));
+        Assert.Null(Reject(
+            "bulk_add_result",
+            """{"status":"Ready","durationMs":5300,"pieces":3,"preTicked":2,"unseparated":0,"duplicateHints":1}"""));
+        Assert.Null(Reject(
+            "bulk_add_result",
+            """{"status":"Refused","refusal":"closet","durationMs":2100,"pieces":0,"preTicked":0,"unseparated":0,"duplicateHints":0}"""));
+        Assert.Null(Reject(
+            "bulk_add_confirm",
+            """{"shown":3,"ticked":3,"preTickedTicked":2,"preTickedLeft":0,"extraTicked":1,"categoryEdits":1,"colourEdits":0,"durationMs":41000}"""));
+    }
+
+    [Fact]
+    public void TheBulkAddRefusalAndFailureCodesAreTheBackendsOwn()
+    {
+        // The catalog spells the codes out (Analytics names no Wardrobe type); this keeps the lists equal.
+        foreach (var code in BulkAddCopy.Refusals.Keys)
+        {
+            Assert.Null(Reject("bulk_add_result", $$"""{"status":"Refused","refusal":"{{code}}","durationMs":1,"pieces":0,"preTicked":0,"unseparated":0,"duplicateHints":0}"""));
+        }
+
+        foreach (var code in Enum.GetNames<BulkFailureCode>())
+        {
+            Assert.Null(Reject("bulk_add_result", $$"""{"status":"Failed","failure":"{{code}}","durationMs":1,"pieces":0,"preTicked":0,"unseparated":0,"duplicateHints":0}"""));
+        }
+
+        Assert.Equal(7, BulkAddCopy.Refusals.Count);
+        Assert.Equal(5, Enum.GetNames<BulkFailureCode>().Length);
+        Assert.NotNull(Reject("bulk_add_result", """{"status":"Refused","refusal":"made_up","durationMs":1,"pieces":0,"preTicked":0,"unseparated":0,"duplicateHints":0}"""));
+    }
+
+    [Fact]
+    public void TheBulkAddEventsRejectIdentifiersCountsOutOfRangeAndStrangers()
+    {
+        Assert.NotNull(Reject("bulk_add_start", """{"source":"catalog"}"""));
+        Assert.NotNull(Reject("bulk_add_start", """{"source":"camera","batchId":"3f2b8d30-8f0e-4c1a-9a53-0f4d1c1b7f10"}"""));
+        Assert.NotNull(Reject("bulk_add_cancel", """{"stage":"Created"}"""));
+        Assert.NotNull(Reject("bulk_add_result", """{"status":"Ready","durationMs":1,"pieces":13,"preTicked":0,"unseparated":0,"duplicateHints":0}"""));
+        Assert.NotNull(Reject("bulk_add_result", """{"status":"Ready","durationMs":1,"pieces":3}"""));
+        Assert.NotNull(Reject("bulk_add_confirm", """{"shown":3,"ticked":3,"preTickedTicked":2,"preTickedLeft":0,"extraTicked":1,"categoryEdits":1,"colourEdits":0,"durationMs":1,"pieceId":"x"}"""));
     }
 
     [Fact]
@@ -112,6 +161,10 @@ public class AnalyticsValidatorTests
             ["league_report"] = null,
             ["league_results_view"] = """{"status":"UnderReview"}""",
             ["league_table_view"] = null,
+            ["bulk_add_start"] = """{"source":"library"}""",
+            ["bulk_add_result"] = """{"status":"Failed","failure":"VisionBusy","durationMs":26000,"pieces":0,"preTicked":0,"unseparated":0,"duplicateHints":0}""",
+            ["bulk_add_confirm"] = """{"shown":5,"ticked":4,"preTickedTicked":3,"preTickedLeft":1,"extraTicked":1,"categoryEdits":2,"colourEdits":0,"durationMs":52000}""",
+            ["bulk_add_cancel"] = """{"stage":"Processing"}""",
         };
 
         Assert.Equal(samples.Keys.Order(), AnalyticsEventCatalog.Names.Order());

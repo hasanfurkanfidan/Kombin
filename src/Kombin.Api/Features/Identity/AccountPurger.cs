@@ -36,6 +36,12 @@ internal sealed partial class AccountPurger(KombinDbContext db, IObjectStorage s
 
         try
         {
+            // Bulk add's staged files are found by their prefix, not through rows: a crashed delete or a lost row leaves nothing this misses.
+            await foreach (var staged in storage.ListAsync(StorageKeys.BulkUserPrefix(userId), cancellationToken))
+            {
+                keys.Add(staged.Key);
+            }
+
             await storage.DeleteAsync(keys, cancellationToken);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -87,7 +93,8 @@ internal sealed partial class AccountPurger(KombinDbContext db, IObjectStorage s
     /// <summary>
     /// Every object of the user: wardrobe originals, cutouts and thumbnails, post originals, feed images and previews, the league's copies of
     /// the thumbnails of the user's outfits (their keys carry no user ID, so they are found through the entries), and try-on: the mannequin
-    /// drawings (they reveal body proportions) and the prepared cutouts of the user's wardrobe items (catalogue rows are not the user's).
+    /// drawings (they reveal body proportions) and the prepared cutouts of the user's wardrobe items (catalogue rows are not the user's). Bulk add's
+    /// objects (<c>bulk/{user}/</c>) are added by listing the prefix in <see cref="PurgeAsync"/>.
     /// </summary>
     private async Task<List<string>> ObjectKeysAsync(Guid userId, CancellationToken cancellationToken)
     {

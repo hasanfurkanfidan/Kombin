@@ -129,6 +129,36 @@ internal static partial class AnalyticsEventCatalog
         ["league_report"] = [],
         ["league_results_view"] = [Required("status", OneOf("Final", "UnderReview", "Removed"))],
         ["league_table_view"] = [],
+
+        // Bulk add ("Toplu ekle"): ids and enums only, never a batch, piece or item ID, a box, an image or a caption. `status` is how the analysis ended
+        // (it did not finish in time is `Timeout`); `refusal` is one of the vision service's seven codes and `failure` a failed batch's code (both spelled
+        // out here: Analytics does not name Wardrobe's types, `AnalyticsValidatorTests` pins them); the counts are 0-12 (a batch keeps at most 12 pieces).
+        // `preTickedLeft` is the pre-ticks the user unticked and `extraTicked` the ticked pieces that were not pre-ticked: the stop rule's funnel (the
+        // batch's own counters are its source of truth).
+        ["bulk_add_start"] = [Required("source", OneOf("camera", "library"))],
+        ["bulk_add_result"] =
+        [
+            Required("status", OneOf("Ready", "Refused", "Failed", "Timeout")),
+            Optional("refusal", OneOf("closet", "rail", "pile", "worn", "nothing_found", "too_dark", "too_blurry")),
+            Optional("failure", OneOf("VisionBusy", "VisionUnavailable", "PhotoUnreadable", "AnalysisFailed", "Interrupted")),
+            Required("durationMs", Integer(0, 3_600_000)),
+            Required("pieces", Integer(0, 12)),
+            Required("preTicked", Integer(0, 12)),
+            Required("unseparated", Integer(0, 12)),
+            Required("duplicateHints", Integer(0, 12)),
+        ],
+        ["bulk_add_confirm"] =
+        [
+            Required("shown", Integer(0, 12)),
+            Required("ticked", Integer(0, 12)),
+            Required("preTickedTicked", Integer(0, 12)),
+            Required("preTickedLeft", Integer(0, 12)),
+            Required("extraTicked", Integer(0, 12)),
+            Required("categoryEdits", Integer(0, 12)),
+            Required("colourEdits", Integer(0, 12)),
+            Required("durationMs", Integer(0, 3_600_000)),
+        ],
+        ["bulk_add_cancel"] = [Required("stage", OneOf("Processing", "Review"))],
     };
 
     public static IEnumerable<string> Names => Events.Keys;
