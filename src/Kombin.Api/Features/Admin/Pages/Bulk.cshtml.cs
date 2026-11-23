@@ -57,16 +57,16 @@ internal sealed class BulkModel(KombinDbContext db, IClock clock) : AdminPageMod
             })
             .SingleOrDefaultAsync(cancellationToken);
 
-        var processed = await window.CountAsync(batch => batch.Counted || batch.Status == BulkBatchStatus.Refused, cancellationToken);
+        var processed = await window.CountAsync(batch => batch.Counted || batch.Refusal != null, cancellationToken);
         var seconds = await window
-            .Where(batch => batch.VisionMs != null && batch.Counted && batch.Status != BulkBatchStatus.Refused)
+            .Where(batch => batch.VisionMs != null && batch.Counted && batch.Refusal == null)
             .Select(batch => batch.VisionMs!.Value)
             .ToListAsync(cancellationToken);
 
         IReadOnlyList<KeyValuePair<string, int>> refusals =
         [
             .. (await window
-                .Where(batch => batch.Status == BulkBatchStatus.Refused && batch.Refusal != null)
+                .Where(batch => batch.Refusal != null)
                 .GroupBy(batch => batch.Refusal!)
                 .Select(group => new { Code = group.Key, Count = group.Count() })
                 .ToListAsync(cancellationToken))

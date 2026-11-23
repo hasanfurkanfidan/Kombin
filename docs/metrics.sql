@@ -268,13 +268,15 @@ ORDER BY reports DESC, last_reported_at DESC, g.id;
 -- An unticked pre-tick is a proxy for a wrong pre-tick (the user may simply not want the piece): the owner's labelling of the test photos
 -- stays the authority. "seconds to Ready" is the vision step (vision_ms) of a batch that reached Ready: the time spent between the process
 -- call and the analysis (the confirmed batch's updated_at is overwritten at confirm). No batch, piece, user or image ID is returned.
+-- A refused batch keeps its refusal code after the app cancels it, so refusals are counted by the code, not by status 'Refused'.
+-- Only about the last 7 days are available: a batch's tombstone is deleted about 7 days after the batch ends.
 -- Parameters, Istanbul calendar days of the batch's creation, end exclusive:
---   psql "$DATABASE_URL" -v day_start="'2026-12-01'" -v day_end="'2027-01-01'" -f docs/metrics.sql
+--   psql "$DATABASE_URL" -v day_start="'2026-12-01'" -v day_end="'2026-12-08'" -f docs/metrics.sql
 -- The wardrobe schema is never granted to metabase_ro: run these as the operator.
 -- ============================================================================================================================================
 
 -- bulk: bulk_counters
-SELECT count(*) FILTER (WHERE b.counted OR b.status = 'Refused')                                      AS batches_processed,
+SELECT count(*) FILTER (WHERE b.counted OR b.refusal IS NOT NULL)                                      AS batches_processed,
        count(*) FILTER (WHERE b.status = 'Confirmed')                                                 AS batches_confirmed,
        coalesce(sum(b.pieces_shown) FILTER (WHERE b.status = 'Confirmed'), 0)                         AS pieces_shown,
        coalesce(sum(b.pieces_pre_ticked) FILTER (WHERE b.status = 'Confirmed'), 0)                    AS pieces_pre_ticked,
@@ -284,7 +286,7 @@ SELECT count(*) FILTER (WHERE b.counted OR b.status = 'Refused')                
        round(coalesce(sum(b.category_edits + b.colour_edits) FILTER (WHERE b.status = 'Confirmed'), 0)::numeric
              / nullif(sum(b.pieces_ticked) FILTER (WHERE b.status = 'Confirmed'), 0), 2)              AS edits_per_ticked_piece,
        round((percentile_cont(0.5) WITHIN GROUP (ORDER BY b.vision_ms)
-              FILTER (WHERE b.counted AND b.status <> 'Refused' AND b.vision_ms IS NOT NULL) / 1000.0)::numeric, 1) AS median_seconds_to_ready
+              FILTER (WHERE b.counted AND b.refusal IS NULL AND b.vision_ms IS NOT NULL) / 1000.0)::numeric, 1) AS median_seconds_to_ready
 FROM wardrobe.bulk_batches b
 WHERE b.created_at >= (:day_start::date)::timestamp AT TIME ZONE 'Europe/Istanbul'
   AND b.created_at < (:day_end::date)::timestamp AT TIME ZONE 'Europe/Istanbul';
@@ -293,7 +295,7 @@ WHERE b.created_at >= (:day_start::date)::timestamp AT TIME ZONE 'Europe/Istanbu
 -- One row per refusal code (closet, rail, pile, worn, nothing_found, too_dark, too_blurry), the most frequent first; no row when nothing was refused.
 SELECT b.refusal AS code, count(*) AS batches
 FROM wardrobe.bulk_batches b
-WHERE b.status = 'Refused' AND b.refusal IS NOT NULL
+WHERE b.refusal IS NOT NULL
   AND b.created_at >= (:day_start::date)::timestamp AT TIME ZONE 'Europe/Istanbul'
   AND b.created_at < (:day_end::date)::timestamp AT TIME ZONE 'Europe/Istanbul'
 GROUP BY b.refusal

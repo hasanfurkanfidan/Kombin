@@ -111,6 +111,34 @@ public sealed partial class BulkMetricsSqlTests(ApiFactory factory)
         Assert.DoesNotContain(userId.ToString(), html, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task ARefusedThenCancelledBatchIsStillCounted()
+    {
+        using var user = await factory.CreateUserAsync(Ct);
+        await SeedBatchesAsync(day: 6, Batch(user.Id, BulkBatchStatus.Cancelled, refusal: "pile", visionMs: 99999));
+
+        await using var connection = await factory.OpenConnectionAsync(Ct);
+        var blocks = BulkBlocks(await File.ReadAllTextAsync(MetricsFile(), Ct));
+        await using (var reader = await Run(connection, blocks["bulk_refusals"], new DateOnly(2019, 3, 6), new DateOnly(2019, 3, 7)))
+        {
+            Assert.True(await reader.ReadAsync(Ct));
+            Assert.Equal(("pile", 1L), (reader.GetString(0), reader.GetInt64(1)));
+            Assert.False(await reader.ReadAsync(Ct));
+        }
+
+        await using (var reader = await Run(connection, blocks["bulk_counters"], new DateOnly(2019, 3, 6), new DateOnly(2019, 3, 7)))
+        {
+            Assert.True(await reader.ReadAsync(Ct));
+            Assert.Equal(1L, reader.GetInt64(reader.GetOrdinal("batches_processed")));
+            Assert.True(reader.IsDBNull(reader.GetOrdinal("median_seconds_to_ready")));
+        }
+
+        var (numbers, refusals) = await factory.WithDbAsync(db => BulkModel.ReadAsync(db, At(6).AddHours(-12), At(6).AddHours(12), Ct));
+        Assert.Equal([KeyValuePair.Create("pile", 1)], refusals);
+        Assert.Equal(1, numbers.Batches);
+        Assert.Null(numbers.MedianSecondsToReady);
+    }
+
     private static DateTimeOffset At(int day) => new(2019, 3, day, 12, 0, 0, TimeSpan.Zero);
 
     private static async Task<NpgsqlDataReader> Run(NpgsqlConnection connection, string sql, DateOnly start, DateOnly end)
@@ -137,6 +165,13 @@ public sealed partial class BulkMetricsSqlTests(ApiFactory factory)
             Batch(userId, BulkBatchStatus.Cancelled, shown: 9, preTicked: 9, ticked: 9, tickedPreTicked: 9, categoryEdits: 5, visionMs: 20000),
         };
 
+        await SeedBatchesAsync(day, [.. batches]);
+
+        return userId;
+    }
+
+    private async Task SeedBatchesAsync(int day, params BulkBatch[] batches)
+    {
         await factory.WithDbAsync(async db =>
         {
             db.BulkBatches.AddRange(batches);
@@ -146,8 +181,6 @@ public sealed partial class BulkMetricsSqlTests(ApiFactory factory)
 
             return 0;
         });
-
-        return userId;
     }
 
     private static BulkBatch Batch(
