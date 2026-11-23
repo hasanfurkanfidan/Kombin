@@ -27,6 +27,9 @@
          native assets include linux-musl-x64 for the Alpine runtime image. -->
     <PackageVersion Include="SkiaSharp" Version="4.154.0" />
     <PackageVersion Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.154.0" />
+    <!-- Error reporting (docs/privacy-notes.md, Sentry). MIT. The core SDK only: no ASP.NET Core or logging integration, so nothing about a request is collected
+         automatically; GlobalExceptionHandler, the Hangfire filter and start-up hand exceptions over and SentryScrubber decides what leaves. -->
+    <PackageVersion Include="Sentry" Version="7.0.1" />
   </ItemGroup>
 
   <ItemGroup Label="Tests">

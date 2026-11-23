@@ -1,9 +1,13 @@
+using Kombin.Api.Common.Diagnostics;
 using Microsoft.AspNetCore.Diagnostics;
 
 namespace Kombin.Api.Common.Http;
 
-/// <summary>Turns every unhandled exception into a generic 500 problem document and logs it exactly once.</summary>
-internal sealed partial class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger, IHostEnvironment environment)
+/// <summary>
+/// Turns every unhandled exception into a generic 500 problem document, logs it exactly once and reports it (<see cref="ErrorLog"/>: Sentry and the
+/// system page). A client that went away and an unreadable body are not reported: they are not bugs.
+/// </summary>
+internal sealed partial class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger, IHostEnvironment environment, ErrorLog errors)
     : IExceptionHandler
 {
     // Non-standard status used by proxies for "client closed the request"; nothing is listening for the body.
@@ -25,7 +29,9 @@ internal sealed partial class GlobalExceptionHandler(ILogger<GlobalExceptionHand
             return true;
         }
 
-        LogUnhandledException(exception, httpContext.GetCorrelationId());
+        var correlationId = httpContext.GetCorrelationId();
+        LogUnhandledException(exception, correlationId);
+        await errors.ReportAsync(exception, ErrorLog.RequestKind, ErrorReporting.RouteTemplate(httpContext), correlationId, CancellationToken.None);
 
         await Problems.Create(
                 httpContext,
