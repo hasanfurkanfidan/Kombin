@@ -1,0 +1,19 @@
+@model (string Title, string Meaning, IReadOnlyList<Kombin.Api.Features.Admin.SuggestionQualityRow> Rows)
+<h2>@Model.Title</h2>
+<p class="muted">@Model.Meaning</p>
+<div class="tablewrap"><table>
+    <thead><tr><th>Group</th><th class="num">Suggested</th><th class="num">Liked</th><th class="num">Dismissed</th><th class="num">Like rate</th><th class="num">Liked of suggested</th></tr></thead>
+    <tbody>
+    @foreach (var row in Model.Rows)
+    {
+        <tr>
+            <td>@row.Label</td>
+            <td class="num">@row.Suggested</td>
+            <td class="num">@row.Liked</td>
+            <td class="num">@row.Dismissed</td>
+            <td class="num">@Kombin.Api.Features.Admin.Pages.QualityModel.Percent(row.LikeRate)</td>
+            <td class="num">@Kombin.Api.Features.Admin.Pages.QualityModel.Percent(row.LikedOfSuggested)</td>
+        </tr>
+    }
+    </tbody>
+</table></div>

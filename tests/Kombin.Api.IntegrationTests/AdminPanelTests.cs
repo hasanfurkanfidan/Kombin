@@ -14,7 +14,7 @@ namespace Kombin.Api.IntegrationTests;
 /// <summary>The admin panel over HTTP: its own sign-in, the guards around it, and each page's actions with their audit rows.</summary>
 public sealed class AdminPanelTests(ApiFactory factory)
 {
-    private static readonly string[] Pages = ["/admin", "/admin/review", "/admin/league", "/admin/creators", "/admin/catalog", "/admin/users", "/admin/audit"];
+    private static readonly string[] Pages = ["/admin", "/admin/review", "/admin/league", "/admin/quality", "/admin/creators", "/admin/catalog", "/admin/users", "/admin/audit"];
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 

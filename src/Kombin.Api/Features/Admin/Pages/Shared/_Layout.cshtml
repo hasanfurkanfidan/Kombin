@@ -52,6 +52,7 @@
             <a href="/admin" class="@(Context.Request.Path.Value?.TrimEnd('/').Equals("/admin", StringComparison.OrdinalIgnoreCase) == true ? "active" : "")">Dashboard</a>
             <a href="/admin/review" class="@Active("/admin/review")">Review</a>
             <a href="/admin/league" class="@Active("/admin/league")">League</a>
+            <a href="/admin/quality" class="@Active("/admin/quality")">Quality</a>
             <a href="/admin/creators" class="@Active("/admin/creators")">Creators</a>
             <a href="/admin/catalog" class="@Active("/admin/catalog")">Catalog</a>
             <a href="/admin/users" class="@Active("/admin/users")">Users</a>

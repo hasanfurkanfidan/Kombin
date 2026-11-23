@@ -1,0 +1,90 @@
+@page "/admin/quality"
+@model Kombin.Api.Features.Admin.Pages.QualityModel
+@{
+    ViewData["Title"] = "Suggestion quality";
+    var report = Model.Report;
+    var total = report.Total;
+}
+<h1>Suggestion quality</h1>
+<p class="muted">
+    How the outfit engine's suggestions fare. Each outfit created in the window counts once, by where it ended up: <strong>liked</strong> means
+    saved or worn, <strong>dismissed</strong> means "bana göre değil", the rest got no answer. <strong>Like rate</strong> is liked ÷ answered
+    (of the outfits users reacted to, how many they wanted); <strong>liked of suggested</strong> is liked ÷ all suggested. Nothing here names a user.
+    Status is read as it is today, so the newest outfits have had less time to get an answer: short windows read lower.
+</p>
+
+<nav class="pager" aria-label="Window">
+    @foreach (var days in Kombin.Api.Features.Admin.Pages.QualityModel.Windows)
+    {
+        if (days == Model.Days)
+        {
+            <strong>Last @days days</strong>
+        }
+        else
+        {
+            <a href="/admin/quality?days=@days">Last @days days</a>
+        }
+    }
+    <span class="muted">@AdminFormat.Time(report.From) → @AdminFormat.Time(report.To)</span>
+</nav>
+
+<div class="grid">
+    <div class="card"><div class="muted">Suggested outfits</div><div class="big">@total.Suggested</div><div class="muted">for @report.Users user(s)</div></div>
+    <div class="card"><div class="muted">Like rate</div><div class="big">@QualityModel.Percent(total.LikeRate)</div><div class="muted">@total.Liked liked of @total.Answered answered</div></div>
+    <div class="card"><div class="muted">Liked of suggested</div><div class="big">@QualityModel.Percent(total.LikedOfSuggested)</div><div class="muted">dismissed @QualityModel.Percent(total.DismissedOfSuggested)</div></div>
+    <div class="card"><div class="muted">"Başka göster"</div><div class="big">@report.Shuffles</div><div class="muted">shuffles in the window</div></div>
+</div>
+
+<p class="muted">
+    Feedback given in the window (every tap, including repeats and outfits created earlier): @report.Saves save(s), @report.Wears wear(s),
+    @report.Dismisses dismissal(s), @report.Shuffles shuffle(s).
+</p>
+
+@if (total.Suggested == 0)
+{
+    <div class="card">No outfits were suggested in this window.</div>
+}
+else
+{
+    <h2>Why users dismiss</h2>
+    @if (report.DismissReasons.Count == 0)
+    {
+        <div class="card">No dismissal with a reason in this window.</div>
+    }
+    else
+    {
+        <div class="tablewrap"><table>
+            <thead><tr><th>Reason</th><th class="num">Count</th><th class="num">Share</th></tr></thead>
+            <tbody>
+            @foreach (var reason in report.DismissReasons)
+            {
+                <tr><td>@reason.Reason</td><td class="num">@reason.Count</td><td class="num">@QualityModel.Percent(reason.Share)</td></tr>
+            }
+            </tbody>
+        </table></div>
+    }
+
+    @await Html.PartialAsync("/Features/Admin/Pages/Shared/_QualityTable.cshtml", ("By surface", "Which screen asked for the outfit (daily, how to wear, shopping, budget).", report.ByKind))
+    @await Html.PartialAsync("/Features/Admin/Pages/Shared/_QualityTable.cshtml", ("By rule", "The engine rule that made the outfit work, the one the narration talks about.", report.ByRule))
+    @await Html.PartialAsync("/Features/Admin/Pages/Shared/_QualityTable.cshtml", ("By occasion", "The occasion the user asked for; (none) when they did not pick one.", report.ByOccasion))
+    @await Html.PartialAsync("/Features/Admin/Pages/Shared/_QualityTable.cshtml", ("By piece category", "An outfit counts once per slot it has, so these rows add up to more than the total.", report.BySlot))
+    @await Html.PartialAsync("/Features/Admin/Pages/Shared/_QualityTable.cshtml", ("By completeness", "Whether the outfit was all wardrobe, needed one piece to buy, or was catalog only.", report.ByCompleteness))
+
+    <h2>By day</h2>
+    <p class="muted">By the day the outfit was meant for (Istanbul).</p>
+    <div class="tablewrap"><table>
+        <thead><tr><th>Day</th><th class="num">Suggested</th><th class="num">Liked</th><th class="num">Dismissed</th><th class="num">Like rate</th></tr></thead>
+        <tbody>
+        @foreach (var day in report.Days)
+        {
+            <tr>
+                <td>@day.Day.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)</td>
+                <td class="num">@day.Suggested</td>
+                <td class="num">@day.Liked</td>
+                <td class="num">@day.Dismissed</td>
+                <td class="num">@QualityModel.Percent(SuggestionQualityRow.Rate(day.Liked, day.Liked + day.Dismissed))</td>
+            </tr>
+        }
+        </tbody>
+    </table></div>
+}
