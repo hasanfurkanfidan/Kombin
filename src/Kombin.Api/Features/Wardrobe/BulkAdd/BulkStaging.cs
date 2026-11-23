@@ -24,6 +24,13 @@ internal static class BulkStaging
         return rows.SingleOrDefault();
     }
 
+    /// <summary>The keys a confirm copies a piece's staged images to: the single add's public <c>cutout.png</c> and <c>thumb.webp</c> of the item (piece ID = item ID).</summary>
+    public static string[] CopyKeys(Guid userId, Guid itemId) =>
+    [
+        StorageKeys.Build(WardrobeLimits.StorageArea, userId, itemId, ImageVariant.Cutout, "png"),
+        StorageKeys.Build(WardrobeLimits.StorageArea, userId, itemId, ImageVariant.Thumb, "webp"),
+    ];
+
     /// <summary>
     /// Deletes every object under the batch's prefix and records it (<see cref="BulkBatch.ObjectsDeletedAt"/>, no photo key). False when storage
     /// failed: the row keeps <c>objects_deleted_at</c> null and the cleanup tries again. Never throws for a storage failure.

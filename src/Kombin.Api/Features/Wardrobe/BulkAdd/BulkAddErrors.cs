@@ -27,5 +27,9 @@ internal static class BulkAddErrors
 
     public static readonly Error TooManyOpen = Error.Conflict("Wardrobe.BulkTooManyOpen", "Too many batches are open; cancel one first.");
 
+    /// <summary>A listed piece's staged image is gone (deleted or lost by the store): a retry fails the same way, so this is no 503. The way out is cancel.</summary>
+    public static readonly Error StagedImageMissing = Error.Conflict(
+        "Wardrobe.BulkStagedImageMissing", "A staged image of a listed piece is gone; the batch cannot be confirmed. Cancel it and add the photo again.");
+
     public static readonly Error StorageUnavailable = Error.Unavailable("Wardrobe.StorageUnavailable", "The photos could not be stored right now; try again.");
 }

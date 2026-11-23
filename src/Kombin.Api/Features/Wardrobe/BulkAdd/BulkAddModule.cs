@@ -25,6 +25,7 @@ internal static class BulkAddModule
         services.AddScoped<BulkAddAnalyzeJob>();
         services.AddScoped<BulkAddModerateJob>();
         services.AddScoped<BulkAddCleanupJob>();
+        services.AddScoped<BulkAddDiscardCopiesJob>();
 
         return services;
     }
@@ -51,8 +52,8 @@ internal static class BulkAddModule
 
     /// <summary>
     /// Registers the recurring <c>bulk-add-cleanup</c> (called by <c>UseWardrobeJobs</c>, so only with <c>Hangfire:Enabled</c>). Deliberately not
-    /// behind <c>BulkAdd:Enabled</c>: staging must still disappear when the flag is switched off. <c>bulk-add-analyze</c> and <c>bulk-add-moderate</c>
-    /// are fire-and-forget, enqueued by <c>process</c> and <c>confirm</c>.
+    /// behind <c>BulkAdd:Enabled</c>: staging must still disappear when the flag is switched off. <c>bulk-add-analyze</c>, <c>bulk-add-moderate</c>
+    /// and <c>bulk-add-discard-copies</c> are fire-and-forget, enqueued by <c>process</c> and <c>confirm</c>.
     /// </summary>
     public static void UseBulkAddJobs(this IRecurringJobManager recurring)
     {

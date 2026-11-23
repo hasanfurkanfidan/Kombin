@@ -169,6 +169,7 @@ chips and colour pickers work unchanged. `pieces` is empty unless `Ready`; `Read
 | Confirm with nothing ticked / unknown piece / bad category | 400 validation / `Wardrobe.BulkUnknownPiece` / `Wardrobe.UnknownCategory` (cancel is the way out) |
 | Confirm before `Ready`, or after cancel or expiry | 409 `Wardrobe.BulkNotReady` / `Wardrobe.BulkExpired` |
 | Storage down while copying at confirm | 503 `Wardrobe.StorageUnavailable`, nothing committed, written copies deleted, safe to retry |
+| A staged image is gone at confirm | 409 `Wardrobe.BulkStagedImageMissing`, nothing committed, not retryable (cancel and take the photo again) |
 | Someone else's batch or piece | 404 `Wardrobe.BulkNotFound` (never reveals it exists), a case in `AuthorizationMatrixTests` |
 
 ## Limits (settings in `BulkAdd:*`, `BulkAddOptions`, validated at start with every problem listed; a new number is a setting)
@@ -291,6 +292,15 @@ Everything in section h's PR 1 row exists, with these differences from the plan,
 - **The copies are written inside the transaction, the prefix delete after the commit** (`BulkStaging`, shared by confirm, cancel and the cleanup): a storage
   failure while copying deletes the copies already written and rolls back (503, the batch stays `Ready`); a failed prefix delete only leaves
   `objects_deleted_at` null for the hourly cleanup. A repeated cancel of a batch whose objects could not be deleted tries the delete again.
+- **A confirm that ends half-way never leaves copies behind** (review fixes): any failure after a copy was written, a client abort during the copies or
+  `SaveChanges` included, deletes the copies with its own 10-second budget (never the request's token); the commit itself is never cancelled. Copies that
+  delete cannot remove are under the items' keys, which neither `bulk-add-cleanup` (it lists `bulk/`) nor the account purge (it reads item rows) would find,
+  so their item IDs go to the fire-and-forget **`bulk-add-discard-copies`** (`BulkAddDiscardCopiesJob`, `[AutomaticRetry(Attempts = 10)]`): Hangfire's job
+  store is the durable record, no new table. Under the batch row lock it deletes only the keys of pieces that have no item, so a later successful confirm
+  keeps its images. After the commit `bulk-add-moderate` is enqueued **before** the prefix delete, so an abort there cannot leave the items to the daily
+  `RetryMissingAsync`.
+- **A lost staged image is 409 `Wardrobe.BulkStagedImageMissing`**, not 503: a retry would fail the same way. The copies already written are deleted and the
+  batch stays `Ready`; the way out is cancel and a new photo. (409 was already in the route's responses; the OpenAPI status list is unchanged.)
 - **The cleanup also does the `Interrupted` rule** (a batch `Processing` for longer than `BulkAdd:InterruptedAfter` becomes `Failed` `Interrupted`, retryable)
   and sweeps objects under `bulk/` whose batch row is gone or ended. It is registered by `UseWardrobeJobs` behind `Hangfire:Enabled` only, never behind the flag.
 - **`bulk-add-moderate` moderates the batch's `confirmed_item_ids` without a verdict**, so a run after a repeated confirm does nothing new; a repeated confirm

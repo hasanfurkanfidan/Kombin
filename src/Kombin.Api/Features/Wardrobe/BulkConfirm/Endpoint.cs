@@ -36,8 +36,9 @@ internal static partial class BulkConfirmEndpoint
             .WithSummary("Adds the ticked pieces to the wardrobe; the pieces not listed are dropped with the batch.")
             .WithDescription(
                 "Each listed piece becomes an ordinary wardrobe item whose id is the piece's id. A second confirm of the same batch answers 200 with the "
-                + "stored result and ignores the new body. 409 BulkNotReady before Ready, BulkExpired after a cancel or expiry; 503 StorageUnavailable "
-                + "commits nothing and is safe to retry.")
+                + "stored result and ignores the new body. 409 BulkNotReady before Ready, BulkExpired after a cancel or expiry, BulkStagedImageMissing "
+                + "when a listed piece's staged image is gone (not retryable: cancel and add the photo again); 503 StorageUnavailable commits nothing "
+                + "and is safe to retry.")
             .WithValidation<BulkConfirmRequest>()
             .Produces<BulkBatchResponse>()
             .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -48,8 +49,9 @@ internal static partial class BulkConfirmEndpoint
 
     /// <summary>
     /// One transaction under the batch row lock: the copies of the staged images to the items' public keys, the items, the pieces deleted (the
-    /// unticked ones too), the batch <c>Confirmed</c> with its stop-rule counters. A storage failure deletes the copies already written and rolls
-    /// back. After the commit the batch's objects are deleted by their prefix and <c>bulk-add-moderate</c> is enqueued for the new items.
+    /// unticked ones too), the batch <c>Confirmed</c> with its stop-rule counters. Any failure after a copy was written, an aborted request
+    /// included, deletes the copies already written and rolls back; copies that delete cannot remove are handed to <see cref="BulkAddDiscardCopiesJob"/>.
+    /// After the commit <c>bulk-add-moderate</c> is enqueued for the new items, then the batch's objects are deleted by their prefix.
     /// </summary>
     private static async Task<IResult> Handle(
         Guid id,
@@ -70,7 +72,7 @@ internal static partial class BulkConfirmEndpoint
 
         var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         BulkBatch batch;
-        List<string> written = [];
+        List<Guid> copied = [];
         try
         {
             var locked = await BulkStaging.LockAsync(db, id, userId, cancellationToken);
@@ -115,10 +117,13 @@ internal static partial class BulkConfirmEndpoint
             foreach (var (entry, piece) in ticked)
             {
                 var item = ToItem(piece, userId, now);
-                if (!await CopyImagesAsync(storage, piece, item, written, cancellationToken))
+                var outcome = await CopyImagesAsync(storage, piece, item, copied, cancellationToken);
+                if (outcome != CopyOutcome.Copied)
                 {
-                    await DeleteCopiesAsync(storage, written, logger);
-                    return BulkAddErrors.StorageUnavailable.ToHttpResult();
+                    await DiscardCopiesAsync(storage, jobs, id, userId, copied, logger);
+                    return outcome == CopyOutcome.StagedImageMissing
+                        ? BulkAddErrors.StagedImageMissing.ToHttpResult()
+                        : BulkAddErrors.StorageUnavailable.ToHttpResult();
                 }
 
                 ApplyEdits(item, entry, entry.CategorySlug is { } slug ? categories[slug.Trim()] : null);
@@ -138,13 +143,20 @@ internal static partial class BulkConfirmEndpoint
             batch.ColourEdits = ticked.Count(pair => ColourEdited(pair.Piece, pair.Entry));
 
             await db.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
+
+            // Never cancelled: an aborted commit could have committed, and the copies would then be deleted from under their items.
+            await transaction.CommitAsync(CancellationToken.None);
         }
-        catch (Exception exception) when (exception is not OperationCanceledException && written.Count > 0)
+        catch (Exception exception) when (copied.Count > 0)
         {
-            // The database failed after copies were written: nothing is committed, so the copies have no item.
-            LogCommitFailed(logger, exception, id);
-            await DeleteCopiesAsync(storage, written, logger);
+            // The database failed or the client went away after copies were written (the copy loop or SaveChanges): nothing is committed, so
+            // the copies have no item. An abort is not logged as an error.
+            if (exception is not OperationCanceledException)
+            {
+                LogCommitFailed(logger, exception, id);
+            }
+
+            await DiscardCopiesAsync(storage, jobs, id, userId, copied, logger);
             throw;
         }
         finally
@@ -152,10 +164,11 @@ internal static partial class BulkConfirmEndpoint
             await transaction.DisposeAsync();
         }
 
-        db.ChangeTracker.Clear();
-        await BulkStaging.DeleteObjectsAsync(db, storage, userId, id, now, logger, cancellationToken);
+        // Before anything the request's token can stop: an abort after the commit must not leave the items to the daily moderation retry.
         jobs.Enqueue<BulkAddModerateJob>(job => job.RunAsync(id, CancellationToken.None));
         LogConfirmed(logger, id, batch.ConfirmedItemIds.Length, batch.PiecesShown);
+        db.ChangeTracker.Clear();
+        await BulkStaging.DeleteObjectsAsync(db, storage, userId, id, now, logger, cancellationToken);
 
         return await StoredResultAsync(db, storage, options.Value, id, now, cancellationToken);
     }
@@ -189,9 +202,10 @@ internal static partial class BulkConfirmEndpoint
 
     /// <summary>
     /// <c>staged.png</c> and <c>stagedthumb.webp</c> to the item's public <c>cutout.png</c> and <c>thumb.webp</c>, the single add's keys, unchanged.
-    /// False when storage failed or a staged image is missing; every key written so far is in <paramref name="written"/>.
+    /// A staged image that is not there (no key, or the store has no such object) is <see cref="CopyOutcome.StagedImageMissing"/>: a retry would
+    /// fail the same way. Every piece whose copies may have been written is in <paramref name="copied"/>. An abort throws.
     /// </summary>
-    private static async Task<bool> CopyImagesAsync(IObjectStorage storage, BulkPiece piece, WardrobeItem item, List<string> written, CancellationToken cancellationToken)
+    private static async Task<CopyOutcome> CopyImagesAsync(IObjectStorage storage, BulkPiece piece, WardrobeItem item, List<Guid> copied, CancellationToken cancellationToken)
     {
         try
         {
@@ -199,38 +213,57 @@ internal static partial class BulkConfirmEndpoint
                 || await storage.GetAsync(cutoutKey, cancellationToken) is not { } cutout
                 || await storage.GetAsync(thumbKey, cancellationToken) is not { } thumb)
             {
-                return false;
+                return CopyOutcome.StagedImageMissing;
             }
 
-            var cutoutTarget = StorageKeys.Build(WardrobeLimits.StorageArea, item.UserId, item.Id, ImageVariant.Cutout, "png");
-            var thumbTarget = StorageKeys.Build(WardrobeLimits.StorageArea, item.UserId, item.Id, ImageVariant.Thumb, "webp");
-            written.Add(cutoutTarget);
-            await storage.PutAsync(cutoutTarget, cutout.Content, "image/png", cancellationToken);
-            written.Add(thumbTarget);
-            await storage.PutAsync(thumbTarget, thumb.Content, "image/webp", cancellationToken);
+            var targets = BulkStaging.CopyKeys(item.UserId, item.Id);
+            copied.Add(item.Id);
+            await storage.PutAsync(targets[0], cutout.Content, "image/png", cancellationToken);
+            await storage.PutAsync(targets[1], thumb.Content, "image/webp", cancellationToken);
 
-            item.ImageCutoutKey = cutoutTarget;
-            item.ImageThumbKey = thumbTarget;
+            item.ImageCutoutKey = targets[0];
+            item.ImageThumbKey = targets[1];
 
-            return true;
+            return CopyOutcome.Copied;
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            return false;
+            return CopyOutcome.StorageFailed;
         }
     }
 
-    private static async Task DeleteCopiesAsync(IObjectStorage storage, List<string> written, ILogger logger)
+    /// <summary>
+    /// Deletes the copies of a confirm that did not commit, whatever the request's token says, for at most <see cref="DiscardTimeout"/>. Copies
+    /// it cannot delete are not lost: <see cref="BulkAddDiscardCopiesJob"/> gets their keys (they are under no prefix the cleanup or the account
+    /// purge lists) and deletes the ones that still have no item.
+    /// </summary>
+    private static async Task DiscardCopiesAsync(IObjectStorage storage, IBackgroundJobClient jobs, Guid batchId, Guid userId, List<Guid> copied, ILogger logger)
     {
+        if (copied.Count == 0)
+        {
+            return;
+        }
+
         try
         {
-            await storage.DeleteAsync(written, CancellationToken.None);
+            using var timeout = new CancellationTokenSource(DiscardTimeout);
+            await storage.DeleteAsync([.. copied.SelectMany(itemId => BulkStaging.CopyKeys(userId, itemId))], timeout.Token);
         }
-        catch (Exception exception) when (exception is not OperationCanceledException)
+        catch (Exception exception)
         {
-            // The keys are the items' own: a retried confirm overwrites them, and nothing points at them meanwhile.
-            LogCopiesLeft(logger, exception, written.Count);
+            LogCopiesLeft(logger, exception, batchId, copied.Count);
+            Guid[] itemIds = [.. copied];
+            jobs.Enqueue<BulkAddDiscardCopiesJob>(job => job.RunAsync(batchId, userId, itemIds, CancellationToken.None));
         }
+    }
+
+    private static readonly TimeSpan DiscardTimeout = TimeSpan.FromSeconds(10);
+
+    private enum CopyOutcome
+    {
+        Copied,
+        StagedImageMissing,
+        StorageFailed,
     }
 
     /// <summary><c>PATCH /items/{id}</c>'s rules for these fields (<c>UpdateItemEndpoint</c>): set what is sent, then clear what is named.</summary>
@@ -268,6 +301,6 @@ internal static partial class BulkConfirmEndpoint
     [LoggerMessage(Level = LogLevel.Error, Message = "Bulk batch {BatchId}: the confirm failed after the images were copied; the copies are deleted.")]
     private static partial void LogCommitFailed(ILogger logger, Exception exception, Guid batchId);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Deleting {Count} copied image(s) of a failed bulk confirm failed; a retry overwrites them.")]
-    private static partial void LogCopiesLeft(ILogger logger, Exception exception, int count);
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Bulk batch {BatchId}: deleting the copies of {Count} piece(s) of a failed confirm failed; bulk-add-discard-copies deletes them.")]
+    private static partial void LogCopiesLeft(ILogger logger, Exception exception, Guid batchId, int count);
 }

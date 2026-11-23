@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using Kombin.Api.Common.Storage;
 using Kombin.Api.Features.Wardrobe;
+using Kombin.Api.Features.Wardrobe.Jobs;
 using Kombin.Api.Persistence.Entities.Catalog;
 using Kombin.Api.Persistence.Entities.Wardrobe;
 using Microsoft.EntityFrameworkCore;
@@ -268,16 +269,54 @@ public sealed class BulkAddConfirmTests(ApiFactory factory)
         Assert.Empty(await ItemsAsync([ready.Pieces[2].Id]));
     }
 
+    private static readonly TimeSpan Patience = TimeSpan.FromSeconds(15);
+
+    /// <summary>Parks the first copy of <paramref name="pieceId"/>'s cut-out: the confirm that writes it is then inside its transaction, holding the batch row lock.</summary>
+    private StorageHold HoldCopy(Ready ready, Guid pieceId) =>
+        factory.Storage.Hold($"copy-{pieceId:N}", key => key == ItemKey(ready.User.Id, pieceId, ImageVariant.Cutout, "png"));
+
+    /// <summary>
+    /// Until <paramref name="second"/> has finished or a request waits for a bulk batch row lock. With the lock the second request cannot finish while
+    /// the first holds it, so the first is released only once the second is really waiting; without the lock the second finishes first.
+    /// </summary>
+    private async Task BlockedOrDoneAsync(Task second)
+    {
+        var deadline = DateTimeOffset.UtcNow + Patience;
+        while (!second.IsCompleted && !await factory.WithDbAsync(db => db.Database
+            .SqlQueryRaw<bool>("SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%bulk_batches%FOR UPDATE%') AS \"Value\"")
+            .SingleAsync(Ct)))
+        {
+            Assert.True(DateTimeOffset.UtcNow < deadline, "The second request neither finished nor waited for the batch lock.");
+            await Task.Delay(20, Ct);
+        }
+    }
+
+    /// <summary>Polls <paramref name="condition"/> (work a request goes on with after its client gave up) for at most <see cref="Patience"/>.</summary>
+    private static async Task<bool> EventuallyAsync(Func<bool> condition)
+    {
+        var deadline = DateTimeOffset.UtcNow + Patience;
+        while (!condition() && DateTimeOffset.UtcNow < deadline)
+        {
+            await Task.Delay(20, Ct);
+        }
+
+        return condition();
+    }
+
     [Fact]
-    public async Task TwoConcurrentConfirmsBothAnswer200WithOneSetOfItems()
+    public async Task ASecondConfirmWaitsForTheFirstAndBothAnswerOneSetOfItems()
     {
         var ready = await ReadyAsync();
         using var _ = ready.User;
         Guid[] ticked = [ready.Pieces[0].Id, ready.Pieces[1].Id];
+        var hold = HoldCopy(ready, ticked[0]);
 
-        var responses = await Task.WhenAll(
-            ready.User.Client.BulkConfirmRawAsync(ready.BatchId, ticked, Ct),
-            ready.User.Client.BulkConfirmRawAsync(ready.BatchId, ticked, Ct));
+        var first = ready.User.Client.BulkConfirmRawAsync(ready.BatchId, ticked, Ct);
+        await hold.Reached.WaitAsync(Patience, Ct);
+        var second = ready.User.Client.BulkConfirmRawAsync(ready.BatchId, ticked, Ct);
+        await BlockedOrDoneAsync(second);
+        hold.Release();
+        var responses = await Task.WhenAll(first, second);
 
         try
         {
@@ -293,37 +332,134 @@ public sealed class BulkAddConfirmTests(ApiFactory factory)
     }
 
     [Fact]
-    public async Task ConfirmRacingCancelEndsInExactlyOneConsistentOutcome()
+    public async Task ACancelDuringAConfirmWaitsAndAnswers409AlreadyConfirmed()
     {
         var ready = await ReadyAsync();
         using var _ = ready.User;
         Guid[] ticked = [ready.Pieces[0].Id, ready.Pieces[1].Id];
+        var hold = HoldCopy(ready, ticked[0]);
 
         var confirm = ready.User.Client.BulkConfirmRawAsync(ready.BatchId, ticked, Ct);
+        await hold.Reached.WaitAsync(Patience, Ct);
         var cancel = ready.User.Client.BulkCancelAsync(ready.BatchId, Ct);
+        await BlockedOrDoneAsync(cancel);
+        hold.Release();
         await Task.WhenAll(confirm, cancel);
         using var confirmed = await confirm;
         using var cancelled = await cancel;
 
-        var batch = await factory.BulkBatchRowAsync(ready.BatchId, Ct);
-        var items = await ItemsAsync(ticked);
-        if (confirmed.StatusCode == HttpStatusCode.OK)
-        {
-            await AssertProblemAsync(cancelled, HttpStatusCode.Conflict, "Wardrobe.BulkAlreadyConfirmed");
-            Assert.Equal(BulkBatchStatus.Confirmed, batch.Status);
-            Assert.Equal(2, items.Count);
-        }
-        else
-        {
-            Assert.Equal(HttpStatusCode.NoContent, cancelled.StatusCode);
-            await AssertProblemAsync(confirmed, HttpStatusCode.Conflict, "Wardrobe.BulkExpired");
-            Assert.Equal(BulkBatchStatus.Cancelled, batch.Status);
-            Assert.Empty(items);
-            Assert.Empty(KeysUnder(ready.User.Id, $"{WardrobeLimits.StorageArea}/"));
-        }
-
+        Assert.True(confirmed.StatusCode == HttpStatusCode.OK, await confirmed.Content.ReadAsStringAsync(Ct));
+        await AssertProblemAsync(cancelled, HttpStatusCode.Conflict, "Wardrobe.BulkAlreadyConfirmed");
+        Assert.Equal(BulkBatchStatus.Confirmed, (await factory.BulkBatchRowAsync(ready.BatchId, Ct)).Status);
+        Assert.Equal(2, (await ItemsAsync(ticked)).Count);
         Assert.Empty(await factory.BulkPieceRowsAsync(ready.BatchId, Ct));
         Assert.Empty(KeysUnder(ready.User.Id, StorageKeys.BulkBatchPrefix(ready.User.Id, ready.BatchId)));
+    }
+
+    // ---- A confirm that ends half-way ----
+
+    [Fact]
+    public async Task AnAbortedConfirmDeletesTheCopiesItAlreadyWrote()
+    {
+        var ready = await ReadyAsync();
+        using var _ = ready.User;
+        Guid[] ticked = [ready.Pieces[0].Id, ready.Pieces[1].Id];
+        var hold = HoldCopy(ready, ticked[1]);
+        using var abort = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+
+        var confirm = ready.User.Client.BulkConfirmRawAsync(ready.BatchId, ticked, abort.Token);
+        await hold.Reached.WaitAsync(Patience, Ct);
+        Assert.NotEmpty(KeysUnder(ready.User.Id, $"{WardrobeLimits.StorageArea}/"));
+        await abort.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => confirm);
+
+        Assert.True(await EventuallyAsync(() => KeysUnder(ready.User.Id, $"{WardrobeLimits.StorageArea}/").Count == 0));
+        Assert.Empty(await ItemsAsync(ticked));
+        Assert.Equal(BulkBatchStatus.Ready, (await factory.BulkBatchRowAsync(ready.BatchId, Ct)).Status);
+    }
+
+    [Fact]
+    public async Task ModerationIsQueuedWhenTheRequestIsAbortedAfterTheCommit()
+    {
+        var ready = await ReadyAsync();
+        using var _ = ready.User;
+        var hold = factory.Storage.Hold($"prefix-{ready.BatchId:N}", prefix => prefix == StorageKeys.BulkBatchPrefix(ready.User.Id, ready.BatchId));
+        using var abort = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+
+        var confirm = ready.User.Client.BulkConfirmRawAsync(ready.BatchId, [ready.Pieces[0].Id], abort.Token);
+        await hold.Reached.WaitAsync(Patience, Ct);
+        await abort.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => confirm);
+
+        Assert.Single(factory.Jobs.JobsFor(ready.BatchId), job => job.Type == typeof(BulkAddModerateJob));
+        Assert.Equal(BulkBatchStatus.Confirmed, (await factory.BulkBatchRowAsync(ready.BatchId, Ct)).Status);
+    }
+
+    [Fact]
+    public async Task AMissingStagedImageAnswers409BulkStagedImageMissing()
+    {
+        var ready = await ReadyAsync();
+        using var _ = ready.User;
+        await factory.Storage.DeleteAsync([ready.Pieces[1].ThumbKey!], Ct);
+
+        using var response = await ready.User.Client.BulkConfirmRawAsync(ready.BatchId, [ready.Pieces[0].Id, ready.Pieces[1].Id], Ct);
+
+        await AssertProblemAsync(response, HttpStatusCode.Conflict, "Wardrobe.BulkStagedImageMissing");
+        Assert.Empty(KeysUnder(ready.User.Id, $"{WardrobeLimits.StorageArea}/"));
+        Assert.Equal(BulkBatchStatus.Ready, (await factory.BulkBatchRowAsync(ready.BatchId, Ct)).Status);
+    }
+
+    /// <summary>A confirm whose store refuses piece 1's thumbnail and then the deletion of the copies already written; returns the queued leftover job.</summary>
+    private async Task<(Ready Ready, Guid[] Ticked, Hangfire.Common.Job Job)> CopiesLeftAsync()
+    {
+        var ready = await ReadyAsync();
+        Guid[] ticked = [ready.Pieces[0].Id, ready.Pieces[1].Id];
+        var name = $"bulk-left-{ready.BatchId:N}";
+        var wardrobePrefix = $"{WardrobeLimits.StorageArea}/{ready.User.Id:D}/";
+        factory.Storage.FailPuts(name, key => key == ItemKey(ready.User.Id, ticked[1], ImageVariant.Thumb, "webp"));
+        factory.Storage.FailDeletesUnder(wardrobePrefix);
+        try
+        {
+            using var response = await ready.User.Client.BulkConfirmRawAsync(ready.BatchId, ticked, Ct);
+            await AssertProblemAsync(response, HttpStatusCode.ServiceUnavailable, "Wardrobe.StorageUnavailable");
+        }
+        finally
+        {
+            factory.Storage.StopFailingPuts(name);
+            factory.Storage.StopFailingDeletes(wardrobePrefix);
+        }
+
+        Assert.NotEmpty(KeysUnder(ready.User.Id, wardrobePrefix));
+        var job = Assert.Single(factory.Jobs.JobsFor(ready.BatchId), job => job.Type == typeof(BulkAddDiscardCopiesJob));
+
+        return (ready, ticked, job);
+    }
+
+    private Task<int> RunAsync(Hangfire.Common.Job job) =>
+        factory.RunJobAsync<BulkAddDiscardCopiesJob, int>(discard => discard.DiscardAsync((Guid)job.Args[0]!, (Guid)job.Args[1]!, (Guid[])job.Args[2]!, Ct));
+
+    [Fact]
+    public async Task CopiesTheConfirmCouldNotDeleteAreDeletedByAQueuedJob()
+    {
+        var (ready, _, job) = await CopiesLeftAsync();
+        using var _1 = ready.User;
+
+        await RunAsync(job);
+
+        Assert.Empty(KeysUnder(ready.User.Id, $"{WardrobeLimits.StorageArea}/"));
+    }
+
+    [Fact]
+    public async Task TheLeftoverJobKeepsTheImagesOfAnItemConfirmedSince()
+    {
+        var (ready, ticked, job) = await CopiesLeftAsync();
+        using var _1 = ready.User;
+        await ready.User.Client.BulkConfirmAsync(ready.BatchId, ticked, Ct);
+
+        await RunAsync(job);
+
+        Assert.All(ticked, id => Assert.NotNull(factory.Storage.Find(ItemKey(ready.User.Id, id, ImageVariant.Cutout, "png"))));
+        Assert.All(ticked, id => Assert.NotNull(factory.Storage.Find(ItemKey(ready.User.Id, id, ImageVariant.Thumb, "webp"))));
     }
 
     // ---- Storage failure ----
