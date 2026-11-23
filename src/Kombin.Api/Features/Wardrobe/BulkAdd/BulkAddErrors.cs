@@ -28,10 +28,4 @@ internal static class BulkAddErrors
     public static readonly Error TooManyOpen = Error.Conflict("Wardrobe.BulkTooManyOpen", "Too many batches are open; cancel one first.");
 
     public static readonly Error StorageUnavailable = Error.Unavailable("Wardrobe.StorageUnavailable", "The photos could not be stored right now; try again.");
-
-    /// <summary>
-    /// What the routes answer with the flag on until PR 2 and PR 3 of the design note replace them. Nothing reaches it in production: the flag is
-    /// off by default.
-    /// </summary>
-    public static readonly Error NotImplementedYet = Error.Unavailable("Wardrobe.BulkNotImplemented", "Bulk add is not available yet.");
 }

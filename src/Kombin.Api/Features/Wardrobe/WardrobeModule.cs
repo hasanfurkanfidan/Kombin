@@ -64,7 +64,7 @@ internal static class WardrobeModule
     }
 
     /// <summary>
-    /// Registers the recurring <c>wardrobe-cleanup</c>. Call it after <c>UseAnalyticsJobs</c>; like the other registrations it does nothing
+    /// Registers the recurring <c>wardrobe-cleanup</c> and <c>bulk-add-cleanup</c>. Call it after <c>UseAnalyticsJobs</c>; like the other registrations it does nothing
     /// unless <c>Hangfire:Enabled</c> is true. <c>wardrobe-analyze</c> is not recurring: <c>process</c> enqueues it per item.
     /// </summary>
     public static void UseWardrobeJobs(this WebApplication app)
@@ -74,10 +74,14 @@ internal static class WardrobeModule
             return;
         }
 
-        app.Services.GetRequiredService<IRecurringJobManager>().AddOrUpdate<WardrobeCleanupJob>(
+        var recurring = app.Services.GetRequiredService<IRecurringJobManager>();
+        recurring.AddOrUpdate<WardrobeCleanupJob>(
             WardrobeCleanupJob.JobId,
             job => job.RunAsync(CancellationToken.None),
             WardrobeCleanupJob.Cron,
             new RecurringJobOptions { TimeZone = Istanbul.Zone });
+
+        // Whatever BulkAdd:Enabled says (design note, "Cleanup").
+        recurring.UseBulkAddJobs();
     }
 }

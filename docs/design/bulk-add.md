@@ -282,6 +282,22 @@ Everything in section h's PR 1 row exists, with these differences from the plan,
   `BulkAdd:BusyRetryMin/Max` are 0 there (the clamp is `BulkAddRulesTests`). Compose: `docker/compose.yaml` sets `BulkAdd__Enabled` to `${BULK_ADD_ENABLED:-true}`
   (development), `docker/compose.prod.yaml` to `${BULK_ADD_ENABLED:-false}`; the code default stays false.
 
+### PR 3 as built (task BA4)
+
+`confirm`, `DELETE`, `bulk-add-cleanup` and `bulk-add-moderate` exist; `Wardrobe.BulkNotImplemented` is gone. Differences from the plan, none of them a change of design:
+
+- **A category edit does not recompute formality and seasons**: section a says it does "exactly as `UpdateItem` does", but `PATCH /items/{id}` sets only the
+  category, so the confirm does the same (the rule that matters is "the same as PATCH"; `ACategoryEditKeepsFormalityAndSeasonsLikePatch` pins it).
+- **The copies are written inside the transaction, the prefix delete after the commit** (`BulkStaging`, shared by confirm, cancel and the cleanup): a storage
+  failure while copying deletes the copies already written and rolls back (503, the batch stays `Ready`); a failed prefix delete only leaves
+  `objects_deleted_at` null for the hourly cleanup. A repeated cancel of a batch whose objects could not be deleted tries the delete again.
+- **The cleanup also does the `Interrupted` rule** (a batch `Processing` for longer than `BulkAdd:InterruptedAfter` becomes `Failed` `Interrupted`, retryable)
+  and sweeps objects under `bulk/` whose batch row is gone or ended. It is registered by `UseWardrobeJobs` behind `Hangfire:Enabled` only, never behind the flag.
+- **`bulk-add-moderate` moderates the batch's `confirmed_item_ids` without a verdict**, so a run after a repeated confirm does nothing new; a repeated confirm
+  enqueues no second job.
+- **Tests**: `BulkAddLeagueTests` also pins that a photo at 20:30 confirmed at 23:30 or 00:30 counts on the next league day (the confirm's window); the
+  `bulk-single` vision flavour answers the single add's analysis so `BulkAddParityTests` compares the two paths.
+
 ## The questions as asked
 
 1. **Delete the room photo as soon as vision answered**, not at confirm? **Yes** (kept only for a `Failed` batch so retry needs no re-upload).

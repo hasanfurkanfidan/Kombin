@@ -1,5 +1,8 @@
+using Hangfire;
 using Kombin.Api.Common.Hosting;
-using Kombin.Api.Common.Results;
+using Kombin.Api.Common.Time;
+using Kombin.Api.Features.Wardrobe.BulkCancel;
+using Kombin.Api.Features.Wardrobe.BulkConfirm;
 using Kombin.Api.Features.Wardrobe.BulkCreateUploadUrl;
 using Kombin.Api.Features.Wardrobe.BulkGet;
 using Kombin.Api.Features.Wardrobe.BulkProcess;
@@ -20,6 +23,8 @@ internal static class BulkAddModule
         services.AddSingleton<IValidateOptions<BulkAddOptions>, BulkAddOptionsValidator>();
 
         services.AddScoped<BulkAddAnalyzeJob>();
+        services.AddScoped<BulkAddModerateJob>();
+        services.AddScoped<BulkAddCleanupJob>();
 
         return services;
     }
@@ -27,8 +32,7 @@ internal static class BulkAddModule
     /// <summary>
     /// Always mapped (the OpenAPI document and the authorization matrix see the routes); with <c>BulkAdd:Enabled</c> false every one answers 404
     /// <c>Wardrobe.BulkDisabled</c> before anything else runs. <paramref name="wardrobe"/> is the <c>/api/v1/me/wardrobe</c> group, already
-    /// authorized. Task BA3 (PR 2) maps upload-url, process and the status; confirm and cancel still answer
-    /// <see cref="BulkAddErrors.NotImplementedYet"/> when the flag is on until PR 3 replaces them, one <c>Endpoint.cs</c> each.
+    /// authorized. One <c>Endpoint.cs</c> per route.
     /// </summary>
     public static RouteGroupBuilder MapBulkAddEndpoints(this RouteGroupBuilder wardrobe)
     {
@@ -39,13 +43,25 @@ internal static class BulkAddModule
         BulkCreateUploadUrlEndpoint.Map(bulk);
         BulkProcessEndpoint.Map(bulk);
         BulkGetEndpoint.Map(bulk);
-
-        // PR 3: confirm, cancel.
-        bulk.MapPost("/{id:guid}/confirm", (Guid id) => NotImplementedYet());
-        bulk.MapDelete("/{id:guid}", (Guid id) => NotImplementedYet());
+        BulkConfirmEndpoint.Map(bulk);
+        BulkCancelEndpoint.Map(bulk);
 
         return wardrobe;
     }
 
-    private static IResult NotImplementedYet() => BulkAddErrors.NotImplementedYet.ToHttpResult();
+    /// <summary>
+    /// Registers the recurring <c>bulk-add-cleanup</c> (called by <c>UseWardrobeJobs</c>, so only with <c>Hangfire:Enabled</c>). Deliberately not
+    /// behind <c>BulkAdd:Enabled</c>: staging must still disappear when the flag is switched off. <c>bulk-add-analyze</c> and <c>bulk-add-moderate</c>
+    /// are fire-and-forget, enqueued by <c>process</c> and <c>confirm</c>.
+    /// </summary>
+    public static void UseBulkAddJobs(this IRecurringJobManager recurring)
+    {
+        ArgumentNullException.ThrowIfNull(recurring);
+
+        recurring.AddOrUpdate<BulkAddCleanupJob>(
+            BulkAddCleanupJob.JobId,
+            job => job.RunAsync(CancellationToken.None),
+            BulkAddCleanupJob.Cron,
+            new RecurringJobOptions { TimeZone = Istanbul.Zone });
+    }
 }

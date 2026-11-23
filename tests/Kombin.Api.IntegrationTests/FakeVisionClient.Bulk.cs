@@ -17,7 +17,9 @@ namespace Kombin.Api.IntegrationTests;
 /// <item><c>bulk-4xx</c>: a permanent <c>400 unsupported_image</c>; <c>bulk-bad-embedding</c>: the second piece's embedding has 3 floats;
 /// <c>bulk-bad-image</c>: the first piece's cutout is not base64;</item>
 /// <item><c>bulk-many-&lt;n&gt;</c>: n pieces, all pre-ticked (more than the batch keeps, to see them cut off); <c>bulk-unseparated-&lt;n&gt;</c>: the
-/// <c>bulk-3</c> pieces and n garments the service did not cut apart (one region).</item>
+/// <c>bulk-3</c> pieces and n garments the service did not cut apart (one region);</item>
+/// <item><c>bulk-single</c>: one pre-ticked piece whose analysis is exactly what the single add's <see cref="AnalyzeAsync"/> answers for the same
+/// photo (<see cref="SingleAnalysis"/>; <c>unsure</c> and <c>not-garment</c> in the text work as there).</item>
 /// </list>
 /// A piece's cutout, thumbnail and embedding are its own (<see cref="BulkCutout"/>, <see cref="EmbeddingFor"/> of the photo's text and the piece's
 /// number), so staged copies and duplicate hints can tell them apart. Calls are counted per text (<see cref="BulkCalls"/>).
@@ -78,6 +80,12 @@ internal sealed partial class FakeVisionClient
         if (refusal is not null)
         {
             return Task.FromResult(VisionCall<VisionBulk>.Ok(new VisionBulk(refusal, [], null, Stages)));
+        }
+
+        if (text.Contains("bulk-single", StringComparison.Ordinal))
+        {
+            var single = new VisionBulkPiece(new VisionRegionBox(0.1, 0.1, 0.5, 0.6), true, [], SingleAnalysis(text));
+            return Task.FromResult(VisionCall<VisionBulk>.Ok(new VisionBulk(null, [single], null, Stages)));
         }
 
         var count = Flavor(text, "bulk-many-") is { } many && int.TryParse(many, CultureInfo.InvariantCulture, out var parsed) ? parsed : 3;

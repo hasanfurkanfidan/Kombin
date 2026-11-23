@@ -94,21 +94,6 @@ public sealed class BulkAddDisabledTests(ApiFactory factory)
         }
     }
 
-    [Fact]
-    public async Task SwitchedOnConfirmAndCancelStayNotImplementedUntilPr3()
-    {
-        using var user = await factory.CreateUserAsync(Ct);
-
-        foreach (var route in Routes.Where(route => route.Path.EndsWith("/confirm", StringComparison.Ordinal) || route.Method == HttpMethod.Delete))
-        {
-            using var request = Request(route);
-            using var response = await user.Client.SendAsync(request, Ct);
-
-            Assert.True(response.StatusCode == HttpStatusCode.ServiceUnavailable, $"{route.Method} {route.Path}: {(int)response.StatusCode}");
-            Assert.Equal("Wardrobe.BulkNotImplemented", (await response.ReadProblemAsync(Ct)).GetProperty("errorCode").GetString());
-        }
-    }
-
     [Theory]
     [InlineData("BulkAdd:MaxPiecesPerPhoto", "0")]
     [InlineData("BulkAdd:MaxPiecesPerPhoto", "13")]

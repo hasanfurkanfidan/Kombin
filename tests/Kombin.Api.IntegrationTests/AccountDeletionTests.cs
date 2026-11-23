@@ -368,7 +368,7 @@ public sealed class AccountDeletionTests(ApiFactory factory)
     }
 
     [Fact]
-    public async Task BulkAddObjectsAreFoundByTheirPrefixEvenWithoutARowAndAFailureToDeleteThemPostponesTheDeletion()
+    public async Task BulkAddObjectsWithoutARowAreDeletedWithTheAccount()
     {
         var (user, _) = await NewUserAsync();
         using var _1 = user;
@@ -380,17 +380,6 @@ public sealed class AccountDeletionTests(ApiFactory factory)
         using var requested = await DeleteMeAsync(user.Client, ApiClientExtensions.DefaultPassword);
         await BackdateAsync(user.Id, 8);
 
-        var prefix = StorageKeys.BulkUserPrefix(user.Id);
-        factory.Storage.FailDeletesUnder(prefix);
-        var failed = await RunJobAsync(user.Id);
-
-        // Nothing was touched: the account, the batch and every object are there for the retry.
-        Assert.Equal((0, 1), (failed.AccountsDeleted, failed.Failures));
-        Assert.NotNull(await UserRowAsync(user.Id));
-        Assert.Equal(1, await factory.WithDbAsync(db => db.BulkBatches.CountAsync(row => row.UserId == user.Id, Ct)));
-        Assert.All(keys.Append(orphan), key => Assert.NotNull(factory.Storage.Find(key)));
-
-        factory.Storage.StopFailingDeletes(prefix);
         var finished = await RunJobAsync(user.Id);
 
         Assert.Equal((1, 0), (finished.AccountsDeleted, finished.Failures));
@@ -399,6 +388,33 @@ public sealed class AccountDeletionTests(ApiFactory factory)
         Assert.All(keys.Append(orphan), key => Assert.Null(factory.Storage.Find(key)));
         Assert.Equal(0, await factory.WithDbAsync(db => db.BulkBatches.CountAsync(row => row.UserId == user.Id, Ct)));
         Assert.Equal(0, await factory.WithDbAsync(db => db.BulkPieces.CountAsync(row => row.UserId == user.Id, Ct)));
+    }
+
+    [Fact]
+    public async Task AFailureToDeleteBulkAddObjectsPostponesTheDeletion()
+    {
+        var (user, _) = await NewUserAsync();
+        using var _1 = user;
+        var keys = await SeedBulkAsync(user.Id);
+        using var requested = await DeleteMeAsync(user.Client, ApiClientExtensions.DefaultPassword);
+        await BackdateAsync(user.Id, 8);
+
+        var prefix = StorageKeys.BulkUserPrefix(user.Id);
+        factory.Storage.FailDeletesUnder(prefix);
+        var failed = await RunJobAsync(user.Id);
+
+        // Nothing was touched: the account, the batch and every object are there for the retry.
+        Assert.Equal((0, 1), (failed.AccountsDeleted, failed.Failures));
+        Assert.NotNull(await UserRowAsync(user.Id));
+        Assert.Equal(1, await factory.WithDbAsync(db => db.BulkBatches.CountAsync(row => row.UserId == user.Id, Ct)));
+        Assert.All(keys, key => Assert.NotNull(factory.Storage.Find(key)));
+
+        factory.Storage.StopFailingDeletes(prefix);
+        var finished = await RunJobAsync(user.Id);
+
+        Assert.Equal((1, 0), (finished.AccountsDeleted, finished.Failures));
+        Assert.Null(await UserRowAsync(user.Id));
+        Assert.All(keys, key => Assert.Null(factory.Storage.Find(key)));
     }
 
     [Fact]
