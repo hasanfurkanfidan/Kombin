@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using Kombin.Api.Common.Auth;
+using Kombin.Api.Common.Diagnostics;
 using Kombin.Api.Common.Health;
 using Kombin.Api.Common.Hosting;
 using Kombin.Api.Common.Http;
@@ -41,6 +42,11 @@ if (MigrateCommand.IsRequested(args))
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Sentry, only when Sentry:Dsn is set (docs/privacy-notes.md, "Error reporting"). Not disposed by a `using`: a crash while starting unwinds past it,
+// and the SDK has to be running then to report that crash.
+var errorReporting = ErrorReporting.Start(builder.Configuration, builder.Environment.EnvironmentName);
+builder.Services.AddErrorReporting();
+
 builder.Host.UseSerilog((context, services, logger) => logger
     .ReadFrom.Configuration(context.Configuration)
     .ReadFrom.Services(services)
@@ -79,6 +85,7 @@ var app = builder.Build();
 // Checked before anything touches the database; the same check also runs when the host starts (ValidateOnStart), which is what tests see.
 if (!app.HasValidProductionSettings(Console.Error))
 {
+    ErrorReporting.CaptureStartupFailure("Startup.InvalidSettings");
     return 1;
 }
 
@@ -137,6 +144,7 @@ app.UseIdentityJobs();
 app.UseLeagueJobs();
 app.UseTryOnJobs();
 await app.RunAsync();
+errorReporting?.Dispose();
 return 0;
 
 static LogEventLevel RequestLogLevel(HttpContext context, double elapsedMilliseconds, Exception? exception)

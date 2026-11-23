@@ -107,6 +107,8 @@ internal sealed class KombinDbContext(DbContextOptions<KombinDbContext> options)
 
     public DbSet<AdminAuditEntry> AdminAuditLog => Set<AdminAuditEntry>();
 
+    public DbSet<ErrorEvent> ErrorEvents => Set<ErrorEvent>();
+
     public DbSet<LeaguePlayer> LeaguePlayers => Set<LeaguePlayer>();
 
     public DbSet<LeagueConsentRecord> LeagueConsents => Set<LeagueConsentRecord>();

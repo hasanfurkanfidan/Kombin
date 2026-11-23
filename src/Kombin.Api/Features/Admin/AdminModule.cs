@@ -49,6 +49,7 @@ internal static class AdminModule
         services.AddScoped<AdminCredentials>();
         services.AddScoped<AdminAuditLog>();
         services.AddScoped<AdminDashboard>();
+        services.AddScoped<SystemStatus>();
 
         // A second authentication scheme beside the JWT bearer one, which stays the default: the app's endpoints never see the admin cookie, and
         // the admin pages ask for it by name (the policy below), so an app user's token opens nothing here.

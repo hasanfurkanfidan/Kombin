@@ -75,6 +75,47 @@ namespace Kombin.Api.Persistence.Migrations
                     b.ToTable("audit_log", "admin");
                 });
 
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.Admin.ErrorEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("ErrorCode")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("error_code");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("source");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_error_events");
+
+                    b.HasIndex("CreatedAt")
+                        .HasDatabaseName("ix_error_events_created_at");
+
+                    b.ToTable("error_events", "admin");
+                });
+
             modelBuilder.Entity("Kombin.Api.Persistence.Entities.Analytics.AnalyticsEvent", b =>
                 {
                     b.Property<long>("Id")

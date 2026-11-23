@@ -1,0 +1,110 @@
+@page "/admin/system"
+@model Kombin.Api.Features.Admin.Pages.SystemModel
+@{
+    ViewData["Title"] = "System";
+    var data = Model.Data;
+    var now = data.Now;
+}
+<h1>System status</h1>
+<p class="muted">Counts and codes only: no user, path or message is stored for these numbers. Times are Istanbul time.</p>
+
+<div class="grid">
+    <div class="card">
+        <div class="muted">Errors, last 24 hours</div>
+        <div class="big @(data.RequestErrors.Count == 0 ? "ok" : "bad")">@data.RequestErrors.Sum(route => route.Count)</div>
+        <div class="muted">unhandled request errors (500)</div>
+    </div>
+    <div class="card">
+        <div class="muted">Failed background jobs, last 24 hours</div>
+        <div class="big @(data.JobFailures.Sum(job => job.Last24Hours) == 0 ? "ok" : "bad")">@data.JobFailures.Sum(job => job.Last24Hours)</div>
+        <div class="muted">after their last retry</div>
+    </div>
+    <div class="card">
+        <div class="muted">Vision service</div>
+        <div class="big @(data.Vision.Health.IsHealthy ? "ok" : "bad")">@(data.Vision.Health.IsHealthy ? "up" : "down")</div>
+        <div class="muted">answered in @data.Vision.ResponseMilliseconds ms · @data.Vision.Health.Detail</div>
+    </div>
+    <div class="card">
+        <div class="muted">Sentry</div>
+        @if (data.SentryEnabled)
+        {
+            <div class="big ok">on</div>
+            @if (data.SentryProjectUrl is { } url)
+            {
+                <div><a href="@url" rel="noopener noreferrer" target="_blank">Open the Sentry project</a></div>
+            }
+            else
+            {
+                <div class="muted">Set <code>Sentry:ProjectUrl</code> for a link.</div>
+            }
+        }
+        else
+        {
+            <div class="big warn">off</div>
+            <div class="muted">No <code>Sentry:Dsn</code>: errors are only counted here.</div>
+        }
+    </div>
+</div>
+
+<h2>Request errors by route, last 24 hours</h2>
+<div class="tablewrap"><table>
+    <thead><tr><th>Route</th><th>Count</th><th>Last</th><th>Last error</th></tr></thead>
+    <tbody>
+    @foreach (var route in data.RequestErrors)
+    {
+        <tr><td><code>@route.Route</code></td><td>@route.Count</td><td>@AdminFormat.Ago(route.LastAt, now)</td><td><code>@route.LastErrorCode</code></td></tr>
+    }
+    @if (data.RequestErrors.Count == 0)
+    {
+        <tr><td colspan="4" class="muted">No unhandled errors.</td></tr>
+    }
+    </tbody>
+</table></div>
+
+<h2>Failed background jobs, last 30 days</h2>
+<div class="tablewrap"><table>
+    <thead><tr><th>Job</th><th>24 hours</th><th>30 days</th><th>Last</th><th>Last error</th></tr></thead>
+    <tbody>
+    @foreach (var job in data.JobFailures)
+    {
+        <tr><td><code>@job.Job</code></td><td>@job.Last24Hours</td><td>@job.Last30Days</td><td>@AdminFormat.Ago(job.LastAt, now)</td><td><code>@job.LastErrorCode</code></td></tr>
+    }
+    @if (data.JobFailures.Count == 0)
+    {
+        <tr><td colspan="5" class="muted">No job failed after its last retry.</td></tr>
+    }
+    </tbody>
+</table></div>
+
+<h2>League</h2>
+<div class="grid">
+    <div class="card">
+        <div class="muted">Last day closed</div>
+        <div class="big">@(data.LastDayClosed?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture) ?? "-")</div>
+        <div class="muted">@(data.LastDayClosedAt is { } dayAt ? "closed " + AdminFormat.Time(dayAt) : "never")</div>
+    </div>
+    <div class="card">
+        <div class="muted">Last week closed</div>
+        <div class="big">@(data.LastWeekClosed?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture) ?? "-")</div>
+        <div class="muted">@(data.LastWeekClosedAt is { } weekAt ? "closed " + AdminFormat.Time(weekAt) : "never")</div>
+    </div>
+</div>
+
+<h2>Workers, last delivery per seller</h2>
+<div class="tablewrap"><table>
+    <thead><tr><th>Seller</th><th>Last offer seen</th><th>Offers</th></tr></thead>
+    <tbody>
+    @foreach (var worker in data.Workers)
+    {
+        <tr>
+            <td>@worker.Seller</td>
+            <td class="@(now - worker.LastSeenAt > TimeSpan.FromDays(2) ? "warn" : "")">@AdminFormat.Ago(worker.LastSeenAt, now)</td>
+            <td>@worker.Offers</td>
+        </tr>
+    }
+    @if (data.Workers.Count == 0)
+    {
+        <tr><td colspan="3" class="muted">No worker has delivered an offer yet.</td></tr>
+    }
+    </tbody>
+</table></div>

@@ -1,6 +1,7 @@
 using Hangfire;
 using Hangfire.PostgreSql;
 using Kombin.Api.Common.Auth;
+using Kombin.Api.Common.Diagnostics;
 using Kombin.Api.Common.Hosting;
 using Kombin.Api.Common.Time;
 using Kombin.Api.Features.Notification.DeleteDevice;
@@ -42,6 +43,7 @@ internal static class NotificationModule
             .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
             .UseSimpleAssemblyNameTypeSerializer()
             .UseRecommendedSerializerSettings()
+            .UseFilter(provider.GetRequiredService<JobFailureFilter>())
             .UsePostgreSqlStorage(
                 options => options.UseNpgsqlConnection(
                     provider.GetRequiredService<IConfiguration>().GetConnectionString(PersistenceExtensions.ConnectionStringName)

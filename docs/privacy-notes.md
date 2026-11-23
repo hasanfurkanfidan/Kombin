@@ -263,6 +263,28 @@ The measurements (height, weight, chest, waist, hip, audience) go to `kombin-vis
 analytics event: the vision client logs only the path and the service's error code, the job and the renderer log IDs and codes. No analytics event was
 added. Catalogue garments (products) are catalogue data and hold nothing about users.
 
+## 6d. Error reporting (Sentry, task S1)
+
+Unhandled errors of the API go to Sentry, a hosted error tracker, **only when `Sentry:Dsn` is set** (env `Sentry__Dsn`; never in the repository,
+compose files or tests). The project must be created in Sentry's **EU data region** (Frankfurt, `*.de.sentry.io`), see `docs/deploy.md`.
+
+- **What is reported:** unhandled request exceptions (through `GlobalExceptionHandler`; a client that went away and an unreadable body are not), background
+  jobs after their **last** failed attempt (a retried attempt is not), and start-up failures (a crash while starting; invalid production settings as the
+  code `Startup.InvalidSettings`). 4xx answers and validation failures are values, not exceptions, and are never reported. No performance tracing.
+- **What leaves the server (the full list):** the exception's type and the stack's code locations (function, file, line), the release (git SHA), the
+  environment, the time, and four tags: `kind` (`request`, `job`, `startup` or `process`), `source` (the **route template** such as
+  `/api/v1/wardrobe/items/{id}`, never the path; or the job's name), `error_code` (the exception's type name) and `correlation_id`; plus the runtime and OS
+  versions of the server.
+- **What never leaves:** exception messages (they can carry a database value or what a user typed), e-mail, name, user ID, IP address, the URL, query
+  string, headers, cookies, `Authorization`, request and response bodies, image links, presigned URLs, storage keys, breadcrumbs (log lines), extra data,
+  the machine name. `SentryScrubber` (`Common/Diagnostics`) is the single place for this: it builds a new event from an allow-list instead of removing
+  what looks personal, so a field a future SDK version adds stays at home. `sendDefaultPii` is off. `ErrorReportingTests` feeds it an event full of
+  personal data and asserts none of it is in the JSON that would be sent.
+- **The system page** (`/admin/system`) counts the same errors from `admin.error_events` (kind, route template or job name, exception type, time; no
+  user, path or message), deleted after **30 days**.
+- **Retention at Sentry:** the plan's default (to be read off the plan when the project is created and written here; at most 90 days); lower it in the
+  project settings if counsel asks.
+
 ## 7. Processors and transfers
 
 | Recipient | What | Where |
@@ -273,6 +295,7 @@ added. Catalogue garments (products) are catalogue data and hold nothing about u
 | Let's Encrypt | the domain names, for the TLS certificates (no user data) | Let's Encrypt |
 | Expo Push Service | push tokens and notification text | Expo (US) |
 | Open-Meteo | the profile's city, and a trip's destination with its dates (forecast and archive APIs; no user ID) | Open-Meteo (EU) |
+| Sentry (only if `Sentry:Dsn` is set; section 6d) | error type, stack code locations, release, environment, route template or job name, correlation ID; no personal data; kept for the plan's retention (at most 90 days) | Sentry's EU region (Germany); Functional Software, Inc. is a US company |
 | Anthropic (only if `Narration:Provider = Anthropic`) | outfit summaries (garment categories/colours, no photos, no user data) | Anthropic (US) |
 | Affiliate networks / sellers | the redirect with our click ID | the seller's site |
 

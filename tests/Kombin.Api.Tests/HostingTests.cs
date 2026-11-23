@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using Kombin.Api.Common.Diagnostics;
 using Kombin.Api.Common.Hosting;
 using Kombin.Api.Common.Http;
 using Kombin.Api.Common.RateLimiting;
@@ -72,7 +73,9 @@ public class HostingTests
             var context = new DefaultHttpContext();
             context.Response.Body = new MemoryStream();
             context.RequestServices = new ServiceCollection().AddLogging().AddProblemDetails().BuildServiceProvider();
-            var handler = new GlobalExceptionHandler(NullLogger<GlobalExceptionHandler>.Instance, new FakeEnvironment(environment));
+            // No KombinDbContext here: the error log fails to write, which it must swallow.
+            var errors = new ErrorLog(context.RequestServices.GetRequiredService<IServiceScopeFactory>(), new FixedClock(DateTimeOffset.UnixEpoch), NullLogger<ErrorLog>.Instance);
+            var handler = new GlobalExceptionHandler(NullLogger<GlobalExceptionHandler>.Instance, new FakeEnvironment(environment), errors);
 
             Assert.True(await handler.TryHandleAsync(context, new InvalidOperationException("secret connection detail"), CancellationToken.None));
 
