@@ -8,11 +8,12 @@ namespace Kombin.Api.Common.Diagnostics;
 /// only what is on the allow-list, so a field the SDK adds in a later version stays at home until someone puts it here.
 /// <list type="bullet">
 /// <item>Kept: level, release, environment, timestamp; for each exception its type, module, mechanism type and handled flag, and the stack frames'
-/// code locations (function, module, file, line, addresses); the tags <c>kind</c>, <c>source</c> (route template or job name), <c>error_code</c>,
-/// <c>correlation_id</c>; the debug images (needed to read the stack); the runtime and OS contexts (the server's, not a person's).</item>
+/// code locations (function, module, file name without its folder, line, addresses); the tags <c>kind</c>, <c>source</c> (route template or job name), <c>error_code</c>,
+/// <c>correlation_id</c>; the runtime and OS contexts (the server's, not a person's).</item>
 /// <item>Dropped: exception messages (they can carry what a user typed or a database value), the mechanism's data (it holds <c>Exception.Data</c>),
 /// frame variables and source lines, the user, the request (URL, query string, headers, cookies, body), the server name, breadcrumbs, extra data,
-/// threads, modules, every other tag and context, and any message that is not an error code.</item>
+/// threads, modules, debug images (their paths are the build machine's), folder paths, every other tag and context, the SDK's attachments, and any
+/// message that is not one of our start-up codes.</item>
 /// </list>
 /// </summary>
 internal static partial class SentryScrubber
@@ -55,11 +56,6 @@ internal static partial class SentryScrubber
             }
         }
 
-        foreach (var image in original.DebugImages ?? [])
-        {
-            (clean.DebugImages ??= []).Add(image);
-        }
-
         if (original.Tags.TryGetValue(ErrorReporting.Tags.Source, out var source) && SafeTagValue().IsMatch(source))
         {
             clean.TransactionName = source;
@@ -96,8 +92,8 @@ internal static partial class SentryScrubber
         Function = frame.Function,
         Module = frame.Module,
         Package = frame.Package,
-        FileName = frame.FileName,
-        AbsolutePath = frame.AbsolutePath,
+        // The file's name only: a build outside the container would carry the builder's home folder (an OS user name) in the path.
+        FileName = frame.FileName is { } file ? Path.GetFileName(file.Replace('\\', '/')) : null,
         LineNumber = frame.LineNumber,
         ColumnNumber = frame.ColumnNumber,
         InApp = frame.InApp,
@@ -109,15 +105,12 @@ internal static partial class SentryScrubber
         SymbolAddress = frame.SymbolAddress,
     };
 
-    /// <summary>A message survives only when it is an error code (<c>Startup.InvalidSettings</c>): our own text, never a formatted one.</summary>
+    /// <summary>A message survives only when it is one of our own start-up codes (<see cref="ErrorReporting.StartupCodes"/>), never other text.</summary>
     private static SentryMessage? SafeMessage(SentryMessage? message)
     {
         var text = message?.Formatted ?? message?.Message;
-        return text is not null && ErrorCodeShape().IsMatch(text) ? new SentryMessage { Message = text } : null;
+        return text is not null && ErrorReporting.StartupCodes.Contains(text) ? new SentryMessage { Message = text } : null;
     }
-
-    [GeneratedRegex(@"^[A-Z][A-Za-z0-9]*(\.[A-Z][A-Za-z0-9]*)+$")]
-    private static partial Regex ErrorCodeShape();
 
     /// <summary>Tag values are route templates, job names, type names and correlation ids: no spaces, no '@', no '?', bounded length.</summary>
     [GeneratedRegex(@"^[A-Za-z0-9_\-./{}:()`\[\],+]{1,200}$")]

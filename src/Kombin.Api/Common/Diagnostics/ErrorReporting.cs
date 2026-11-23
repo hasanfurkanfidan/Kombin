@@ -35,6 +35,9 @@ internal static class ErrorReporting
         public static readonly IReadOnlySet<string> Allowed = new HashSet<string>(StringComparer.Ordinal) { Kind, Source, ErrorCode, CorrelationId };
     }
 
+    /// <summary>The only texts that may leave as an event's message: refusals at start-up that are not exceptions.</summary>
+    public static readonly IReadOnlySet<string> StartupCodes = new HashSet<string>(StringComparer.Ordinal) { "Startup.InvalidSettings" };
+
     public static bool IsEnabled(IConfiguration configuration) => !string.IsNullOrWhiteSpace(configuration[DsnKey]);
 
     /// <summary>The recorder the exception handler and the Hangfire filter share; the SDK itself is started by <see cref="Start"/>.</summary>
@@ -77,14 +80,25 @@ internal static class ErrorReporting
         options.SampleRate = 1.0f;
         options.TracesSampleRate = 0.0;
 
-        // Noise: a cancelled request or shutdown is not a bug.
-        options.AddExceptionFilterForType<OperationCanceledException>();
+        // Nothing may leave by a path that skips BeforeSend: no metrics, no logs, no EF/HTTP instrumentation, no failed-request capture.
+        // (Client aborts are filtered where they happen: GlobalExceptionHandler and JobFailureFilter; a timeout is a real error and is reported.)
+        options.DisableSystemDiagnosticsMetricsIntegration();
+        options.DisableDiagnosticSourceIntegration();
+        options.CaptureFailedRequests = false;
+        options.SetBeforeSendLog(_ => null);
+        options.SetBeforeSendMetric(_ => null);
+        options.SetBeforeSendTransaction((_, _) => null);
 
         // What the SDK catches on its own (a crash while starting, an unobserved task) is filed as "process"; Capture overrides both tags.
         options.DefaultTags[Tags.Kind] = "process";
         options.DefaultTags[Tags.Source] = "process";
 
-        options.SetBeforeSend((sentryEvent, _) => SentryScrubber.Scrub(sentryEvent));
+        options.SetBeforeSend((sentryEvent, hint) =>
+        {
+            // Attachments travel beside the event and would skip the scrubber: none is ever sent.
+            hint.Attachments.Clear();
+            return SentryScrubber.Scrub(sentryEvent);
+        });
     }
 
     internal static string Release(IConfiguration configuration)

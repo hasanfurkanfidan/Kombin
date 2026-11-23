@@ -26,7 +26,8 @@ internal sealed class JobFailureFilter(ErrorLog errors) : IServerFilter
         }
 
         var exception = context.Exception is JobPerformanceException { InnerException: { } inner } ? inner : context.Exception;
-        if (exception is OperationCanceledException)
+        // A job stopped by the server shutting down is not a bug; an HTTP or database timeout (also an OperationCanceledException) is.
+        if (exception is OperationCanceledException && context.CancellationToken.ShutdownToken.IsCancellationRequested)
         {
             return;
         }

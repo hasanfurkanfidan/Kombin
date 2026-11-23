@@ -64,6 +64,9 @@ public sealed class ErrorReportingTests
         var frame = Assert.Single(exception.Stacktrace!.Frames);
         Assert.Equal("Kombin.Api.Features.Wardrobe.GetItem.Endpoint.Handle", frame.Function);
         Assert.Equal(42, frame.LineNumber);
+        Assert.Equal("Endpoint.cs", frame.FileName);
+        Assert.Null(frame.AbsolutePath);
+        Assert.Null(clean.DebugImages);
         Assert.Empty(frame.Vars);
         Assert.Null(frame.ContextLine);
 
@@ -132,6 +135,78 @@ public sealed class ErrorReportingTests
         Assert.Equal(0.0, options.TracesSampleRate);
         Assert.Equal("kombin-api@abc1234", options.Release);
         Assert.Equal("Production", options.Environment);
+        Assert.False(options.SendClientReports);
+        Assert.False(options.CaptureFailedRequests);
+        Assert.True(options.DisableFileWrite);
+    }
+
+    /// <summary>
+    /// The whole way out: the real SDK, started with the real settings and a transport that keeps the envelope instead of sending it. This is what
+    /// would reach Sentry, headers and all, for an exception whose message, scope and hint carry personal data.
+    /// </summary>
+    [Fact]
+    public async Task TheEnvelopeTheSdkWouldSendHoldsNothingPersonal()
+    {
+        var transport = new KeepingTransport();
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Sentry:Dsn"] = "https://public@o1.ingest.de.sentry.io/1", ["Sentry:Release"] = "abc1234" })
+            .Build();
+
+        using (SentrySdk.Init(options =>
+        {
+            ErrorReporting.Configure(options, configuration, "Production");
+            options.Transport = transport;
+        }))
+        {
+            SentrySdk.ConfigureScope(scope =>
+            {
+                scope.User = new SentryUser { Email = Email, IpAddress = Ip, Id = UserId };
+                scope.SetExtra("body", Body);
+                scope.AddBreadcrumb("GET " + PresignedUrl);
+                scope.AddAttachment(Encoding.UTF8.GetBytes(Body), "request.json");
+                scope.Request.Url = "https://api.kombin.app/x" + Query;
+                scope.Request.Cookies = Cookie;
+            });
+
+            try
+            {
+                throw new InvalidOperationException(MessageText);
+            }
+            catch (InvalidOperationException exception)
+            {
+                ErrorReporting.Capture(exception, "request", "/api/v1/wardrobe/items/{id}", ErrorReporting.ErrorCode(exception), "0HN7ABC:00000001");
+            }
+
+            await SentrySdk.FlushAsync(TimeSpan.FromSeconds(5));
+        }
+
+        // Every envelope the SDK produced, whatever it is, is searched.
+        var envelope = string.Join("\n", transport.Envelopes);
+        Assert.Single(transport.Envelopes, sent => sent.Contains("\"type\":\"event\"", StringComparison.Ordinal));
+        foreach (var value in Forbidden)
+        {
+            Assert.False(envelope.Contains(value, StringComparison.OrdinalIgnoreCase), $"'{value}' would leave the server: {envelope}");
+        }
+
+        Assert.Contains("System.InvalidOperationException", envelope, StringComparison.Ordinal);
+        Assert.Contains("/api/v1/wardrobe/items/{id}", envelope, StringComparison.Ordinal);
+        Assert.Contains("0HN7ABC:00000001", envelope, StringComparison.Ordinal);
+        Assert.DoesNotContain("request.json", envelope, StringComparison.Ordinal);
+    }
+
+    private sealed class KeepingTransport : Sentry.Extensibility.ITransport
+    {
+        public List<string> Envelopes { get; } = [];
+
+        public async Task SendEnvelopeAsync(Sentry.Protocol.Envelopes.Envelope envelope, CancellationToken cancellationToken = default)
+        {
+            using var stream = new MemoryStream();
+            await envelope.SerializeAsync(stream, null, cancellationToken);
+            lock (Envelopes)
+            {
+                Envelopes.Add(Encoding.UTF8.GetString(stream.ToArray()));
+            }
+        }
     }
 
     [Fact]
@@ -187,7 +262,7 @@ public sealed class ErrorReportingTests
                 {
                     Type = "Npgsql.PostgresException",
                     Value = MessageText,
-                    Mechanism = new Mechanism { Type = "generic", Handled = false },
+                    Mechanism = new Mechanism { Type = "generic", Handled = false, Description = MessageText, HelpLink = PresignedUrl },
                     Stacktrace = new SentryStackTrace
                     {
                         Frames =
@@ -196,6 +271,8 @@ public sealed class ErrorReportingTests
                             {
                                 Function = "Kombin.Api.Features.Wardrobe.GetItem.Endpoint.Handle",
                                 LineNumber = 42,
+                                FileName = @"C:\Users\ayse.yilmaz\src\Kombin.Api\Features\Wardrobe\GetItem\Endpoint.cs",
+                                AbsolutePath = "/home/ayse.yilmaz/src/Endpoint.cs",
                                 ContextLine = "var key = \"" + StorageKey + "\";",
                             },
                         ],
@@ -220,6 +297,7 @@ public sealed class ErrorReportingTests
         sentryEvent.AddBreadcrumb(new Breadcrumb("GET " + PresignedUrl, "http"));
         sentryEvent.Contexts.Device.Name = "the-machine";
         sentryEvent.Contexts.Runtime.Name = ".NET";
+        sentryEvent.DebugImages = [new DebugImage { CodeFile = @"C:\Users\ayse.yilmaz\Kombin.Api.dll" }];
         sentryEvent.Contexts["custom"] = new Dictionary<string, string> { ["email"] = Email };
 
         return sentryEvent;
