@@ -1,0 +1,46 @@
+@page "/admin/bulk"
+@model Kombin.Api.Features.Admin.Pages.BulkModel
+@{
+    ViewData["Title"] = "Bulk add";
+}
+<h1>Bulk add</h1>
+<p class="muted">
+    "Toplu ekle" over the last @BulkModel.Days days, from the batches' own counters. Counts only: no photo, no piece and no user. The pieces columns cover
+    confirmed batches. An unticked pre-tick is a proxy for a wrong one, not proof; your labelling of the test photos stays the authority.
+</p>
+
+<div class="tablewrap"><table>
+    <thead><tr><th>Batches</th><th class="num">Processed</th><th class="num">Confirmed</th><th class="num">Pieces shown</th><th class="num">Pre-ticked</th><th class="num">Ticked</th><th class="num">Unticked pre-ticks</th><th class="num">Ticked extras</th><th class="num">Edits per ticked piece</th><th class="num">Median seconds to Ready</th></tr></thead>
+    <tbody>
+        <tr>
+            <td>Last @BulkModel.Days days</td>
+            <td class="num">@Model.Numbers.Batches</td>
+            <td class="num">@Model.Numbers.Confirmed</td>
+            <td class="num">@Model.Numbers.PiecesShown</td>
+            <td class="num">@Model.Numbers.PreTicked</td>
+            <td class="num">@Model.Numbers.Ticked</td>
+            <td class="num">@Model.Numbers.UntickedPreTicks</td>
+            <td class="num">@Model.Numbers.TickedExtras</td>
+            <td class="num">@Model.Numbers.EditsPerTickedPiece.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)</td>
+            <td class="num">@(Model.Numbers.MedianSecondsToReady?.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) ?? "-")</td>
+        </tr>
+    </tbody>
+</table></div>
+
+<h2>Refusals by reason</h2>
+@if (Model.Refusals.Count == 0)
+{
+    <div class="card">No refusals.</div>
+}
+else
+{
+    <div class="tablewrap"><table>
+        <thead><tr><th>Reason</th><th class="num">Batches</th></tr></thead>
+        <tbody>
+        @foreach (var refusal in Model.Refusals)
+        {
+            <tr><td>@refusal.Key</td><td class="num">@refusal.Value</td></tr>
+        }
+        </tbody>
+    </table></div>
+}

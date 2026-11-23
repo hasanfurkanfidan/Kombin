@@ -259,3 +259,42 @@ WHERE r.created_at >= (:day_start::date)::timestamp AT TIME ZONE 'Europe/Istanbu
   AND r.created_at < (:day_end::date)::timestamp AT TIME ZONE 'Europe/Istanbul'
 GROUP BY g.id, g.product_id, p.name, b.name, g.family, g.prepare_version, g.image_index
 ORDER BY reports DESC, last_reported_at DESC, g.id;
+
+-- bulk: the blocks below are the stop rule of "Toplu ekle" (bulk add), run by hand and never by the weekly-metrics job.
+-- ============================================================================================================================================
+-- Bulk add, the stop rule (docs/design/bulk-add.md, section f). NOT run by the weekly-metrics job: a "-- bulk:" line closes the job's last
+-- block (MetricSql.Parse) and these blocks are run by hand. The source of truth is the batch's own counters (server side, immune to dropped
+-- or capped events), never the bulk_add_* events. The pieces columns cover CONFIRMED batches (the user's counters are written at confirm).
+-- An unticked pre-tick is a proxy for a wrong pre-tick (the user may simply not want the piece): the owner's labelling of the test photos
+-- stays the authority. "seconds to Ready" is the vision step (vision_ms) of a batch that reached Ready: the time spent between the process
+-- call and the analysis (the confirmed batch's updated_at is overwritten at confirm). No batch, piece, user or image ID is returned.
+-- Parameters, Istanbul calendar days of the batch's creation, end exclusive:
+--   psql "$DATABASE_URL" -v day_start="'2026-12-01'" -v day_end="'2027-01-01'" -f docs/metrics.sql
+-- The wardrobe schema is never granted to metabase_ro: run these as the operator.
+-- ============================================================================================================================================
+
+-- bulk: bulk_counters
+SELECT count(*) FILTER (WHERE b.counted OR b.status = 'Refused')                                      AS batches_processed,
+       count(*) FILTER (WHERE b.status = 'Confirmed')                                                 AS batches_confirmed,
+       coalesce(sum(b.pieces_shown) FILTER (WHERE b.status = 'Confirmed'), 0)                         AS pieces_shown,
+       coalesce(sum(b.pieces_pre_ticked) FILTER (WHERE b.status = 'Confirmed'), 0)                    AS pieces_pre_ticked,
+       coalesce(sum(b.pieces_ticked) FILTER (WHERE b.status = 'Confirmed'), 0)                        AS pieces_ticked,
+       coalesce(sum(b.pieces_pre_ticked - b.ticked_pre_ticked) FILTER (WHERE b.status = 'Confirmed'), 0) AS unticked_pre_ticks,
+       coalesce(sum(b.pieces_ticked - b.ticked_pre_ticked) FILTER (WHERE b.status = 'Confirmed'), 0)  AS ticked_extras,
+       round(coalesce(sum(b.category_edits + b.colour_edits) FILTER (WHERE b.status = 'Confirmed'), 0)::numeric
+             / nullif(sum(b.pieces_ticked) FILTER (WHERE b.status = 'Confirmed'), 0), 2)              AS edits_per_ticked_piece,
+       round((percentile_cont(0.5) WITHIN GROUP (ORDER BY b.vision_ms)
+              FILTER (WHERE b.counted AND b.status <> 'Refused' AND b.vision_ms IS NOT NULL) / 1000.0)::numeric, 1) AS median_seconds_to_ready
+FROM wardrobe.bulk_batches b
+WHERE b.created_at >= (:day_start::date)::timestamp AT TIME ZONE 'Europe/Istanbul'
+  AND b.created_at < (:day_end::date)::timestamp AT TIME ZONE 'Europe/Istanbul';
+
+-- bulk: bulk_refusals
+-- One row per refusal code (closet, rail, pile, worn, nothing_found, too_dark, too_blurry), the most frequent first; no row when nothing was refused.
+SELECT b.refusal AS code, count(*) AS batches
+FROM wardrobe.bulk_batches b
+WHERE b.status = 'Refused' AND b.refusal IS NOT NULL
+  AND b.created_at >= (:day_start::date)::timestamp AT TIME ZONE 'Europe/Istanbul'
+  AND b.created_at < (:day_end::date)::timestamp AT TIME ZONE 'Europe/Istanbul'
+GROUP BY b.refusal
+ORDER BY batches DESC, code;

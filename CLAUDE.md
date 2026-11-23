@@ -452,6 +452,13 @@ External Python workers (a separate repo) push the catalog through the internal 
   `not-garment`), `FakeObjectStorage` (in memory; the S3 implementation is exercised against MinIO in the compose walkthrough, not in the
   test suite), `RecordingJobClient` for `IBackgroundJobClient` (jobs are recorded, the test runs them), and `FakeCatalogImageHandler` on the
   `wardrobe-catalog-images` HttpClient.
+- **Bulk add ("Toplu ekle", `Features/Wardrobe/BulkAdd`, design `docs/design/bulk-add.md`) is the single add in bulk, not a second pipeline.** A confirmed
+  piece is an ordinary `WardrobeItem` (same attributes, embedding, moderation, keys, `Cache-Control`, limits, points once per confirm); staging
+  (`wardrobe.bulk_batches`, `bulk_pieces`, objects under `bulk/{user}/`) is private by name, presigned for the owner only, and deleted at confirm, cancel and 24 h
+  (`bulk-add-cleanup`, also with the flag off); a tombstone of counts and enums stays 7 days. The room photo is deleted as soon as vision answered (kept only while
+  `Failed`). Off unless `BulkAdd:Enabled` (404 `Wardrobe.BulkDisabled`). **The stop rule is read from the batch's counters** (`pieces_shown`, `pieces_pre_ticked`,
+  `pieces_ticked`, `ticked_pre_ticked`, edits, `refusal`), never from the `bulk_add_*` events (which carry no batch, piece or item ID): by hand in the `-- bulk:` blocks
+  of `docs/metrics.sql` (`BulkMetricsSqlTests`) and on `/admin/bulk` (counts only). An unticked pre-tick is a proxy for a wrong one, not proof.
 
 ## Recommendation rules
 
