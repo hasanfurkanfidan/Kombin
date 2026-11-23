@@ -31,6 +31,26 @@ internal sealed class FakeObjectStorage : IObjectStorage
 
     public void StopFailingPuts(string name) => _failingPuts.TryRemove(name, out _);
 
+    private readonly ConcurrentDictionary<string, StorageHold> _holds = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Parks the first <see cref="PutAsync"/> of a key, or <see cref="ListAsync"/> of a prefix, that <paramref name="matches"/> until the hold is released
+    /// (the caller's request is then deterministically inside its work); a cancelled request makes the parked call throw, as the S3 client does.
+    /// </summary>
+    public StorageHold Hold(string name, Func<string, bool> matches) => _holds[name] = new StorageHold(matches);
+
+    private async Task WaitIfHeldAsync(string keyOrPrefix, CancellationToken cancellationToken)
+    {
+        foreach (var (name, hold) in _holds)
+        {
+            if (hold.Matches(keyOrPrefix) && _holds.TryRemove(name, out _))
+            {
+                hold.Arrive();
+                await hold.Released.WaitAsync(cancellationToken);
+            }
+        }
+    }
+
     /// <summary>Every key passed to <see cref="DeleteAsync"/>, oldest first.</summary>
     public IReadOnlyList<string> Deleted => [.. _deleted];
 
@@ -52,8 +72,9 @@ internal sealed class FakeObjectStorage : IObjectStorage
     /// <summary>The <c>Cache-Control</c> the S3 store would have written with the object (<see cref="StorageKeys.CacheControlFor"/>), or null when there is no such object.</summary>
     public string? CacheControlOf(string key) => _objects.ContainsKey(key) ? StorageKeys.CacheControlFor(key) : null;
 
-    public Task PutAsync(string key, byte[] content, string contentType, CancellationToken cancellationToken)
+    public async Task PutAsync(string key, byte[] content, string contentType, CancellationToken cancellationToken)
     {
+        await WaitIfHeldAsync(key, cancellationToken);
         if (_failingPuts.Values.Any(matches => matches(key)))
         {
             throw new IOException("The object store is unreachable (simulated).");
@@ -61,7 +82,6 @@ internal sealed class FakeObjectStorage : IObjectStorage
 
         _objects[key] = new StoredObject(content, contentType);
         _written[key] = TestClock.UtcNow;
-        return Task.CompletedTask;
     }
 
     public Task<StoredObject?> GetAsync(string key, CancellationToken cancellationToken) => Task.FromResult(Find(key));
@@ -94,6 +114,7 @@ internal sealed class FakeObjectStorage : IObjectStorage
 
     public async IAsyncEnumerable<StoredObjectInfo> ListAsync(string prefix, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
+        await WaitIfHeldAsync(prefix, cancellationToken);
         foreach (var key in _objects.Keys.Where(key => key.StartsWith(prefix, StringComparison.Ordinal)).Order(StringComparer.Ordinal).ToList())
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -101,4 +122,22 @@ internal sealed class FakeObjectStorage : IObjectStorage
             yield return new StoredObjectInfo(key, _written.GetValueOrDefault(key, TestClock.UtcNow));
         }
     }
+}
+
+/// <summary>A parked storage call (<see cref="FakeObjectStorage.Hold"/>): <see cref="Reached"/> completes when it is parked, <see cref="Release"/> lets it go on.</summary>
+internal sealed class StorageHold(Func<string, bool> matches)
+{
+    private readonly TaskCompletionSource _reached = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    private readonly TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public Task Reached => _reached.Task;
+
+    internal Task Released => _released.Task;
+
+    internal bool Matches(string keyOrPrefix) => matches(keyOrPrefix);
+
+    internal void Arrive() => _reached.TrySetResult();
+
+    public void Release() => _released.TrySetResult();
 }

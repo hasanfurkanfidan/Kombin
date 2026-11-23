@@ -155,6 +155,8 @@ The photo only becomes stored data when the user taps "Dolabıma ekle": the app 
 through the normal wardrobe flow (section 2), with its usual rules. Taps on results go through `/go` with `src=lens` (section 5). Analytics
 (`lens_open`, `lens_search`, `lens_result_tap`, `lens_add_to_wardrobe`) carry counts, durations, positions and enums, never image data.
 
+The photo of "Toplu ekle" (section 2) is a different path: it is uploaded on purpose to `bulk/{user}/`, private by name, and deleted as soon as vision answered (kept only while the batch is `Failed`, and at most 24 hours); a lens query photo never reaches it.
+
 Catalog product images are downloaded by the `product-embeddings` job (`KombinBot` user agent, one request per host per second) to compute
 the catalog's embeddings; they are sellers' product shots, not personal data, and only the URL and the vector are kept.
 
@@ -181,6 +183,7 @@ The founder's server-rendered panel (`/admin`). Admin accounts are configuration
 | Post photos waiting for review | `/admin/review` | the **feed-size** rendition only, a 1-hour presigned link; never the original (which is stripped of metadata anyway); author shown by display name and ID |
 | Report reasons and moderation scores | `/admin/review` | reporters are never shown, only the reasons and counts |
 | Reported Kombin Ligi outfits (task B8) | `/admin/league` | the pieces **as the voters saw them** (the league's own image copies: random keys, no user ID), the day, the status, the number of reports and the reasons given, whether the owner's result is held back, an outfit ID (shortened). **No owner** (no ID, name or address), **no reporter**, no wardrobe key, no product or brand name: the decision is about the picture, and the league promises its players no name, no profile and no stable identifier. The decision writes the audit row (`league.entry.restore` / `.remove`, the entry ID and the day) |
+| Bulk add numbers (task BA5) | `/admin/bulk` | counts of the last 7 days only: batches, pieces shown, pre-ticked, ticked, unticked pre-ticks, ticked extras, edits per ticked piece, median seconds to Ready, refusals by code; no photo, no piece, no batch and no user |
 | What an admin did | `admin.audit_log` (admin e-mail, action, target ID, short summary, time) | no personal data of app users in the summary: IDs, handles, enum names and the removal reason the author was shown; kept indefinitely (open question below) |
 
 Disabling an account (soft) revokes its refresh tokens and refuses sign-in; it deletes nothing. The account's posts stay visible according to
@@ -194,7 +197,7 @@ their `user_id` (section 1a). Social events: `post_view`,
 `post_tag_tap`, `post_like`, `post_create_start/done`, `post_report`, `creator_profile_view`, `try_with_wardrobe` — post and creator IDs,
 counts and enums; **no captions, handles or labels**. Visual-search events: counts, durations, result positions and match levels, **no
 image data**. League events (`league_join`, `league_leave`, `league_vote` with the side chosen and whether it counted, `league_report`,
-`league_results_view` with the result's state, `league_table_view`): **no pair, entry, image or player identifier, no rank or points** in any payload. Keys
+`league_results_view` with the result's state, `league_table_view`): **no pair, entry, image or player identifier, no rank or points** in any payload. Bulk-add events (`bulk_add_start`, `bulk_add_result`, `bulk_add_confirm`, `bulk_add_cancel`): sources, statuses, refusal and failure codes, counts and durations; **no batch, piece or item identifier, no box, no image**; the stop rule reads the batch counters, not these events. Keys
 named like personal data are refused on every event. Anonymous events are linked to
 the account after sign-in (`IAnalyticsIdentityLinker`). **Retention:** raw events are deleted 180 days after they were received (`analytics-retention`, nightly, `Analytics:RetentionDays`); the weekly aggregates (`analytics.weekly_metrics`, no personal data) stay. At most 5,000 events per user or device a day are stored (security review M6).
 

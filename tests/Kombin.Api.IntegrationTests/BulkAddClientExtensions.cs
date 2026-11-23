@@ -70,6 +70,60 @@ internal static class BulkAddClientExtensions
     public static Task<BulkAnalyzeOutcome> AnalyzeBulkAsync(this ApiFactory factory, Guid batchId, CancellationToken cancellationToken) =>
         factory.RunJobAsync<BulkAddAnalyzeJob, BulkAnalyzeOutcome>(job => job.AnalyzeAsync(batchId, cancellationToken));
 
+    /// <summary>The whole path with a photo the test made itself (the same bytes can then go through the single add too).</summary>
+    public static async Task<Guid> RunBulkWithPhotoAsync(this ApiFactory factory, HttpClient client, byte[] photo, CancellationToken cancellationToken)
+    {
+        using var response = await client.BulkUploadUrlRawAsync(cancellationToken: cancellationToken);
+        Assert.True(response.StatusCode == HttpStatusCode.Created, await response.Content.ReadAsStringAsync(cancellationToken));
+        var batchId = (await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken)).GetProperty("batchId").GetGuid();
+        var key = await factory.WithDbAsync(db => db.BulkBatches.Where(batch => batch.Id == batchId).Select(batch => batch.OriginalKey!).SingleAsync(cancellationToken));
+        factory.Storage.Upload(key, photo, "image/jpeg");
+
+        using var process = await client.BulkProcessAsync(batchId, cancellationToken);
+        Assert.True(process.StatusCode == HttpStatusCode.Accepted, await process.Content.ReadAsStringAsync(cancellationToken));
+        await factory.AnalyzeBulkAsync(batchId, cancellationToken);
+
+        return batchId;
+    }
+
+    /// <summary><c>POST /{id}/confirm</c> with any body (for the validation cases).</summary>
+    public static Task<HttpResponseMessage> BulkConfirmRawAsync(this HttpClient client, Guid batchId, object body, CancellationToken cancellationToken = default) =>
+        client.PostAsJsonAsync($"{Base}/{batchId}/confirm", body, cancellationToken);
+
+    /// <summary><c>POST /{id}/confirm</c> ticking exactly these pieces, without edits.</summary>
+    public static Task<HttpResponseMessage> BulkConfirmRawAsync(this HttpClient client, Guid batchId, IEnumerable<Guid> pieces, CancellationToken cancellationToken = default) =>
+        client.BulkConfirmRawAsync(batchId, new { pieces = pieces.Select(id => new { id }).ToArray() }, cancellationToken);
+
+    /// <summary>Confirms these pieces, asserts the 200 and returns the body (the status answer).</summary>
+    public static async Task<JsonElement> BulkConfirmAsync(this HttpClient client, Guid batchId, IEnumerable<Guid> pieces, CancellationToken cancellationToken = default)
+    {
+        using var response = await client.BulkConfirmRawAsync(batchId, pieces, cancellationToken);
+        Assert.True(response.StatusCode == HttpStatusCode.OK, await response.Content.ReadAsStringAsync(cancellationToken));
+
+        return await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken);
+    }
+
+    /// <summary><c>DELETE /{id}</c>: cancel.</summary>
+    public static Task<HttpResponseMessage> BulkCancelAsync(this HttpClient client, Guid batchId, CancellationToken cancellationToken = default) =>
+        client.DeleteAsync($"{Base}/{batchId}", cancellationToken);
+
+    public static Task<BulkCleanupSummary> CleanupBulkAsync(this ApiFactory factory, Guid userId, DateTimeOffset now, CancellationToken cancellationToken) =>
+        factory.RunJobAsync<BulkAddCleanupJob, BulkCleanupSummary>(job => job.CleanupAsync(userId, now, cancellationToken));
+
+    public static Task<int> ModerateBulkAsync(this ApiFactory factory, Guid batchId, CancellationToken cancellationToken) =>
+        factory.RunJobAsync<BulkAddModerateJob, int>(job => job.ModerateAsync(batchId, cancellationToken));
+
+    /// <summary>The test clock's now, cut to whole seconds, so a time pinned with <c>X-Test-Now</c> survives PostgreSQL's microseconds unchanged.</summary>
+    public static DateTimeOffset PinnedNow()
+    {
+        var now = TestClock.UtcNow;
+        return new DateTimeOffset(now.Ticks - (now.Ticks % TimeSpan.TicksPerSecond), TimeSpan.Zero);
+    }
+
+    /// <summary>The <c>id</c>s of the <c>items</c> of a status (or confirm) answer, in order.</summary>
+    public static List<Guid> ItemIds(this JsonElement status) =>
+        [.. status.GetProperty("items").EnumerateArray().Select(item => item.GetProperty("id").GetGuid())];
+
     public static Task<BulkBatch> BulkBatchRowAsync(this ApiFactory factory, Guid batchId, CancellationToken cancellationToken) =>
         factory.WithDbAsync(db => db.BulkBatches.AsNoTracking().SingleAsync(batch => batch.Id == batchId, cancellationToken));
 

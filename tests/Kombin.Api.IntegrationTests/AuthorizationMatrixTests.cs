@@ -135,14 +135,14 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
             }),
         ["GET /api/v1/me/wardrobe/bulk/{id:guid}"] = Probe(w => new HttpRequestMessage(HttpMethod.Get, $"/api/v1/me/wardrobe/bulk/{w.BulkBatchId}"), [HttpStatusCode.NotFound]),
 
-        // Confirm and cancel answer 503 BulkNotImplemented until PR 3 (the probe then expects 404 only, and checks that the batch and its piece are unchanged).
+        // Someone else's batch: 404, and the batch and its piece are unchanged.
         ["POST /api/v1/me/wardrobe/bulk/{id:guid}/confirm"] = Probe(
             w => Json(HttpMethod.Post, $"/api/v1/me/wardrobe/bulk/{w.BulkBatchId}/confirm", new { pieces = new[] { new { id = w.BulkPieceId } } }),
-            [HttpStatusCode.NotFound, HttpStatusCode.ServiceUnavailable],
+            [HttpStatusCode.NotFound],
             async (w, f) => Assert.True(await f.WithDbAsync(db => db.BulkPieces.AnyAsync(piece => piece.Id == w.BulkPieceId, Ct)))),
         ["DELETE /api/v1/me/wardrobe/bulk/{id:guid}"] = Probe(
             w => new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/me/wardrobe/bulk/{w.BulkBatchId}"),
-            [HttpStatusCode.NotFound, HttpStatusCode.ServiceUnavailable],
+            [HttpStatusCode.NotFound],
             async (w, f) => Assert.True(await f.WithDbAsync(db => db.BulkBatches.AnyAsync(batch => batch.Id == w.BulkBatchId && batch.Status == BulkBatchStatus.Ready, Ct)))),
         ["GET /api/v1/me/wardrobe/items"] = ScopedRead("/api/v1/me/wardrobe/items"),
         ["GET /api/v1/me/wardrobe/stats"] = ScopedRead("/api/v1/me/wardrobe/stats"),
@@ -437,6 +437,7 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
             .ToList();
         Assert.Contains("admin/users", pages);
         Assert.Contains("admin/league", pages);
+        Assert.Contains("admin/bulk", pages);
 
         foreach (var page in pages)
         {

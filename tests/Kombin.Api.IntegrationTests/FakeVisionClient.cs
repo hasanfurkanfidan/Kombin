@@ -74,6 +74,15 @@ internal sealed partial class FakeVisionClient : IVisionClient
             return Task.FromResult(VisionResult.Permanent("vision_400: unsupported_image"));
         }
 
+        return Task.FromResult(VisionResult.Ok(SingleAnalysis(text)));
+    }
+
+    /// <summary>
+    /// What <see cref="AnalyzeAsync"/> answers for a photo with this text when it does not fail (<c>unsure</c>, <c>not-garment</c>, else the beige
+    /// t-shirt). The bulk flavour <c>bulk-single</c> answers exactly this as its one piece, so the single and the bulk add can be compared.
+    /// </summary>
+    public static VisionAnalysis SingleAnalysis(string text)
+    {
         var unsure = text.Contains("unsure", StringComparison.Ordinal);
         var notGarment = text.Contains("not-garment", StringComparison.Ordinal);
         VisionCategory[] candidates = unsure
@@ -83,7 +92,7 @@ internal sealed partial class FakeVisionClient : IVisionClient
         var embedding = new float[512];
         embedding[0] = 1f;
 
-        return Task.FromResult(VisionResult.Ok(new VisionAnalysis(
+        return new VisionAnalysis(
             Convert.ToBase64String(CutoutFor(text)),
             Convert.ToBase64String(Thumbnail),
             candidates[0],
@@ -92,7 +101,7 @@ internal sealed partial class FakeVisionClient : IVisionClient
             new VisionColor("White", 0.22, "#F4F4F4"),
             new VisionPattern("Solid", 0.95),
             embedding,
-            new VisionQuality(!notGarment, 0.88, notGarment ? ["person_wearing"] : []))));
+            new VisionQuality(!notGarment, 0.88, notGarment ? ["person_wearing"] : []));
     }
 
     public Task<string?> GetEmbeddingModelAsync(CancellationToken cancellationToken) => Task.FromResult<string?>(Model);
