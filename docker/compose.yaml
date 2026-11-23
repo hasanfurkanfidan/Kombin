@@ -148,6 +148,10 @@ services:
       # scripts/admin-hash.sh; /admin must be reachable only by the founder (IP allow-list or Cloudflare Access, Task 16).
       Admin__Users__0__Email: ${ADMIN_EMAIL:-}
       Admin__Users__0__PasswordHash: ${ADMIN_PASSWORD_HASH:-}
+      # Error reporting (docs/privacy-notes.md, 6d): off while SENTRY_DSN is blank; never put a DSN in this file. GIT_SHA is the release.
+      Sentry__Dsn: ${SENTRY_DSN:-}
+      Sentry__Release: ${GIT_SHA:-}
+      Sentry__ProjectUrl: ${SENTRY_PROJECT_URL:-}
       # Legal pages (/legal/privacy, /terms, /delete-account) and GET /api/v1/legal: who the data controller is. Blank shows {{PLACEHOLDERS}}
       # on the pages; Production refuses to start until the three are set.
       Legal__Version: ${LEGAL_VERSION:-1.0}

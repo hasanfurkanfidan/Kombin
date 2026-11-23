@@ -99,6 +99,12 @@ alias kc='docker compose --env-file docker/.env.prod --file docker/compose.yaml 
 kc config --quiet && echo "configuration is complete"
 ```
 
+**Error reporting (Sentry, optional).** Off until a DSN is set. To switch it on: create a Sentry account with a non-personal address, choose the
+**EU data region** (Frankfurt) when creating the organisation (it cannot be moved later), create a project of platform ".NET", and put into
+`docker/.env.prod`: `SENTRY_DSN=` (the project's DSN; it must contain `.de.sentry.io`), `SENTRY_PROJECT_URL=` (the project's page, for the link on
+`/admin/system`) and, on every update, `GIT_SHA=$(git rev-parse --short HEAD)` (the release Sentry groups errors by). What is sent and what never
+is: `docs/privacy-notes.md`, 6d. The mobile app has its own Sentry project (its DSN goes into the EAS build, not here).
+
 ## 5. First start
 
 The API never migrates the database outside Development, and the runtime image has no `dotnet ef`; the image's own `migrate` command does it.

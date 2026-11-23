@@ -852,7 +852,7 @@ External Python workers (a separate repo) push the catalog through the internal 
 
 - **What exists:** the founder's panel, server-rendered Razor Pages under `/admin` in the API project (`Features/Admin`, pages in
   `Features/Admin/Pages`; Razor's root is `/Features`, so every page names its own `@page "/admin/..."` route, and `Features/Legal/Pages` shares the root), schema `admin` (`audit_log`). Pages:
-  dashboard, review, league (the league's review queue), creators, catalog, users, audit; login and logout. No SPA, no JS framework (one inline script for `data-confirm` dialogs).
+  dashboard, review, league (the league's review queue), creators, catalog, users, system ("Sistem durumu", `SystemStatus`), audit; login and logout. No SPA, no JS framework (one inline script for `data-confirm` dialogs).
   README, "Admin panel", lists them.
 - **Separate from the app's auth.** Accounts are `Admin:Users` (`{ Email, PasswordHash }`, config, never `identity.users`), checked by
   `AdminCredentials` with the Identity hasher (PBKDF2; `dotnet run --project src/Kombin.Api -- hash-password` or `scripts/admin-hash.sh|.ps1`
@@ -924,6 +924,11 @@ External Python workers (a separate repo) push the catalog through the internal 
   need it. Tests fake its DNS with `FakeOutboundResolver` (`*.internal.test` resolves inside); never bypass it to make a test pass.
 - An upload whose stored size is over its limit is deleted when `process` refuses it (presigned PUTs cannot cap the size yet: review M2).
 - CI fails on any known-vulnerable package (`dotnet list package --vulnerable --include-transitive`); upgrade, do not suppress.
+- **Error reporting** (`Common/Diagnostics`, privacy notes 6d): Sentry only with `Sentry:Dsn`; the core SDK only (no ASP.NET Core or logging integration, so nothing
+  is collected on its own). An unhandled error is reported through `ErrorLog.ReportAsync` (Sentry and `admin.error_events`, 30 days) from exactly three places:
+  `GlobalExceptionHandler`, `JobFailureFilter` (a Hangfire job's last attempt only) and start-up. `SentryScrubber` is the one place that decides what leaves:
+  an allow-list that builds a new event; a new field or tag is added there and to `ErrorReportingTests`, never by switching on `sendDefaultPii` or an
+  integration. Never put a message, a path, a user or an ID in a tag.
 
 ## Commands
 

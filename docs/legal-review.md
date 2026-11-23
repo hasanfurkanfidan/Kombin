@@ -28,6 +28,7 @@ controller is (a person, a company in formation?) is the first thing to settle.
 | P12 | §7 Güvenlik | The breach notification promise (KVKK m. 12: to the Kurul and to the people within 72 hours) and the security claims. |
 | P13 | §9 Komisyon | The affiliate disclosure "Kombin satış yapmaz; bağlantılardan komisyon kazanabilir" and the creator wording "Bu içerikten komisyon kazanabilir": is it enough under the advertising rules (Ticari Reklam ve Haksız Ticari Uygulamalar Yönetmeliği, the Reklam Kurulu's guidance on promotions and influencers)? Where must it appear in the app? |
 | P14 | §5, usage statistics | Raw usage events are deleted 180 days after receipt; only weekly aggregate counts (no personal data) stay. Is 180 days a proportionate period for product analytics under KVKK m. 4 (data minimisation, retention only as long as needed)? |
+| P15 | §4, the Sentry row | Error reports to Sentry (processor; data stored in its EU region, Germany; Functional Software, Inc. is a US company, so support access may be from the US). What is sent is listed in privacy notes 6d: no name, e-mail, user ID, IP, message or photo, only the error's type, code location, release and a random correlation ID. Is that personal data at all under KVKK (we think not: nothing links it to a person without our server logs), and if it is, is the EU storage plus a DPA with Sentry enough under m. 9, and is legitimate interest (m. 5/2-f) the right basis? Retention at Sentry is the plan's default (at most 90 days). |
 
 ## Terms of use (`Terms.cshtml`)
 
