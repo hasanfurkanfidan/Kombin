@@ -123,11 +123,17 @@ internal sealed partial class AccountPurger(KombinDbContext db, IObjectStorage s
             .Select(garment => garment.CutoutKey!)
             .ToListAsync(cancellationToken);
 
+        var asks = await db.AskPieces
+            .Where(piece => piece.CopyKey != null && db.Asks.Any(ask => ask.Id == piece.AskId && ask.UserId == userId))
+            .Select(piece => piece.CopyKey!)
+            .ToListAsync(cancellationToken);
+
         return
         [
             .. wardrobe.SelectMany(item => new[] { item.ImageOriginalKey, item.ImageCutoutKey, item.ImageThumbKey }.OfType<string>()),
             .. posts.SelectMany(post => new[] { post.ImageOriginalKey, post.ImageFeedKey, post.ImagePreviewKey }.OfType<string>()),
             .. league,
+            .. asks,
             .. renders,
             .. prepared,
         ];

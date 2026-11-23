@@ -8,6 +8,7 @@ using Kombin.Api.Features.Identity.Jobs;
 using Kombin.Api.Persistence;
 using Kombin.Api.Persistence.Entities.Catalog;
 using Kombin.Api.Persistence.Entities.Identity;
+using Kombin.Api.Persistence.Entities.AskFriend;
 using Kombin.Api.Persistence.Entities.League;
 using Kombin.Api.Persistence.Entities.Notification;
 using Kombin.Api.Persistence.Entities.Profile;
@@ -504,6 +505,8 @@ public sealed class AccountDeletionTests(ApiFactory factory)
         await subject.Client.JoinLeagueOkAsync(Ct);
         var league = await SeedLeagueDayAsync(ownerId, bystander.Id);
 
+        var askCopy = await SeedAskAsync(ownerId);
+
         // "Manken üstünde gör": a prepared garment of the subject's photo item, a drawing (it reveals body proportions) and a report, set up directly.
         var tryOnKeys = await SeedTryOnAsync(ownerId, itemId, outfitId);
 
@@ -527,12 +530,12 @@ public sealed class AccountDeletionTests(ApiFactory factory)
 
         // --- After: nothing of the subject is left, in any table. ---
         Assert.Equal(1, summary.AccountsDeleted);
-        Assert.Equal(itemKeys.Length + postKeys.Length + 1 + tryOnKeys.Length + bulkKeys.Length, summary.ObjectsDeleted);
+        Assert.Equal(itemKeys.Length + postKeys.Length + 1 + 1 + tryOnKeys.Length + bulkKeys.Length, summary.ObjectsDeleted);
         Assert.All(await CountsAsync(ownerId), entry => Assert.True(entry.Value == 0, $"{entry.Key} still has {entry.Value} row(s) of the deleted user."));
-        Assert.All(itemKeys.Concat(postKeys).Append(league.ImageKey).Concat(tryOnKeys).Concat(bulkKeys), key => Assert.Null(factory.Storage.Find(key)));
+        Assert.All(itemKeys.Concat(postKeys).Append(league.ImageKey).Append(askCopy).Concat(tryOnKeys).Concat(bulkKeys), key => Assert.Null(factory.Storage.Find(key)));
         Assert.DoesNotContain(factory.Storage.KeysOfUser(ownerId), key => key.StartsWith("bulk/", StringComparison.Ordinal));
         Assert.All(bystanderBulkKeys, key => Assert.NotNull(factory.Storage.Find(key)));
-        Assert.All(itemKeys.Concat(postKeys).Append(league.ImageKey).Concat(tryOnKeys).Concat(bulkKeys), key => Assert.Contains(key, factory.Storage.Deleted));
+        Assert.All(itemKeys.Concat(postKeys).Append(league.ImageKey).Append(askCopy).Concat(tryOnKeys).Concat(bulkKeys), key => Assert.Contains(key, factory.Storage.Deleted));
 
         // The league of the others: the bystander's closed day and entry stay as they were; the engine's preference row has no user to lose.
         var bystanderScore = await factory.WithDbAsync(db => db.LeagueDailyScores.AsNoTracking().SingleAsync(row => row.UserId == bystander.Id && row.Day == league.Day, Ct));
@@ -690,6 +693,57 @@ public sealed class AccountDeletionTests(ApiFactory factory)
         Assert.False(await factory.WithDbAsync(db => db.LeagueReports.AnyAsync(report => report.ReporterId == bystander.Id, Ct)));
     }
 
+    [Fact]
+    public async Task AccountDeletionRemovesAsksAndCopies()
+    {
+        var (subject, _) = await NewUserAsync();
+        using var _1 = subject;
+        var copy = await SeedAskAsync(subject.Id);
+        var before = await CountsAsync(subject.Id);
+        Assert.All(before.Where(entry => entry.Key.StartsWith("askfriend.", StringComparison.Ordinal)), entry => Assert.True(entry.Value > 0, entry.Key));
+        Assert.NotNull(factory.Storage.Find(copy));
+
+        using (var requested = await DeleteMeAsync(subject.Client, ApiClientExtensions.DefaultPassword))
+        {
+            Assert.Equal(HttpStatusCode.Accepted, requested.StatusCode);
+        }
+
+        await BackdateAsync(subject.Id, 8);
+        Assert.Equal(1, (await RunJobAsync(subject.Id)).AccountsDeleted);
+
+        Assert.All((await CountsAsync(subject.Id)).Where(entry => entry.Key.StartsWith("askfriend.", StringComparison.Ordinal)), entry => Assert.True(entry.Value == 0, $"{entry.Key} still has {entry.Value} row(s)."));
+        Assert.Null(factory.Storage.Find(copy));
+        Assert.Contains(copy, factory.Storage.Deleted);
+    }
+
+    /// <summary>An open ask of the user with a stored copy, an answer, a report and a consent row; returns the copy's key.</summary>
+    private async Task<string> SeedAskAsync(Guid userId)
+    {
+        var copyKey = $"ask/{Guid.NewGuid():D}/{Guid.NewGuid():D}/shared.webp";
+        await factory.Storage.PutAsync(copyKey, [1, 2, 3], "image/webp", Ct);
+        var ask = new Ask
+        {
+            UserId = userId,
+            Token = Convert.ToBase64String(Guid.NewGuid().ToByteArray()).TrimEnd('=').Replace('+', '-').Replace('/', '_'),
+            Kind = AskKind.Single,
+            Status = AskStatus.Open,
+            ConsentVersion = "test-v1",
+            CreatedAt = DateTimeOffset.UtcNow,
+            ExpiresAt = DateTimeOffset.UtcNow.AddHours(24),
+        };
+        ask.Pieces.Add(new AskPiece { Option = AskOption.A, Slot = OutfitSlot.Top, Position = 0, CopyKey = copyKey });
+        await factory.WithDbAsync(async db =>
+        {
+            db.Asks.Add(ask);
+            db.AskAnswers.Add(new AskAnswer { AskId = ask.Id, VoterHash = new string('b', AskAnswer.VoterHashLength), Choice = AskChoice.Yes, Name = "Ece", Note = "Güzel" });
+            db.AskReports.Add(new AskReport { AskId = ask.Id, VoterHash = new string('c', AskAnswer.VoterHashLength), Reason = AskReportReason.Other, CreatedAt = DateTimeOffset.UtcNow });
+            db.AskConsents.Add(new AskConsentRecord { UserId = userId, Version = "test-v1", Text = "Metin", AcceptedAt = DateTimeOffset.UtcNow });
+            await db.SaveChangesAsync(Ct);
+            return 0;
+        });
+        return copyKey;
+    }
+
     private Task<List<Kombin.Api.Persistence.Entities.Engagement.Click>> ClicksAsync(Guid first, Guid second) =>
         factory.WithDbAsync(db => db.Clicks.AsNoTracking()
             .Where(click => click.UserId == first || click.UserId == second || click.CreatorId == first || click.CreatorId == second)
@@ -730,6 +784,11 @@ public sealed class AccountDeletionTests(ApiFactory factory)
         ["social.blocks"] = await db.UserBlocks.CountAsync(row => row.BlockerId == userId || row.BlockedId == userId, Ct),
         ["social.posting_consents"] = await db.PostingConsents.CountAsync(row => row.UserId == userId, Ct),
         ["social.creator_profiles"] = await db.CreatorProfiles.CountAsync(row => row.UserId == userId, Ct),
+        ["askfriend.asks"] = await db.Asks.CountAsync(row => row.UserId == userId, Ct),
+        ["askfriend.pieces"] = await db.AskPieces.CountAsync(row => db.Asks.Any(ask => ask.Id == row.AskId && ask.UserId == userId), Ct),
+        ["askfriend.answers"] = await db.AskAnswers.CountAsync(row => db.Asks.Any(ask => ask.Id == row.AskId && ask.UserId == userId), Ct),
+        ["askfriend.reports"] = await db.AskReports.CountAsync(row => db.Asks.Any(ask => ask.Id == row.AskId && ask.UserId == userId), Ct),
+        ["askfriend.consents"] = await db.AskConsents.CountAsync(row => row.UserId == userId, Ct),
         ["league.players"] = await db.LeaguePlayers.CountAsync(row => row.UserId == userId, Ct),
         ["league.consents"] = await db.LeagueConsents.CountAsync(row => row.UserId == userId, Ct),
         ["league.entries"] = await db.LeagueEntries.CountAsync(row => row.UserId == userId, Ct),

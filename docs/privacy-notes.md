@@ -51,6 +51,7 @@ What happens to every table that holds data about a user:
 | `league.pairs` (the user's votes, and pairs that showed the user's outfits), `league.reports` (made by the user, or on the user's outfits) | deleted (cascade); other players' closed days keep their stored scores |
 | `league.voter_days` (the user's served pairs and counted votes per day) | deleted (cascade); other voters' counters are their own rows, so their voting points of an open day do not change when the user's outfit (and the pairs that showed it) goes |
 | `league.engine_preferences` | not personal data (engine products and a weight, no user ID); untouched |
+| `askfriend.asks`, `askfriend.pieces`, `askfriend.answers` (friends' optional names and notes), `askfriend.reports`, `askfriend.consents` ("Arkadaşına sor") | deleted (cascade); the private copies under `ask/` are deleted from storage first (their keys carry no user ID: `AccountPurger` finds them through the asks) |
 | `tryon.renders` (mannequin drawings: they **reveal body proportions**; the cache key and a hash of the body values) | deleted (cascade); the images are deleted from storage first |
 | `tryon.garments` of the user's wardrobe items (what the vision service read from the photo: outline points, flags) | deleted (cascade with the wardrobe items); the prepared cutouts are deleted from storage first. Catalogue garments are catalogue data, untouched |
 | `tryon.reports` ("Yanlış görünüyor": which outfit or product, which garments, which renderer, which drawing) | deleted (cascade); `render_id` is a plain reference that is emptied when the drawing goes, never user data of its own |
@@ -263,6 +264,22 @@ The measurements (height, weight, chest, waist, hip, audience) go to `kombin-vis
 analytics event: the vision client logs only the path and the service's error code, the job and the renderer log IDs and codes. No analytics event was
 added. Catalogue garments (products) are catalogue data and hold nothing about users.
 
+## 6d. "Arkadaşına sor" (AskFriend, tasks AF2/AF3; design `docs/design/ask-a-friend.md`)
+
+Off until the app screens ship (`AskFriend:Enabled` false). The user asks a friend, through a link, whether an outfit or one of two options looks good. The friend has no account.
+
+| What | Why | Where | Who sees it | How long |
+|---|---|---|---|---|
+| The ask: the question, the kind (one outfit or two), the link token, the consent version, the page-view, store-click and push counters | the link and the asker's own result | `askfriend.asks`, `askfriend.pieces` | the asker: everything, with the friends' answers | the 24 h window (`AskFriend:AnswerWindow`), then closed; the rows go 30 days after creation, and with the account |
+| Piece pictures: private copies of wardrobe thumbnails whose moderation verdict is `Allow` (never an original), catalogue images, grey tiles for the rest | the friend sees the pieces | object storage `ask/{random}/{random}/shared.*` (never public, no user ID in the key), given out only through the link's page | the friend with the link: the question, the pieces, and after answering the counts of the answers. **No name, profile, user ID or any identifier of the asker** | deleted on close, on expiry (within a minute by the job) and when reports hide the ask |
+| Answers: yes/no or A/B, an optional friend name (at most 24 characters) and note (at most 140) | the asker's result | `askfriend.answers` | the asker only | 30 days after the ask was created, and with the account |
+| A cookie hash of the answering browser (one answer per browser); **no IP address is stored** | one voice per friend | `askfriend.answers.voter_hash`, `askfriend.reports.voter_hash` | nobody (a hash, not shown) | as the answer |
+| Reports on an ask (reason, cookie hash) | an ask that shows something it should not is hidden | `askfriend.reports` | the operator | 30 days after the ask was created, and with the account |
+| The consent: the exact text and its version, with the time | proof, like the posting and league consents | `askfriend.consents` | nobody | until the account is deleted |
+
+The friends' optional names and notes are data of people without an account, possibly minors (open question 19). The asker is of age by the strict rule
+(`AgeRule`, as the league). Deleting the account removes everything above (section 1a).
+
 ## 7. Processors and transfers
 
 | Recipient | What | Where |
@@ -312,3 +329,6 @@ Photos of posts and visual-search photos are never sent to a third party.
 18. **"Manken üstünde gör" (section 6c).** A drawing shows the user's body proportions (from their own measurements). It is private, served for an hour at a
     time, deleted when the measurements change and 30 days after it was last shown. Is that retention right, and does entering measurements need a notice
     that they also shape this drawing (the measurements screen does not say so today)?
+19. **"Arkadaşına sor" (section 6d).** Is the asker's consent text enough (it names the 24 h window and that the friend sees the pieces without the asker's name), and
+    may we keep the friends' optional names and notes, which are data of people without an account and possibly minors, for 30 days? Should they be
+    kept shorter, or not stored at all?

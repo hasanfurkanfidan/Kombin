@@ -790,6 +790,17 @@ External Python workers (a separate repo) push the catalog through the internal 
   day joins the `LeagueCloses` collection (one close lock per database). `LeaguePerformanceTests` (`KOMBIN_PERF=1`, own container): `pairs/next`
   p95 ≤ 100 ms at 6,000 entries, the close ≤ 30 s at 10,000 players (measured at 1,000 and 10,000).
 
+## Ask-a-friend rules
+
+- **What exists (tasks AF2, AF3):** "Arkadaşına sor" in `Features/AskFriend` (design `docs/design/ask-a-friend.md`); copy in `AskFriendCopy` (add it to `CopyGlossaryTests`' lists).
+- **Off by default.** `AskFriend:Enabled` is false until the app screens ship: the routes stay mapped but `FeatureEnabledFilter<AskFriendOptions>` answers 404 `AskFriend.Disabled`.
+- **One other feature type only:** `WardrobeModerator.IsShareable` (allow-list line `Seam`). Every other schema (wardrobe, catalog, recommendation) is read through `KombinDbContext`.
+- **Consent** is versioned and append-only (`AskFriendConsent`, hash pinned in `AskFriendConsentTests`). The text names the answer window, so changing `AskFriend:AnswerWindow` needs a new version.
+- **Copies** live under `ask/{random}/{random}/shared.*`: never public, no user ID in the key, only `Allow`-verdict wardrobe thumbnails or catalogue images (grey tiles otherwise), deleted when the ask closes, expires or is hidden.
+- **Age (strict):** `Common/Time/AgeRule`, as the league: a known birth year blocks unless the caller is certainly of age (`AskFriend:MinAge`).
+- **Limits:** `AskFriend:MaxAsksPerDay`; the `askfriend` rate-limit policy on create and close. Friends' answers store a cookie hash, never an IP.
+- **Account deletion:** the tables cascade; `AccountPurger` deletes the copies first (found through `askfriend.pieces`). Tested in `AccountDeletionTests`.
+
 ## Try-on rules
 
 - **What exists (task P3):** "Manken üstünde gör" in `Features/TryOn` (design and every decision: `docs/design/try-on.md`; the specification is
