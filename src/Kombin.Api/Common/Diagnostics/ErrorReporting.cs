@@ -1,4 +1,5 @@
 using System.Reflection;
+using Microsoft.AspNetCore.Diagnostics;
 
 namespace Kombin.Api.Common.Diagnostics;
 
@@ -142,9 +143,12 @@ internal static class ErrorReporting
         SentrySdk.Flush(TimeSpan.FromSeconds(5));
     }
 
-    /// <summary>The route template of the endpoint that ran (<c>/api/v1/wardrobe/items/{id}</c>), never the path the client sent.</summary>
+    /// <summary>
+    /// The route template of the endpoint that ran (<c>/api/v1/wardrobe/items/{id}</c>), never the path the client sent. Inside the exception handler the
+    /// context's endpoint is already cleared; the original one is on the exception handler feature.
+    /// </summary>
     public static string RouteTemplate(HttpContext context) =>
-        context.GetEndpoint() is RouteEndpoint { RoutePattern.RawText: { } template }
+        (context.Features.Get<IExceptionHandlerFeature>()?.Endpoint ?? context.GetEndpoint()) is RouteEndpoint { RoutePattern.RawText: { } template }
             ? (template.StartsWith('/') ? template : "/" + template)
             : "(none)";
 

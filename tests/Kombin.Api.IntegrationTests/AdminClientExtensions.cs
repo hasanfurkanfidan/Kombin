@@ -16,7 +16,7 @@ internal sealed partial class AdminBrowser : IDisposable
 {
     private static int NextAddress;
 
-    public AdminBrowser(ApiFactory factory)
+    public AdminBrowser(WebApplicationFactory<Program> factory)
     {
         Client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, HandleCookies = true });
 
