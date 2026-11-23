@@ -100,6 +100,11 @@ are gone); null when the piece no longer exists. `shareText` and `statusMessage`
 `"Link bildirimler yüzünden kapatıldı."`. Creation copies the wardrobe thumbnails in the request (≤ 2 outfits, ≤ 16 pieces; a failed copy
 deletes the copies already written and answers 503); no job.
 
+AF2 as built: the 16-piece cap is split per outfit (16 for one, 8 each for a pair) so outfit B can never be cut to nothing; an outfit item
+whose wardrobe piece is not shareable falls back to its catalog image when it has one; `answeredAt` is the answer's `updated_at` (a
+replacement moves it; AF3 must set `notified_at` with a bulk update so the push does not). `Notifications:AskAnswers:MaxPushesPerAsk` moves to
+AF3 with the push job (there is no Notification options class to hold it yet).
+
 ## 6. The public page (Razor Page, `Features/AskFriend/Pages/Ask.cshtml`, `@page "/sor/{token}"`)
 
 Razor Pages already serve the legal pages from the `/Features` root (`AddRazorPages` in `AdminModule`); only `/Admin/Pages` asks for a sign-in,
