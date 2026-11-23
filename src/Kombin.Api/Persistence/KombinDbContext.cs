@@ -1,5 +1,6 @@
 using Kombin.Api.Persistence.Entities.Admin;
 using Kombin.Api.Persistence.Entities.Analytics;
+using Kombin.Api.Persistence.Entities.AskFriend;
 using Kombin.Api.Persistence.Entities.Catalog;
 using Kombin.Api.Persistence.Entities.Engagement;
 using Kombin.Api.Persistence.Entities.Identity;
@@ -142,6 +143,16 @@ internal sealed class KombinDbContext(DbContextOptions<KombinDbContext> options)
     public DbSet<TryOnRender> TryOnRenders => Set<TryOnRender>();
 
     public DbSet<TryOnReport> TryOnReports => Set<TryOnReport>();
+
+    public DbSet<Ask> Asks => Set<Ask>();
+
+    public DbSet<AskPiece> AskPieces => Set<AskPiece>();
+
+    public DbSet<AskAnswer> AskAnswers => Set<AskAnswer>();
+
+    public DbSet<AskReport> AskReports => Set<AskReport>();
+
+    public DbSet<AskConsentRecord> AskConsents => Set<AskConsentRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

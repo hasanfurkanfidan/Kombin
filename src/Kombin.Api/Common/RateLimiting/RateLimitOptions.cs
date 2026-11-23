@@ -61,6 +61,12 @@ internal sealed class RateLimitOptions
     /// <summary>"Manken üstünde gör": drawing (also the cheap <c>check=true</c>) and "Yanlış görünüyor" reports (one bucket): 120 per 5 minutes per user. New drawings have their own limit (<c>TryOn:RendersPerHour</c>).</summary>
     public RateLimitWindow TryOn { get; set; } = new(120, 300);
 
+    /// <summary>"Arkadaşına sor" asks (the signed-in routes of <c>/me/asks</c>, one bucket): 30 per hour per user.</summary>
+    public RateLimitWindow AskFriend { get; set; } = new(30, 3600);
+
+    /// <summary>The public ask page and its answers (a link opened by strangers): 60 per 5 minutes per IP. Its policy comes with the page.</summary>
+    public RateLimitWindow AskFriendPublic { get; set; } = new(60, 300);
+
     /// <summary>Upload URLs of the wardrobe and of posts: 60 per hour per user.</summary>
     public RateLimitWindow Uploads { get; set; } = new(60, 3600);
 
@@ -88,6 +94,8 @@ internal sealed class RateLimitOptionsValidator : IValidateOptions<RateLimitOpti
         Check("Trips", options.Trips, failures);
         Check("League", options.League, failures);
         Check("TryOn", options.TryOn, failures);
+        Check("AskFriend", options.AskFriend, failures);
+        Check("AskFriendPublic", options.AskFriendPublic, failures);
         Check("Uploads", options.Uploads, failures);
         Check("Events", options.Events, failures);
         Check("Go", options.Go, failures);

@@ -1,3 +1,4 @@
+using Kombin.Api.Common.Time;
 using Kombin.Api.Persistence.Entities.League;
 using Kombin.Api.Persistence.Entities.Recommendation;
 using Kombin.Api.Persistence.Entities.Social;
@@ -24,7 +25,7 @@ internal sealed record EntryVerdict(LeagueEntryStatus Status, LeagueEntryReason?
 /// <summary>
 /// The eligibility of a worn outfit (design note section 5), in order; the first failure is the reason. Pure.
 /// <list type="number">
-/// <item>age: a birth year that keeps the player out (<see cref="LeagueRules.IsUnderAge"/>) → <c>AgeRestricted</c>;</item>
+/// <item>age: a birth year that keeps the player out (<see cref="AgeRule.IsUnderAge"/>) → <c>AgeRestricted</c>;</item>
 /// <item>every piece a wardrobe piece and at least <c>League:MinPieces</c> non-accessory pieces → else <c>IncompleteOutfit</c>;</item>
 /// <item>every piece still there, not archived, with an image → else <c>PieceUnavailable</c>;</item>
 /// <item>the repeat rule → <c>RecentlyCompeted</c>;</item>

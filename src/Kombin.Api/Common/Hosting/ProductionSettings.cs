@@ -36,6 +36,7 @@ internal static class ProductionSettings
         CheckStorage(configuration, problems);
         CheckLegal(configuration, problems);
         CheckAdmin(configuration, problems);
+        CheckAskFriend(configuration, problems);
 
         if (IsPlaceholder(configuration["CatalogEmbeddings:BotContact"] ?? "[YOUR EMAIL]"))
         {
@@ -199,6 +200,25 @@ internal static class ProductionSettings
         if (complete == 0)
         {
             problems.Add("Admin:Users is empty: nobody could review posts or disable accounts (set ADMIN_EMAIL and ADMIN_PASSWORD_HASH).");
+        }
+    }
+
+    private static void CheckAskFriend(IConfiguration configuration, List<string> problems)
+    {
+        if (!configuration.GetValue<bool>("AskFriend:Enabled"))
+        {
+            return;
+        }
+
+        var baseUrl = configuration["AskFriend:PublicBaseUrl"];
+
+        if (string.IsNullOrWhiteSpace(baseUrl))
+        {
+            problems.Add("AskFriend:PublicBaseUrl is not set (the share link is built on it).");
+        }
+        else if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
+        {
+            problems.Add("AskFriend:PublicBaseUrl must be an absolute https address.");
         }
     }
 

@@ -51,7 +51,7 @@ internal static class JoinLeagueEndpoint
             .Select(profile => profile.BirthYear)
             .FirstOrDefaultAsync(cancellationToken);
 
-        if (LeagueRules.IsUnderAge(birthYear, Istanbul.Today(now), options.Value.MinAge))
+        if (AgeRule.IsUnderAge(birthYear, Istanbul.Today(now), options.Value.MinAge))
         {
             return LeagueErrors.AgeRestricted.ToHttpResult();
         }

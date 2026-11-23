@@ -94,6 +94,36 @@ public sealed class OpenApiTests(ApiFactory factory)
         Assert.Equal(["chosenGames", "chosenWinRate", "counted", "countedToday", "limit", "servedToday", "target"], Properties("VoteResponse"));
     }
 
+    // Task AF2: "Arkadaşına sor" is off by default, but the asker's routes are mapped and documented so the app can be built against them.
+    [Fact]
+    public async Task TheAskRoutesAreDocumentedWithTheirShapes()
+    {
+        var document = await DocumentAsync();
+        var paths = document.GetProperty("paths");
+
+        Assert.Contains("AskConsentResponse", paths.GetProperty("/api/v1/me/asks/consent").GetProperty("get").GetProperty("responses").GetProperty("200").GetRawText(), StringComparison.Ordinal);
+        var create = paths.GetProperty("/api/v1/me/asks").GetProperty("post");
+        Assert.Contains("AskResponse", create.GetProperty("responses").GetProperty("201").GetRawText(), StringComparison.Ordinal);
+        Assert.All(["400", "403", "404", "409", "429", "503"], status => Assert.True(create.GetProperty("responses").TryGetProperty(status, out _), status));
+        Assert.Contains("AskSummary", paths.GetProperty("/api/v1/me/asks").GetProperty("get").GetProperty("responses").GetProperty("200").GetRawText(), StringComparison.Ordinal);
+        Assert.Contains("AskResponse", paths.GetProperty("/api/v1/me/asks/{id}").GetProperty("get").GetProperty("responses").GetProperty("200").GetRawText(), StringComparison.Ordinal);
+        Assert.True(paths.GetProperty("/api/v1/me/asks/{id}/close").GetProperty("post").GetProperty("responses").TryGetProperty("204", out _));
+        Assert.True(paths.GetProperty("/api/v1/me/asks/{id}/answers/{answerId}").GetProperty("delete").GetProperty("responses").TryGetProperty("204", out _));
+
+        var schemas = document.GetProperty("components").GetProperty("schemas");
+        string[] Properties(string schema) => [.. schemas.GetProperty(schema).GetProperty("properties").EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal)];
+
+        Assert.Equal(["accepted", "text", "version"], Properties("AskConsentResponse"));
+        Assert.Equal(["consentVersion", "outfitIds"], Properties("CreateAskRequest"));
+        Assert.Equal(["answers", "createdAt", "expiresAt", "id", "kind", "options", "shareText", "status", "statusMessage", "tally", "url"], Properties("AskResponse"));
+        Assert.Equal(["option", "outfitId", "pieces"], Properties("AskOptionResponse"));
+        Assert.Equal(["imageUrl", "slot"], Properties("AskPieceResponse"));
+        Assert.Equal(["a", "b", "no", "total", "yes"], Properties("AskTally"));
+        Assert.Equal(["answeredAt", "choice", "id", "name", "note"], Properties("AskAnswerResponse"));
+        Assert.Equal(["createdAt", "expiresAt", "id", "kind", "leading", "status", "total"], Properties("AskSummary"));
+        Assert.Equal(["Open", "Expired", "Closed", "Hidden"], schemas.GetProperty("AskViewState").GetProperty("enum").EnumerateArray().Select(value => value.GetString()));
+    }
+
     // Task L4 (league PR 3): the results of a closed day, and the operators' close.
     [Fact]
     public async Task TheLeagueResultsAndTheCloseAreDocumented()

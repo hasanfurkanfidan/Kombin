@@ -189,6 +189,286 @@ namespace Kombin.Api.Persistence.Migrations
                     b.ToTable("weekly_metrics", "analytics");
                 });
 
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.AskFriend.Ask", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset?>("ClosedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("closed_at");
+
+                    b.Property<string>("ConsentVersion")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("consent_version");
+
+                    b.Property<DateTimeOffset?>("CopiesDeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("copies_deleted_at");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("kind");
+
+                    b.Property<int>("PageViews")
+                        .HasColumnType("integer")
+                        .HasColumnName("page_views");
+
+                    b.Property<int>("PushCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("push_count");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.Property<int>("StoreClicks")
+                        .HasColumnType("integer")
+                        .HasColumnName("store_clicks");
+
+                    b.Property<string>("Token")
+                        .IsRequired()
+                        .HasMaxLength(22)
+                        .HasColumnType("character varying(22)")
+                        .HasColumnName("token");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_asks");
+
+                    b.HasIndex("ExpiresAt")
+                        .HasDatabaseName("ix_asks_expires_at")
+                        .HasFilter("copies_deleted_at IS NULL");
+
+                    b.HasIndex("Token")
+                        .IsUnique()
+                        .HasDatabaseName("ix_asks_token");
+
+                    b.HasIndex("UserId", "CreatedAt")
+                        .IsDescending(false, true)
+                        .HasDatabaseName("ix_asks_user_id_created_at");
+
+                    b.ToTable("asks", "askfriend", t =>
+                        {
+                            t.HasCheckConstraint("ck_asks_closed", "(status = 'Closed') = (closed_at IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_asks_counters", "page_views >= 0 AND store_clicks >= 0 AND push_count >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.AskFriend.AskAnswer", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AskId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("ask_id");
+
+                    b.Property<string>("Choice")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("choice");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTimeOffset?>("HiddenAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("hidden_at");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(140)
+                        .HasColumnType("character varying(140)")
+                        .HasColumnName("note");
+
+                    b.Property<DateTimeOffset?>("NotifiedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("notified_at");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("VoterHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("voter_hash");
+
+                    b.HasKey("Id")
+                        .HasName("pk_answers");
+
+                    b.HasIndex("NotifiedAt")
+                        .HasDatabaseName("ix_answers_notified_at")
+                        .HasFilter("notified_at IS NULL");
+
+                    b.HasIndex("AskId", "VoterHash")
+                        .IsUnique()
+                        .HasDatabaseName("ix_answers_ask_id_voter_hash");
+
+                    b.ToTable("answers", "askfriend");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.AskFriend.AskConsentRecord", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("Version")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("version");
+
+                    b.Property<DateTimeOffset>("AcceptedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("accepted_at");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("text");
+
+                    b.HasKey("UserId", "Version")
+                        .HasName("pk_askfriend_consents");
+
+                    b.ToTable("consents", "askfriend");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.AskFriend.AskPiece", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AskId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("ask_id");
+
+                    b.Property<string>("CopyKey")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("copy_key");
+
+                    b.Property<string>("ImageUrl")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("image_url");
+
+                    b.Property<string>("Option")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("option");
+
+                    b.Property<Guid?>("OutfitId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("outfit_id");
+
+                    b.Property<short>("Position")
+                        .HasColumnType("smallint")
+                        .HasColumnName("position");
+
+                    b.Property<Guid?>("ProductId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("product_id");
+
+                    b.Property<string>("Slot")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("slot");
+
+                    b.Property<Guid?>("WardrobeItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("wardrobe_item_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_pieces");
+
+                    b.HasIndex("OutfitId")
+                        .HasDatabaseName("ix_pieces_outfit_id");
+
+                    b.HasIndex("ProductId")
+                        .HasDatabaseName("ix_pieces_product_id");
+
+                    b.HasIndex("WardrobeItemId")
+                        .HasDatabaseName("ix_pieces_wardrobe_item_id");
+
+                    b.HasIndex("AskId", "Option", "Position")
+                        .IsUnique()
+                        .HasDatabaseName("ix_pieces_ask_id_option_position");
+
+                    b.ToTable("pieces", "askfriend", t =>
+                        {
+                            t.HasCheckConstraint("ck_pieces_image", "copy_key IS NULL OR image_url IS NULL");
+                        });
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.AskFriend.AskReport", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AskId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("ask_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("reason");
+
+                    b.Property<string>("VoterHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("voter_hash");
+
+                    b.HasKey("Id")
+                        .HasName("pk_askfriend_reports");
+
+                    b.HasIndex("AskId", "VoterHash")
+                        .IsUnique()
+                        .HasDatabaseName("ix_reports_ask_id_voter_hash");
+
+                    b.ToTable("reports", "askfriend");
+                });
+
             modelBuilder.Entity("Kombin.Api.Persistence.Entities.Catalog.Brand", b =>
                 {
                     b.Property<Guid>("Id")
@@ -4661,6 +4941,74 @@ namespace Kombin.Api.Persistence.Migrations
                         .HasConstraintName("fk_events_users_user_id");
                 });
 
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.AskFriend.Ask", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_asks_users_user_id");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.AskFriend.AskAnswer", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.AskFriend.Ask", null)
+                        .WithMany()
+                        .HasForeignKey("AskId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_answers_asks_ask_id");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.AskFriend.AskConsentRecord", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_consents_users_user_id");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.AskFriend.AskPiece", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.AskFriend.Ask", null)
+                        .WithMany("Pieces")
+                        .HasForeignKey("AskId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_pieces_asks_ask_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Recommendation.Outfit", null)
+                        .WithMany()
+                        .HasForeignKey("OutfitId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_pieces_outfits_outfit_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Catalog.Product", null)
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_pieces_products_product_id");
+
+                    b.HasOne("Kombin.Api.Persistence.Entities.Wardrobe.WardrobeItem", null)
+                        .WithMany()
+                        .HasForeignKey("WardrobeItemId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_pieces_wardrobe_items_wardrobe_item_id");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.AskFriend.AskReport", b =>
+                {
+                    b.HasOne("Kombin.Api.Persistence.Entities.AskFriend.Ask", null)
+                        .WithMany()
+                        .HasForeignKey("AskId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_reports_asks_ask_id");
+                });
+
             modelBuilder.Entity("Kombin.Api.Persistence.Entities.Catalog.Category", b =>
                 {
                     b.HasOne("Kombin.Api.Persistence.Entities.Catalog.Category", null)
@@ -5523,6 +5871,11 @@ namespace Kombin.Api.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_wears_users_user_id");
+                });
+
+            modelBuilder.Entity("Kombin.Api.Persistence.Entities.AskFriend.Ask", b =>
+                {
+                    b.Navigation("Pieces");
                 });
 
             modelBuilder.Entity("Kombin.Api.Persistence.Entities.Catalog.Product", b =>

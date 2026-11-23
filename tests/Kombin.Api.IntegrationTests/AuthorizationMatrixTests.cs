@@ -2,6 +2,8 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Kombin.Api.Common.Auth;
+using Kombin.Api.Features.AskFriend;
+using Kombin.Api.Persistence.Entities.AskFriend;
 using Kombin.Api.Persistence.Entities.Profile;
 using Kombin.Api.Persistence.Entities.Recommendation;
 using Kombin.Api.Persistence.Entities.Social;
@@ -243,6 +245,23 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
         ["GET /api/v1/league/results/latest"] = Probe(
             w => new HttpRequestMessage(HttpMethod.Get, "/api/v1/league/results/latest"),
             [HttpStatusCode.NotFound]),
+
+        // Arkadaşına sor: A's ask (with a friend's answer) is not B's to read, close or edit, and A's outfit is not B's to ask about.
+        ["GET /api/v1/me/asks/consent"] = ScopedRead("/api/v1/me/asks/consent"),
+        ["POST /api/v1/me/asks"] = Probe(
+            w => Json(HttpMethod.Post, "/api/v1/me/asks", new { outfitIds = new[] { w.OutfitId }, consentVersion = AskFriendConsent.Current.Version }),
+            [HttpStatusCode.NotFound],
+            async (w, f) => Assert.False(await f.WithDbAsync(db => db.Asks.AnyAsync(ask => ask.UserId == w.Intruder.Id, Ct)))),
+        ["GET /api/v1/me/asks"] = ScopedRead("/api/v1/me/asks"),
+        ["GET /api/v1/me/asks/{id:guid}"] = Probe(w => new HttpRequestMessage(HttpMethod.Get, $"/api/v1/me/asks/{w.AskId}"), [HttpStatusCode.NotFound]),
+        ["POST /api/v1/me/asks/{id:guid}/close"] = Probe(
+            w => new HttpRequestMessage(HttpMethod.Post, $"/api/v1/me/asks/{w.AskId}/close"),
+            [HttpStatusCode.NotFound],
+            async (w, f) => Assert.Equal(AskStatus.Open, await f.WithDbAsync(db => db.Asks.Where(ask => ask.Id == w.AskId).Select(ask => ask.Status).SingleAsync(Ct)))),
+        ["DELETE /api/v1/me/asks/{id:guid}/answers/{answerId:guid}"] = Probe(
+            w => new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/me/asks/{w.AskId}/answers/{w.AskAnswerId}"),
+            [HttpStatusCode.NotFound],
+            async (w, f) => Assert.Null(await f.WithDbAsync(db => db.AskAnswers.Where(answer => answer.Id == w.AskAnswerId).Select(answer => answer.HiddenAt).SingleAsync(Ct)))),
 
         // Social
         ["GET /api/v1/social/consent"] = ScopedRead("/api/v1/social/consent"),
@@ -669,13 +688,36 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
             return (batch.Id, piece.Id);
         });
 
+        // A's open ask about A's outfit, with one friend's answer.
+        var (askId, askToken, askAnswerId) = await factory.WithDbAsync(async db =>
+        {
+            var ask = new Ask
+            {
+                UserId = owner.Id,
+                Token = AskToken.New(),
+                Kind = AskKind.Single,
+                Status = AskStatus.Open,
+                ConsentVersion = AskFriendConsent.Current.Version,
+                CreatedAt = TestClock.UtcNow,
+                ExpiresAt = TestClock.UtcNow.AddHours(24),
+            };
+            ask.Pieces.Add(new AskPiece { AskId = ask.Id, Option = AskOption.A, OutfitId = outfitId, Slot = OutfitSlot.Top, WardrobeItemId = itemId });
+            var answer = new AskAnswer { AskId = ask.Id, VoterHash = new string('a', AskAnswer.VoterHashLength), Choice = AskChoice.Yes, Name = "Matrix" };
+            db.Asks.Add(ask);
+            db.AskAnswers.Add(answer);
+            await db.SaveChangesAsync(cancellation);
+
+            return (ask.Id, ask.Token, answer.Id);
+        });
+
         // A second session of the owner, whose refresh token the intruder tries to log out.
         using var login = await anonymous.LoginAsync(ownerEmail, ApiClientExtensions.DefaultPassword, cancellationToken: cancellation);
         var ownerRefresh = (await login.ReadTokensAsync(cancellation)).RefreshToken;
 
         return new World(
             owner.Id, ownerEmail, intruder, ownerPersona, itemId, product.ProductId, alertId, sizeId, sizePromptId, outfitId, notificationId, deviceToken,
-            privatePost, followersPost, draftPost, ownerRefresh, tripId, leagueDay, leagueEntryId, leaguePairId, resultsDay, resultsEntryId, bulkBatchId, bulkPieceId);
+            privatePost, followersPost, draftPost, ownerRefresh, tripId, leagueDay, leagueEntryId, leaguePairId, resultsDay, resultsEntryId, bulkBatchId, bulkPieceId,
+            askId, askToken, askAnswerId);
     }
 
     internal sealed record World(
@@ -702,7 +744,10 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
         DateOnly LeagueResultsDay,
         Guid LeagueResultsEntryId,
         Guid BulkBatchId,
-        Guid BulkPieceId)
+        Guid BulkPieceId,
+        Guid AskId,
+        string AskToken,
+        Guid AskAnswerId)
     {
         /// <summary>What must never appear in an answer to user B. The product is public and the notification ID numeric, so neither is listed.</summary>
         public IReadOnlyList<string> OwnerSecrets =>
@@ -710,6 +755,7 @@ public sealed class AuthorizationMatrixTests(ApiFactory factory)
             OwnerId.ToString(), OwnerEmail, OwnerPersonaId.ToString(), ItemId.ToString(), AlertId.ToString(), SizeId.ToString(), SizePromptId.ToString(), OutfitId.ToString(),
             OwnerDeviceToken, PrivatePostId.ToString(), FollowersPostId.ToString(), DraftPostId.ToString(), TripId.ToString(),
             LeagueEntryId.ToString(), LeaguePairId.ToString(), LeagueResultsEntryId.ToString(), BulkBatchId.ToString(), BulkPieceId.ToString(),
+            AskId.ToString(), AskToken, AskAnswerId.ToString(),
         ];
     }
 

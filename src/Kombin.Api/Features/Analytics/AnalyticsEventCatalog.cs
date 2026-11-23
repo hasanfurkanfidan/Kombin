@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using Kombin.Api.Features.Catalog;
 using Kombin.Api.Features.Catalog.ListProducts;
 using Kombin.Api.Features.Lens;
+using Kombin.Api.Persistence.Entities.AskFriend;
 using Kombin.Api.Persistence.Entities.Engagement;
 using Kombin.Api.Persistence.Entities.Notification;
 using Kombin.Api.Persistence.Entities.Profile;
@@ -129,6 +130,13 @@ internal static partial class AnalyticsEventCatalog
         ["league_report"] = [],
         ["league_results_view"] = [Required("status", OneOf("Final", "UnderReview", "Removed"))],
         ["league_table_view"] = [],
+
+        // "Arkadaşına sor": the ask id and enums only, never a token, name, note, piece or answer. `status` of `ask_view` is the state the asker saw (`AskViewState`, spelled out here; `AnalyticsValidatorTests` pins it).
+        ["ask_create"] = [Required("askId", Id), Required("kind", OneOf<AskKind>())],
+        ["ask_share"] = [Required("askId", Id)],
+        ["ask_view"] = [Required("askId", Id), Required("status", OneOf("Open", "Expired", "Closed", "Hidden"))],
+        ["ask_close"] = [Required("askId", Id)],
+        ["ask_answer_hide"] = [Required("askId", Id)],
 
         // Bulk add ("Toplu ekle"): ids and enums only, never a batch, piece or item ID, a box, an image or a caption. `status` is how the analysis ended
         // (it did not finish in time is `Timeout`); `refusal` is one of the vision service's seven codes and `failure` a failed batch's code (both spelled

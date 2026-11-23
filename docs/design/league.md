@@ -313,7 +313,7 @@ and a check that the user's league image copies are gone from `FakeObjectStorage
 correction of PR 1): a known birth year blocks unless the player is certainly of age, `year − birthYear <= League:MinAge` (18) in the current
 Istanbul year. A year alone cannot say whether the birthday has passed, so someone born in 2008 waits until 2027 even if they turned 18 in
 2026; that is the accepted cost. Such a player cannot join (403 `League.AgeRestricted`), and no entry is created if such a year is set later
-(`AgeRestricted`), by the same `LeagueRules.IsUnderAge`. An unknown birth year may join: the consent
+(`AgeRestricted`), by the same `AgeRule.IsUnderAge`. An unknown birth year may join: the consent
 sentence "Katılarak 18 yaşından büyük olduğunu onaylarsın" is the declaration, and there is no separate age gate.
 
 **Records for counsel.** `docs/privacy-notes.md` gets a section "League": the consent (and that counsel has not reviewed it), the 18+
@@ -755,7 +755,7 @@ of section 3, the entities, configurations and one migration; `LeagueOptions` wi
 `LeagueConsent` with version `2026-11-v1`. Endpoints: `GET /league/me`, `POST /league/join`, `POST /league/leave`. `AccountPurger` reads the
 league image keys; `docs/privacy-notes.md`, `docs/security-review.md`, the README and CLAUDE.md ("League rules") get their sections. No job, no
 pairing, no voting, no close.
-*Tests:* `LeagueOptionsTests` (defaults = this document, the validator), `LeagueConsentTests` (pinned hash), `LeagueRulesTests` (the age rule),
+*Tests:* `LeagueOptionsTests` (defaults = this document, the validator), `LeagueConsentTests` (pinned hash), `AgeRuleTests` (the age rule),
 join/leave/age/disabled integration tests, `AuthorizationMatrixTests` rows, the `AccountDeletionTests` matrix lines, `FeatureBoundaryTests`
 (lines deleted).
 

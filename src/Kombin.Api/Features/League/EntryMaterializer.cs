@@ -98,7 +98,7 @@ internal sealed partial class EntryMaterializer(
             .FirstOrDefaultAsync(cancellationToken);
 
         var verdict = EntryEligibility.Evaluate(
-            LeagueRules.IsUnderAge(profile?.BirthYear, day, settings.MinAge),
+            AgeRule.IsUnderAge(profile?.BirthYear, day, settings.MinAge),
             [.. pieces.Select(piece => piece.Eligibility)],
             settings.MinPieces,
             RepeatRule.IsBlocked(pieceIds, day, await EarlierEntriesAsync(userId, day, cancellationToken), settings));

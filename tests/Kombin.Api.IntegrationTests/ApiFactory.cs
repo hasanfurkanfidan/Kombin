@@ -162,6 +162,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
             ["Admin:Users:0:PasswordHash"] = AdminPasswordHash,
             // League:Enabled is false by default (until the app screens ship); the tests switch it on. LeagueTests checks the switched-off host.
             ["League:Enabled"] = "true",
+            ["AskFriend:Enabled"] = "true",
+            ["AskFriend:PublicBaseUrl"] = "https://api.kombin.test",
             // TryOn:Enabled is false by default too; the tests switch it on (TryOnTests checks the switched-off host).
             ["TryOn:Enabled"] = "true",
             // Bulk add is off by default too; the tests switch it on (BulkAddDisabledTests checks the switched-off host). A busy vision service is

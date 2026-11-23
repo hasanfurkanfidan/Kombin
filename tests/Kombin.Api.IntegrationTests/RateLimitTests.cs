@@ -106,6 +106,16 @@ public sealed class RateLimitTests(ApiFactory factory)
     }
 
     [Fact]
+    public async Task AskFriendRateLimitDefaultsArePinned()
+    {
+        var limits = factory.Services.GetRequiredService<IOptions<RateLimitOptions>>().Value;
+
+        Assert.Equal((30, 3600), (limits.AskFriend.PermitLimit, limits.AskFriend.WindowSeconds));
+        Assert.Equal((60, 300), (limits.AskFriendPublic.PermitLimit, limits.AskFriendPublic.WindowSeconds));
+        await Task.CompletedTask;
+    }
+
+    [Fact]
     public async Task TheSharedHostHasTheLimitsOffSoManyRequestsAreNeverRefused()
     {
         using var client = ClientAt(factory);

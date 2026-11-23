@@ -1,4 +1,5 @@
 using Kombin.Api.Common.Text;
+using Kombin.Api.Common.Time;
 using Kombin.Api.Features.League;
 
 namespace Kombin.Api.Tests;
@@ -117,7 +118,7 @@ public class LeagueConsentTests
         Assert.All(LeagueConsent.Versions, version => Assert.Empty(CopyGlossary.Violations(version.Text)));
 }
 
-public class LeagueRulesTests
+public class AgeRuleTests
 {
     private static readonly DateOnly Today = new(2026, 11, 16);
 
@@ -130,13 +131,13 @@ public class LeagueRulesTests
     [InlineData(2007, false)]
     [InlineData(1990, false)]
     [InlineData(null, false)]
-    public void ABirthYearBlocksUnlessThePlayerIsCertainlyEighteen(int? birthYear, bool underAge) =>
-        Assert.Equal(underAge, LeagueRules.IsUnderAge(birthYear, Today, 18));
+    public void AgeRuleBlocksABirthYearThatIsNotCertainlyAdult(int? birthYear, bool underAge) =>
+        Assert.Equal(underAge, AgeRule.IsUnderAge(birthYear, Today, 18));
 
     [Fact]
     public void TheYearTurnsTheAnswer() =>
-        Assert.Equal((true, false), (LeagueRules.IsUnderAge(2008, new DateOnly(2026, 12, 31), 18), LeagueRules.IsUnderAge(2008, new DateOnly(2027, 1, 1), 18)));
+        Assert.Equal((true, false), (AgeRule.IsUnderAge(2008, new DateOnly(2026, 12, 31), 18), AgeRule.IsUnderAge(2008, new DateOnly(2027, 1, 1), 18)));
 
     [Fact]
-    public void AMinimumAgeOfZeroChecksNothing() => Assert.False(LeagueRules.IsUnderAge(2020, Today, 0));
+    public void AMinimumAgeOfZeroChecksNothing() => Assert.False(AgeRule.IsUnderAge(2020, Today, 0));
 }

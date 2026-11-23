@@ -26,6 +26,8 @@ internal static class RateLimitPolicies
     public const string League = "league";
 
     public const string TryOn = "tryon";
+
+    public const string AskFriend = "askfriend";
 }
 
 /// <summary>Who a request counts against: the signed-in user's ID, else the client address (after forwarded headers, so the real one behind the proxy).</summary>
@@ -93,6 +95,7 @@ internal static class RateLimitingSetup
             options.AddPolicy(RateLimitPolicies.Trips, context => Policy(context, "trips:" + RateLimitKeys.UserOrClient(context), limits => limits.Trips));
             options.AddPolicy(RateLimitPolicies.League, context => Policy(context, "league:" + RateLimitKeys.UserOrClient(context), limits => limits.League));
             options.AddPolicy(RateLimitPolicies.TryOn, context => Policy(context, "tryon:" + RateLimitKeys.UserOrClient(context), limits => limits.TryOn));
+            options.AddPolicy(RateLimitPolicies.AskFriend, context => Policy(context, "askfriend:" + RateLimitKeys.UserOrClient(context), limits => limits.AskFriend));
         });
 
         return services;

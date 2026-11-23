@@ -27,7 +27,7 @@ internal sealed class LeagueOptions : IFeatureOptions
     /// </summary>
     public int CloseCatchUpDays { get; set; } = 7;
 
-    /// <summary>A known birth year keeps the player out unless they are certainly older than this (<c>LeagueRules.IsUnderAge</c>).</summary>
+    /// <summary>A known birth year keeps the player out unless they are certainly older than this (<c>AgeRule.IsUnderAge</c>).</summary>
     public int MinAge { get; set; } = 18;
 
     public int MaxPairsPerDay { get; set; } = 30;

@@ -10,6 +10,7 @@ using Kombin.Api.Common.Validation;
 using Kombin.Api.Common.Vision;
 using Kombin.Api.Features.Admin;
 using Kombin.Api.Features.Analytics;
+using Kombin.Api.Features.AskFriend;
 using Kombin.Api.Features.Catalog;
 using Kombin.Api.Features.Engagement;
 using Kombin.Api.Features.Identity;
@@ -71,6 +72,7 @@ builder.Services.AddSocialFeature();
 builder.Services.AddAdminFeature();
 builder.Services.AddLegalFeature();
 builder.Services.AddLeagueFeature();
+builder.Services.AddAskFriendFeature();
 builder.Services.AddTryOnFeature();
 
 var app = builder.Build();
@@ -121,6 +123,7 @@ app.MapLensEndpoints();
 app.MapAdminEndpoints();
 app.MapLegalEndpoints();
 app.MapLeagueEndpoints();
+app.MapAskFriendEndpoints();
 app.MapTryOnEndpoints();
 
 await app.MigrateDatabaseOnStartupAsync();

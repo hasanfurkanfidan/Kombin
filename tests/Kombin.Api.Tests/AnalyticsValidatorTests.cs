@@ -2,6 +2,7 @@ using System.Text.Json;
 using Kombin.Api.Features.Analytics;
 using Kombin.Api.Features.Analytics.RecordEvents;
 using Kombin.Api.Features.Wardrobe.BulkAdd;
+using Kombin.Api.Persistence.Entities.AskFriend;
 using Kombin.Api.Persistence.Entities.Wardrobe;
 
 namespace Kombin.Api.Tests;
@@ -40,6 +41,23 @@ public class AnalyticsValidatorTests
         }
 
         Assert.Equal(3, Enum.GetNames<Kombin.Api.Features.League.GetResults.LeagueResultStatus>().Length);
+    }
+
+    [Fact]
+    public void TheAskViewStatusesAreTheEnumsNames()
+    {
+        // The catalog spells the statuses out (Analytics does not name the feature's types); this keeps the two lists equal.
+        foreach (var status in Enum.GetNames<Kombin.Api.Features.AskFriend.AskViewState>())
+        {
+            Assert.Null(Reject("ask_view", $$"""{"askId":"{{ProductId}}","status":"{{status}}"}"""));
+        }
+
+        Assert.Equal(4, Enum.GetNames<Kombin.Api.Features.AskFriend.AskViewState>().Length);
+
+        foreach (var kind in Enum.GetNames<AskKind>())
+        {
+            Assert.Null(Reject("ask_create", $$"""{"askId":"{{ProductId}}","kind":"{{kind}}"}"""));
+        }
     }
 
     [Fact]
@@ -161,6 +179,11 @@ public class AnalyticsValidatorTests
             ["league_report"] = null,
             ["league_results_view"] = """{"status":"UnderReview"}""",
             ["league_table_view"] = null,
+            ["ask_create"] = $$"""{"askId":"{{ProductId}}","kind":"Pair"}""",
+            ["ask_share"] = $$"""{"askId":"{{ProductId}}"}""",
+            ["ask_view"] = $$"""{"askId":"{{ProductId}}","status":"Hidden"}""",
+            ["ask_close"] = $$"""{"askId":"{{ProductId}}"}""",
+            ["ask_answer_hide"] = $$"""{"askId":"{{ProductId}}"}""",
             ["bulk_add_start"] = """{"source":"library"}""",
             ["bulk_add_result"] = """{"status":"Failed","failure":"VisionBusy","durationMs":26000,"pieces":0,"preTicked":0,"unseparated":0,"duplicateHints":0}""",
             ["bulk_add_confirm"] = """{"shown":5,"ticked":4,"preTickedTicked":3,"preTickedLeft":1,"extraTicked":1,"categoryEdits":2,"colourEdits":0,"durationMs":52000}""",
@@ -294,6 +317,11 @@ public class AnalyticsValidatorTests
     [InlineData("league_results_view", """{"status":"Pending"}""", "status")]
     [InlineData("league_results_view", """{"status":"Final","imageUrl":"x"}""", "imageUrl")]
     [InlineData("league_table_view", """{"rank":3}""", "rank")]
+    [InlineData("ask_create", """{"askId":"3f2c8f0e-8f3e-4c1b-9a53-5d7b0b3a1c11","kind":"Triple"}""", "kind")]
+    [InlineData("ask_create", """{"askId":"3f2c8f0e-8f3e-4c1b-9a53-5d7b0b3a1c11","kind":"Single","token":"x"}""", "token")]
+    [InlineData("ask_view", """{"askId":"3f2c8f0e-8f3e-4c1b-9a53-5d7b0b3a1c11","status":"Deleted"}""", "status")]
+    [InlineData("ask_share", """{"askId":"not-an-id"}""", "askId")]
+    [InlineData("ask_close", """{"askId":"3f2c8f0e-8f3e-4c1b-9a53-5d7b0b3a1c11","name":"Ayse"}""", "name")]
     [InlineData("wardrobe_unlock_click", """{"productId":"3f2c8f0e-8f3e-4c1b-9a53-5d7b0b3a1c11"}""", "productId")]
     [InlineData("product_list_view", """{"sort":"cheapest","filters":""}""", "sort")]
     [InlineData("product_list_view", """{"sort":"newest","filters":"a b"}""", "filters")]

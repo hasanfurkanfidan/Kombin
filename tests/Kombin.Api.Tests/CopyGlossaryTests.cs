@@ -29,6 +29,7 @@ public sealed partial class CopyGlossaryTests
         "Features/Wardrobe/BulkAdd/BulkAddCopy.cs",
         "Features/League/LeagueCopy.cs",
         "Features/League/Rules/LeagueAliases.cs",
+        "Features/AskFriend/AskFriendCopy.cs",
     ];
 
     /// <summary>

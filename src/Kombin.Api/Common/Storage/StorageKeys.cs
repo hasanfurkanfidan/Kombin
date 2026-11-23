@@ -18,6 +18,9 @@ internal enum ImageVariant
     Render,
     Staged,
     StagedThumb,
+
+    /// <summary>The public-link copy of an "Arkadaşına sor" picture (<c>ask/{random}/{random}/shared.webp</c>): private, served through presigned GETs, deleted when the link closes.</summary>
+    Shared,
 }
 
 /// <summary>

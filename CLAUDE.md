@@ -68,7 +68,7 @@ fully qualified name, `using static`, an alias; also in `.cshtml`) and fails for
 list of what existed in task B7 (141 references in 37 feature pairs, 90 of them `Seam` = fine as it is and 51 `Legacy` = would be shared code
 today, with a line saying where it belongs; task L2 moved the Istanbul zone and the Hangfire flag to `Common` and left 129 in 34 pairs, 39 `Legacy`; task L3 added the league's two
 `Seam`s: 132 in 36 pairs; task P3 moved the vision client to `Common/Vision`, which removed eight `Legacy` references and the Admin-Wardrobe pair, and added
-try-on's three `Seam` lines: 130 in 38 pairs, 99 `Seam`, 31 `Legacy`; task B8 added the admin league page's `Seam`: 134 in 39 pairs, 103 `Seam`, 31 `Legacy`). It forbids nothing that exists; it stops the list from growing, and `TheAllowListHoldsNoReferenceThatNoLongerExists`
+try-on's three `Seam` lines: 130 in 38 pairs, 99 `Seam`, 31 `Legacy`; task B8 added the admin league page's `Seam`: 134 in 39 pairs, 103 `Seam`, 31 `Legacy`; task AF2 added ask-a-friend's `Seam`: 135 in 40 pairs, 104 `Seam`, 31 `Legacy`). It forbids nothing that exists; it stops the list from growing, and `TheAllowListHoldsNoReferenceThatNoLongerExists`
 makes it shrink: remove a reference and the test tells you to delete the line.
 
 **Sharing code between features.**
@@ -680,7 +680,7 @@ External Python workers (a separate repo) push the catalog through the internal 
   Version `2026-11-v2` (current) is the owner's text, whose last sentence is the 18+ declaration and whose third says that someone who knows the
   pieces can tell whose outfit it is; v1 lacked that sentence and its players are asked again. Counsel has reviewed neither (privacy notes, question 17).
   Every join writes a `league.consents` row with the exact text; leaving writes a `Leave` row. Joining again under the current version is a no-op.
-- **Age (strict):** a known birth year blocks unless the caller is certainly of age (`LeagueRules.IsUnderAge`: `year − birthYear <= League:MinAge`,
+- **Age (strict):** a known birth year blocks unless the caller is certainly of age (`AgeRule.IsUnderAge`: `year − birthYear <= League:MinAge`,
   in the Istanbul year; born 2008 waits until 2027): 403 `League.AgeRestricted` on join, and entry reason `AgeRestricted` for a player whose year
   is set later. An unknown year may join (the consent is the declaration). No other age gate.
 - **Only a worn outfit enters** (`TodaysOutfit`): the outfit with the latest `worn_at` of the Istanbul day before `League:DayClosesAt` and still
